@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { formatCurrency, parseNumber, showAlert, showConfirm } from '../../utils/common';
+import { formatCurrency, parseNumber } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const FinancePurchase = () => {
+    const { showAlert, showConfirm } = useModal();
     const [purchases, setPurchases] = useState([]);
     const [vendors, setVendors] = useState([]);
     const [products, setProducts] = useState([]);

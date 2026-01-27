@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { formatCurrency } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const SalesClaims = () => {
+    const { showAlert, showConfirm } = useModal();
+
     // --- State ---
     const [claims, setClaims] = useState([]);
     const [dateRange, setDateRange] = useState({
@@ -22,10 +26,6 @@ const SalesClaims = () => {
     const [searchModal, setSearchModal] = useState({ open: false, query: '', results: [], loading: false });
     // Global Create Claim Modal (Usually triggered from search or anywhere) - we'll integrate it here for "Manual Registration"
     const [createModal, setCreateModal] = useState({ open: false, sale: null, type: '반품', category: '단순변심', qty: 1, memo: '' });
-
-    // Custom Alert/Confirm Modals
-    const [alertState, setAlertState] = useState({ open: false, title: '', message: '' });
-    const [confirmState, setConfirmState] = useState({ open: false, title: '', message: '', onConfirm: null });
 
     // --- Effects ---
     useEffect(() => {
@@ -48,13 +48,10 @@ const SalesClaims = () => {
     };
 
     // --- Actions ---
-    const handleDelete = (claimId) => {
-        setConfirmState({
-            open: true,
-            title: "삭제 확인",
-            message: "이 클레임 내역을 삭제하시겠습니까?\n이미 완료된 처리는 되돌릴 수 없습니다.",
-            onConfirm: () => executeDelete(claimId)
-        });
+    const handleDelete = async (claimId) => {
+        if (await showConfirm("삭제 확인", "이 클레임 내역을 삭제하시겠습니까?\n이미 완료된 처리는 되돌릴 수 없습니다.")) {
+            executeDelete(claimId);
+        }
     };
 
     const executeDelete = async (claimId) => {
@@ -62,10 +59,10 @@ const SalesClaims = () => {
             if (window.__TAURI__) {
                 await window.__TAURI__.core.invoke('delete_sales_claim', { claimId });
             }
-            setAlertState({ open: true, title: "성공", message: "삭제되었습니다." });
+            showAlert("성공", "삭제되었습니다.");
             loadClaims();
         } catch (e) {
-            setAlertState({ open: true, title: "오류", message: "삭제 실패: " + e });
+            showAlert("오류", "삭제 실패: " + e);
         }
     };
 
@@ -80,13 +77,10 @@ const SalesClaims = () => {
         });
     };
 
-    const handleProcessSubmit = (status) => { // status: '완료' | '거부'
-        setConfirmState({
-            open: true,
-            title: "처리 확인",
-            message: `이 클레임을 '${status}' 처리하시겠습니까?`,
-            onConfirm: () => executeProcess(status)
-        });
+    const handleProcessSubmit = async (status) => { // status: '완료' | '거부'
+        if (await showConfirm("처리 확인", `이 클레임을 '${status}' 처리하시겠습니까?`)) {
+            executeProcess(status);
+        }
     };
 
     const executeProcess = async (status) => {
@@ -103,6 +97,7 @@ const SalesClaims = () => {
                 });
 
                 // CRM Log
+                let crmLogSuccess = false;
                 if (status === '완료' && claim.customer_id) {
                     const title = `[시스템 자동] ${claim.claim_type} 클레임 처리 완료`;
                     const content = `주문번호: ${claim.sales_id}\n유형: ${claim.claim_type}\n사유: ${claim.reason_category}\n메모: ${claim.memo || '-'}\n\n[처리 결과]\n환불금액: ${formatCurrency(amt)}원\n처리메모: ${memo || '-'}`;
@@ -117,14 +112,27 @@ const SalesClaims = () => {
                             priority: '보통',
                             title, content
                         });
-                    } catch (e) { console.warn("CRM Log failed", e); }
+                        crmLogSuccess = true;
+                        console.log("CRM Log created successfully");
+                    } catch (e) {
+                        console.error("CRM Log failed:", e);
+                        showAlert("경고", "클레임 처리는 완료되었으나, CRM 상담 내역 등록에 실패했습니다: " + e);
+                    }
                 }
+
+                setProcessModal({ ...processModal, open: false });
+
+                let successMsg = `클레임 처리가 ${status}되었습니다.`;
+                if (crmLogSuccess) {
+                    successMsg += "\n(CRM 상담 내역에 자동 등록되었습니다)";
+                }
+                showAlert("성공", successMsg);
+
+                loadClaims();
+                return; // Exit here as we handled alerts
             }
-            setProcessModal({ ...processModal, open: false });
-            setAlertState({ open: true, title: "성공", message: `클레임 처리가 ${status}되었습니다.` });
-            loadClaims();
         } catch (e) {
-            setAlertState({ open: true, title: "오류", message: "처리 실패: " + e });
+            showAlert("오류", "처리 실패: " + e);
         }
     };
 
@@ -150,23 +158,31 @@ const SalesClaims = () => {
                 });
             }
             setEditModal({ ...editModal, open: false });
-            setAlertState({ open: true, title: "성공", message: "수정되었습니다." });
+            showAlert("성공", "수정되었습니다.");
             loadClaims();
         } catch (e) {
-            setAlertState({ open: true, title: "오류", message: "수정 실패: " + e });
+            showAlert("오류", "수정 실패: " + e);
         }
     };
 
     // --- Detail Flow ---
     const openDetail = async (salesId) => {
-        setDetailModal({ open: true, saleId, data: null }); // Open with loading state
+        if (!salesId) {
+            showAlert("알림", "주문 번호 정보가 없습니다.");
+            return;
+        }
+        setDetailModal({ open: true, saleId: salesId, data: null }); // Open with loading state
+
         if (window.__TAURI__) {
             try {
                 const data = await window.__TAURI__.core.invoke('get_sale_detail', { salesId });
                 setDetailModal(prev => ({ ...prev, data }));
             } catch (e) {
-                console.error(e);
+                console.error("Failed to fetch sale detail:", e);
                 setDetailModal(prev => ({ ...prev, error: e }));
+                // Optional: Close modal if failed immediately?
+                // setDetailModal({ open: false, saleId: null, data: null });
+                // showAlert("오류", "상세 정보를 불러오지 못했습니다: " + e);
             }
         }
     };
@@ -216,10 +232,10 @@ const SalesClaims = () => {
                 });
             }
             setCreateModal({ ...createModal, open: false });
-            setAlertState({ open: true, title: "성공", message: "클레임이 접수되었습니다." });
+            showAlert("성공", "클레임이 접수되었습니다.");
             loadClaims();
         } catch (e) {
-            setAlertState({ open: true, title: "오류", message: "접수 실패: " + e });
+            showAlert("오류", "접수 실패: " + e);
         }
     };
 
@@ -302,7 +318,15 @@ const SalesClaims = () => {
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {claims.map(claim => (
-                                    <tr key={claim.claim_id} className="hover:bg-rose-50/30 transition-colors cursor-pointer group" onClick={() => openDetail(claim.sales_id)}>
+                                    <tr key={claim.claim_id} className="hover:bg-rose-50/30 transition-colors cursor-pointer group" onClick={() => {
+                                        const id = claim.sales_id || claim.salesId;
+                                        if (id) {
+                                            openDetail(id);
+                                        } else {
+                                            // Fail silently or just log
+                                            console.warn("Claim missing sales_id:", claim);
+                                        }
+                                    }}>
                                         <td className="px-4 py-3 text-center">
                                             <span className={`px-2 py-1 rounded-lg text-[10px] font-black tracking-tight ${claim.claim_status === '접수' ? 'bg-purple-100 text-purple-600' :
                                                 claim.claim_status === '완료' ? 'bg-emerald-100 text-emerald-600' :
@@ -334,16 +358,16 @@ const SalesClaims = () => {
                                         <td className="px-4 py-3 text-center font-bold text-slate-700">{claim.quantity}</td>
                                         <td className="px-4 py-3 text-right font-black text-rose-500/80">{formatCurrency(claim.refund_amount)}</td>
                                         <td className="px-4 py-3 text-center">
-                                            <div className="flex justify-end items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                                            <div className="flex justify-end items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                                                 {(claim.claim_status === '접수' || claim.claim_status === '처리중') && (
-                                                    <button onClick={() => openProcess(claim)} className="h-6 px-2 rounded-md bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold shadow-sm transition-colors">
+                                                    <button onClick={(e) => { e.stopPropagation(); openProcess(claim); }} className="h-6 px-2 rounded-md bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold shadow-sm transition-colors">
                                                         처리
                                                     </button>
                                                 )}
-                                                <button onClick={() => openEdit(claim)} className="w-6 h-6 rounded-md hover:bg-blue-50 text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center">
+                                                <button onClick={(e) => { e.stopPropagation(); openEdit(claim); }} className="w-6 h-6 rounded-md hover:bg-blue-50 text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center">
                                                     <span className="material-symbols-rounded text-sm">edit</span>
                                                 </button>
-                                                <button onClick={() => handleDelete(claim.claim_id)} className="w-6 h-6 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center">
+                                                <button onClick={(e) => { e.stopPropagation(); handleDelete(claim.claim_id); }} className="w-6 h-6 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center">
                                                     <span className="material-symbols-rounded text-sm">delete</span>
                                                 </button>
                                             </div>
@@ -417,8 +441,8 @@ const SalesClaims = () => {
             )}
 
             {/* Detail Modal */}
-            {detailModal.open && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            {detailModal.open && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDetailModal({ ...detailModal, open: false })}></div>
                     <div className="bg-white rounded-3xl w-full max-w-[500px] shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="bg-slate-900 px-6 py-4 flex justify-between items-center">
@@ -426,24 +450,29 @@ const SalesClaims = () => {
                             <button onClick={() => setDetailModal({ ...detailModal, open: false })} className="text-slate-400 hover:text-white"><span className="material-symbols-rounded">close</span></button>
                         </div>
                         <div className="p-6">
-                            {detailModal.data ? (
+                            {detailModal.error ? (
+                                <div className="py-10 text-center text-rose-500 font-bold">
+                                    정보를 불러오는 중 오류가 발생했습니다.<br />
+                                    <span className="text-xs text-rose-400 font-normal">{String(detailModal.error)}</span>
+                                </div>
+                            ) : detailModal.data ? (
                                 <div className="space-y-6">
                                     <div className="flex justify-between items-end border-b border-slate-100 pb-4">
                                         <div>
                                             <div className="text-[10px] font-black text-slate-400 uppercase tracking-wide">주문번호</div>
                                             <div className="text-xl font-black text-slate-800 font-mono tracking-tight">{detailModal.data.sales_id}</div>
                                         </div>
-                                        <div className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">{detailModal.data.order_date?.substring(0, 10)}</div>
+                                        <div className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">주문일: {detailModal.data.order_date?.substring(0, 10)}</div>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-slate-50 p-4 rounded-2xl">
+                                        <div>
                                             <div className="text-[10px] font-black text-slate-400 uppercase mb-2">상품 정보</div>
                                             <div className="font-bold text-slate-700">{detailModal.data.product_name}</div>
-                                            <div className="text-xs text-slate-500 mt-1">{detailModal.data.specification} / {detailModal.data.quantity}개</div>
-                                            <div className="text-sm font-black text-rose-500 mt-2">{formatCurrency(detailModal.data.unit_price)}원</div>
+                                            <div className="text-xs text-slate-500 mt-1">{detailModal.data.specification || '-'} / {detailModal.data.quantity}개</div>
+                                            <div className="text-sm font-black text-slate-500 mt-2">{formatCurrency(detailModal.data.unit_price)}원</div>
                                         </div>
-                                        <div className="bg-slate-50 p-4 rounded-2xl">
+                                        <div>
                                             <div className="text-[10px] font-black text-slate-400 uppercase mb-2">주문자 정보</div>
                                             <div className="font-bold text-slate-700">{detailModal.data.customer_name || '비회원'}</div>
                                             <div className="text-xs text-slate-500 mt-1">{detailModal.data.customer_id || '-'}</div>
@@ -452,23 +481,19 @@ const SalesClaims = () => {
 
                                     <div>
                                         <div className="text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">배송 정보</div>
-                                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs">
-                                            <div className="flex gap-2 mb-1">
-                                                <span className="font-bold text-slate-600">받는 분:</span>
-                                                <span className="text-slate-500">{detailModal.data.shipping_name} ({detailModal.data.shipping_mobile_number})</span>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <span className="font-bold text-slate-600 shrink-0">주소:</span>
-                                                <span className="text-slate-500">
-                                                    [{detailModal.data.shipping_zip_code}] {detailModal.data.shipping_address_primary} {detailModal.data.shipping_address_detail}
-                                                </span>
-                                            </div>
+                                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs text-slate-600">
+                                            <div className="mb-1"><span className="font-bold mr-2">받는 분:</span> {detailModal.data.shipping_name || '-'}</div>
+                                            <div className="mb-1"><span className="font-bold mr-2">연락처:</span> {detailModal.data.shipping_mobile_number || '-'}</div>
+                                            <div><span className="font-bold mr-2">주소:</span> [{detailModal.data.shipping_zip_code || '-'}] {detailModal.data.shipping_address_primary} {detailModal.data.shipping_address_detail}</div>
                                         </div>
                                     </div>
 
                                     {detailModal.data.memo && (
-                                        <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-xs text-amber-800 font-medium">
-                                            <span className="font-bold mr-2">메모:</span>{detailModal.data.memo}
+                                        <div className="space-y-2">
+                                            <div className="text-[10px] font-black text-slate-400 uppercase ml-1">주문 메모</div>
+                                            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-xs text-amber-900 font-medium">
+                                                {detailModal.data.memo}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -484,7 +509,8 @@ const SalesClaims = () => {
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* Search Modal */}
@@ -654,56 +680,6 @@ const SalesClaims = () => {
                         <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
                             <button onClick={() => setEditModal({ ...editModal, open: false })} className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-200 text-xs transition-colors">취소</button>
                             <button onClick={handleEditSubmit} className="px-6 py-2 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-500 shadow-lg shadow-blue-200 text-xs transition-colors hover:scale-[1.02]">수정사항 저장</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* System Alert Modal */}
-            {alertState.open && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setAlertState({ ...alertState, open: false })}></div>
-                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-6 text-center">
-                            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4 text-slate-500">
-                                <span className="material-symbols-rounded text-2xl">notifications</span>
-                            </div>
-                            <h3 className="text-lg font-black text-slate-700 mb-2">{alertState.title}</h3>
-                            <p className="text-sm text-slate-500 whitespace-pre-wrap">{alertState.message}</p>
-                        </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50">
-                            <button onClick={() => setAlertState({ ...alertState, open: false })}
-                                className="w-full h-11 rounded-xl bg-slate-800 text-white font-bold text-sm shadow-lg shadow-slate-300 hover:bg-slate-700 transition-colors">
-                                확인
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* System Confirm Modal */}
-            {confirmState.open && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setConfirmState({ ...confirmState, open: false })}></div>
-                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-6 text-center">
-                            <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-4 text-rose-500">
-                                <span className="material-symbols-rounded text-2xl">help</span>
-                            </div>
-                            <h3 className="text-lg font-black text-slate-700 mb-2">{confirmState.title}</h3>
-                            <p className="text-sm text-slate-500 whitespace-pre-wrap">{confirmState.message}</p>
-                        </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 grid grid-cols-2 gap-3">
-                            <button onClick={() => setConfirmState({ ...confirmState, open: false })}
-                                className="h-11 rounded-xl bg-white border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
-                                취소
-                            </button>
-                            <button onClick={() => {
-                                confirmState.onConfirm && confirmState.onConfirm();
-                                setConfirmState({ ...confirmState, open: false });
-                            }}
-                                className="h-11 rounded-xl bg-rose-500 text-white font-bold text-sm shadow-lg shadow-rose-200 hover:bg-rose-600 transition-colors">
-                                확인
-                            </button>
                         </div>
                     </div>
                 </div>

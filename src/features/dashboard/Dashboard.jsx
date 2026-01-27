@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { formatCurrency, showAlert, showConfirm } from '../../utils/common';
+import { formatCurrency } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 import { Chart, registerables } from 'chart.js';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 Chart.register(...registerables);
 
 const Dashboard = () => {
+    const { showAlert, showConfirm } = useModal();
     const navigate = useNavigate();
     const [stats, setStats] = useState(null);
     const [weeklyData, setWeeklyData] = useState([]);

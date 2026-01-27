@@ -3432,3 +3432,24 @@ code {
 .stylish-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: rgba(99, 102, 241, 0.6);
 }
+
+/* Custom Gray Scrollbar */
+.custom-gray-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-gray-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-gray-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  /* slate-300 */
+  border-radius: 4px;
+}
+
+.custom-gray-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+  /* slate-400 */
+}

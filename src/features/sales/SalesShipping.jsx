@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { formatCurrency, formatPhoneNumber } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 /**
  * SalesShipping.jsx
  * 배송/발송 관리 화면 - SalesReception과 동일한 Premium UI 스타일 적용
  */
 const SalesShipping = () => {
+    const { showAlert, showConfirm } = useModal();
     // --- State ---
     const [statusFilter, setStatusFilter] = useState('전체');
     const [dateRange, setDateRange] = useState({
@@ -26,47 +28,6 @@ const SalesShipping = () => {
         carrier: 'CJ대한통운',
         trackingMap: {}
     });
-
-    // Custom Modal State
-    const [modalConfig, setModalConfig] = useState({
-        isOpen: false,
-        type: 'alert', // 'alert' | 'confirm'
-        title: '',
-        message: '',
-        onConfirm: null,
-        confirmColor: 'indigo' // button color
-    });
-
-    // --- Helpers for Custom Modal ---
-    const showCustomAlert = (title, message) => {
-        setModalConfig({
-            isOpen: true,
-            type: 'alert',
-            title,
-            message,
-            onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false })),
-            confirmColor: 'indigo'
-        });
-    };
-
-    const showCustomConfirm = (title, message, onConfirm, color = 'indigo') => {
-        setModalConfig({
-            isOpen: true,
-            type: 'confirm',
-            title,
-            message,
-            onConfirm: () => {
-                setModalConfig(prev => ({ ...prev, isOpen: false }));
-                onConfirm();
-            },
-            confirmColor: color
-        });
-    };
-
-    const closeCustomModal = () => {
-        setModalConfig(prev => ({ ...prev, isOpen: false }));
-    };
-
 
     // --- Data Loading ---
     const loadData = useCallback(async () => {
@@ -94,7 +55,7 @@ const SalesShipping = () => {
             setShipments(combined);
         } catch (e) {
             console.error("Load Error:", e);
-            // showCustomAlert('오류', '데이터를 불러오는 중 문제가 발생했습니다.');
+            // showAlert('오류', '데이터를 불러오는 중 문제가 발생했습니다.');
         } finally {
             setIsLoading(false);
         }
@@ -139,30 +100,30 @@ const SalesShipping = () => {
 
     const handleAction = async (actionType) => {
         const targets = shipments.filter(s => selectedIds.has(s.sales_id));
-        if (targets.length === 0) { showCustomAlert('알림', '선택된 항목이 없습니다.'); return; }
+        if (targets.length === 0) { showAlert('알림', '선택된 항목이 없습니다.'); return; }
 
         if (actionType === 'set_pending') {
-            showCustomConfirm('입금 대기 전환', `선택한 ${targets.length}건을 '입금대기' 상태로 변경하시겠습니까?`, async () => {
+            if (await showConfirm('입금 대기 전환', `선택한 ${targets.length}건을 '입금대기' 상태로 변경하시겠습니까?`)) {
                 try {
                     for (const item of targets) {
                         await window.__TAURI__.core.invoke('update_sale_status', { salesId: String(item.sales_id), status: '입금대기' });
                     }
-                    showCustomAlert('성공', '처리되었습니다.');
+                    showAlert('성공', '처리되었습니다.');
                     loadData();
                     setSelectedIds(new Set());
-                } catch (e) { showCustomAlert('오류', `처리 중 오류: ${e}`); }
-            }, 'amber');
+                } catch (e) { showAlert('오류', `처리 중 오류: ${e}`); }
+            }
         } else if (actionType === 'confirm_payment') {
-            showCustomConfirm('입금 확인', `선택한 ${targets.length}건을 '입금완료' 처리하시겠습니까?`, async () => {
+            if (await showConfirm('입금 확인', `선택한 ${targets.length}건을 '입금완료' 처리하시겠습니까?`)) {
                 try {
                     for (const item of targets) {
                         await window.__TAURI__.core.invoke('update_sale_status', { salesId: String(item.sales_id), status: '입금완료' });
                     }
-                    showCustomAlert('성공', '처리되었습니다.');
+                    showAlert('성공', '처리되었습니다.');
                     loadData();
                     setSelectedIds(new Set());
-                } catch (e) { showCustomAlert('오류', `처리 중 오류: ${e}`); }
-            });
+                } catch (e) { showAlert('오류', `처리 중 오류: ${e}`); }
+            }
         } else if (actionType === 'shipping_process') {
             // Check for unconfirmed payments
             const unconfirmedItems = targets.filter(t => ['접수', '입금대기', '부분입금'].includes(t.current_status));
@@ -177,32 +138,32 @@ const SalesShipping = () => {
             };
 
             if (unconfirmedItems.length > 0) {
-                showCustomConfirm(
+                if (await showConfirm(
                     '결제 미완료 건 포함',
-                    `선택하신 항목 중 ${unconfirmedItems.length}건이 아직 입금 확인되지 않은 상태('접수', '입금대기')입니다.\n\n배송 처리 시 해당 금액은 고객의 '미수금'으로 기록됩니다.\n그래도 배송 처리를 진행하시겠습니까?`,
-                    proceedToShipping,
-                    'rose' // Warning color
-                );
+                    `선택하신 항목 중 ${unconfirmedItems.length}건이 아직 입금 확인되지 않은 상태('접수', '입금대기')입니다.\n\n배송 처리 시 해당 금액은 고객의 '미수금'으로 기록됩니다.\n그래도 배송 처리를 진행하시겠습니까?`
+                )) {
+                    proceedToShipping();
+                }
             } else {
                 proceedToShipping();
             }
 
         } else if (actionType === 'delete') {
-            showCustomConfirm('삭제', `선택한 ${targets.length}건을 정말 삭제하시겠습니까?`, () => {
+            if (await showConfirm('삭제', `선택한 ${targets.length}건을 정말 삭제하시겠습니까?`)) {
                 // TODO: 삭제 API 구현 필요
-                showCustomAlert('알림', '삭제 기능은 아직 구현되지 않았습니다.');
-            }, 'red');
+                showAlert('알림', '삭제 기능은 아직 구현되지 않았습니다.');
+            }
         } else if (actionType === 'complete_delivery') {
-            showCustomConfirm('배송 완료 확정', `선택한 ${targets.length}건을 '배송완료' 처리하시겠습니까?\n고객이 상품을 수령한 경우에만 처리해주세요.`, async () => {
+            if (await showConfirm('배송 완료 확정', `선택한 ${targets.length}건을 '배송완료' 처리하시겠습니까?\n고객이 상품을 수령한 경우에만 처리해주세요.`)) {
                 try {
                     for (const item of targets) {
                         await window.__TAURI__.core.invoke('update_sale_status', { salesId: String(item.sales_id), status: '배송완료' });
                     }
-                    showCustomAlert('성공', '배송 완료 처리되었습니다.');
+                    showAlert('성공', '배송 완료 처리되었습니다.');
                     loadData();
                     setSelectedIds(new Set());
-                } catch (e) { showCustomAlert('오류', `처리 중 오류: ${e}`); }
-            }, 'emerald');
+                } catch (e) { showAlert('오류', `처리 중 오류: ${e}`); }
+            }
         }
     };
 
@@ -220,11 +181,11 @@ const SalesShipping = () => {
                 });
             }
             setShowShippingModal(false);
-            showCustomAlert('성공', '배송 처리가 완료되었습니다.');
+            showAlert('성공', '배송 처리가 완료되었습니다.');
             loadData();
             setSelectedIds(new Set());
         } catch (e) {
-            showCustomAlert('오류', `배송 처리 실패: ${e}`);
+            showAlert('오류', `배송 처리 실패: ${e}`);
         }
     };
 
@@ -237,7 +198,7 @@ const SalesShipping = () => {
 
     const handleExportCSV = async () => {
         if (filteredData.length === 0) {
-            showCustomAlert('알림', '내보낼 데이터가 없습니다.');
+            showAlert('알림', '내보낼 데이터가 없습니다.');
             return;
         }
 
@@ -268,7 +229,7 @@ const SalesShipping = () => {
 
             if (filePath) {
                 await window.__TAURI__.fs.writeTextFile(filePath, '\uFEFF' + csvContent);
-                showCustomAlert('성공', '파일이 저장되었습니다.');
+                showAlert('성공', '파일이 저장되었습니다.');
             }
         } catch (err) {
             console.warn("Native save failed, using fallback:", err);
@@ -641,41 +602,6 @@ const SalesShipping = () => {
                     CSV 저장
                 </button>
             </div>
-
-            {/* Custom Alert/Confirm Modal */}
-            {
-                modalConfig.isOpen && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
-                        <div className="bg-white rounded-2xl shadow-2xl w-[400px] overflow-hidden animate-in zoom-in-95 duration-200">
-                            <div className="p-6">
-                                <h3 className={`text-lg font-black mb-2 ${modalConfig.type === 'confirm' && modalConfig.confirmColor === 'rose' ? 'text-rose-600' : 'text-slate-900'}`}>{modalConfig.title}</h3>
-                                <p className="text-sm text-slate-600 whitespace-pre-line leading-relaxed">
-                                    {modalConfig.message}
-                                </p>
-                            </div>
-                            <div className="px-6 py-4 bg-slate-50 flex justify-end gap-2">
-                                {modalConfig.type === 'confirm' && (
-                                    <button
-                                        onClick={closeCustomModal}
-                                        className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-200 transition-colors text-xs"
-                                    >
-                                        취소
-                                    </button>
-                                )}
-                                <button
-                                    onClick={modalConfig.onConfirm}
-                                    className={`px-5 py-2 rounded-lg font-bold text-white shadow-lg transition-all text-xs
-                                    ${modalConfig.confirmColor === 'rose' ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-200' :
-                                            modalConfig.confirmColor === 'red' ? 'bg-red-500 hover:bg-red-600 shadow-red-200' :
-                                                'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}
-                                >
-                                    {modalConfig.type === 'alert' ? '확인' : '진행'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
 
             {/* Shipping Process Modal */}
             {

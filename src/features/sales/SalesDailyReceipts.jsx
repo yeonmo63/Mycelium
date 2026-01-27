@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { formatCurrency } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const SalesDailyReceipts = () => {
+    const { showAlert, showConfirm } = useModal();
     // State
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [receipts, setReceipts] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [alertState, setAlertState] = useState({ open: false, title: '', message: '' });
 
     // Refs
     const printRef = useRef(null);
@@ -64,7 +65,7 @@ const SalesDailyReceipts = () => {
         } catch (e) {
             console.error(e);
             setReceipts([]);
-            setAlertState({ open: true, title: "오류", message: "데이터 로드 실패: " + e });
+            showAlert("오류", "데이터 로드 실패: " + e);
         } finally {
             setIsLoading(false);
         }
@@ -74,7 +75,7 @@ const SalesDailyReceipts = () => {
     const handleDateChange = (val) => {
         const today = new Date().toISOString().split('T')[0];
         if (val > today) {
-            setAlertState({ open: true, title: "알림", message: "미래 날짜는 조회할 수 없습니다." });
+            showAlert("알림", "미래 날짜는 조회할 수 없습니다.");
             return;
         }
         setDate(val);
@@ -98,7 +99,7 @@ const SalesDailyReceipts = () => {
 
     const handleExportCsv = async () => {
         if (receipts.length === 0) {
-            setAlertState({ open: true, title: "알림", message: "저장할 데이터가 없습니다." });
+            showAlert("알림", "저장할 데이터가 없습니다.");
             return;
         }
 
@@ -127,12 +128,12 @@ const SalesDailyReceipts = () => {
                 });
                 if (filePath) {
                     await window.__TAURI__.core.invoke('plugin:fs|write_text_file', { path: filePath, contents: csv });
-                    setAlertState({ open: true, title: "성공", message: "파일이 성공적으로 저장되었습니다." });
+                    showAlert("성공", "파일이 성공적으로 저장되었습니다.");
                 }
             }
         } catch (e) {
             console.error('Failed to save CSV:', e);
-            setAlertState({ open: true, title: "오류", message: "파일 저장 중 오류가 발생했습니다: " + e });
+            showAlert("오류", "파일 저장 중 오류가 발생했습니다: " + e);
         }
     };
 
@@ -375,27 +376,6 @@ const SalesDailyReceipts = () => {
                 {/* Removed bottom actions bar as they are now at the top with filters */}
             </div>
 
-            {/* Custom Alert Modal */}
-            {alertState.open && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 print:hidden">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setAlertState({ ...alertState, open: false })}></div>
-                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-6 text-center">
-                            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-500">
-                                <span className="material-symbols-rounded text-2xl">info</span>
-                            </div>
-                            <h3 className="text-lg font-bold text-slate-800 mb-2">{alertState.title}</h3>
-                            <p className="text-sm text-slate-500 whitespace-pre-wrap leading-relaxed">{alertState.message}</p>
-                        </div>
-                        <div className="p-3 bg-slate-50 border-t border-slate-100">
-                            <button onClick={() => setAlertState({ ...alertState, open: false })}
-                                className="w-full h-11 rounded-xl bg-slate-800 text-white font-bold text-sm shadow-lg shadow-slate-200 hover:bg-slate-700 transition-colors">
-                                확인
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

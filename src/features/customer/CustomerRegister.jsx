@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { formatPhoneNumber, showLocalLoading, hideLocalLoading } from '../../utils/common';
+import { formatPhoneNumber } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
 
+/**
+ * CustomerRegister.jsx
+ * "고객 등록" - 프리미엄 UI 및 향상된 CRM 기능
+ */
 const CustomerRegister = () => {
     const { showAlert, showConfirm } = useModal();
-    // Form State
-    const [formData, setFormData] = useState({
+
+    // --- State Management ---
+    const initialFormState = {
         joinDate: new Date().toISOString().split('T')[0],
         name: '',
         level: '일반',
@@ -26,9 +31,11 @@ const CustomerRegister = () => {
         familyType: '',
         healthConcern: '',
         memo: ''
-    });
+    };
 
+    const [formData, setFormData] = useState(initialFormState);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [showAddrLayer, setShowAddrLayer] = useState(false);
 
     // Refs
     const nameInputRef = useRef(null);
@@ -36,14 +43,11 @@ const CustomerRegister = () => {
     const ocrInputRef = useRef(null);
 
     useEffect(() => {
-        // Flatpickr initialization could go here if using a wrapper, 
-        // but with React we often use native date input or a library.
-        // For simplicity and alignment with original, we'll try native input type="date" first.
-
         // Auto-focus name on mount
         if (nameInputRef.current) nameInputRef.current.focus();
     }, []);
 
+    // --- Handlers ---
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         let val = type === 'checkbox' ? checked : value;
@@ -59,40 +63,43 @@ const CustomerRegister = () => {
     };
 
     const handleAddressSearch = () => {
-        // In a real Desktop App, we often open a new window or modal with Daum Postcode
-        // Assuming global function or existing bridge.
-        // For now, let's assume we have a global window.openAddressSearch or similar mechanism
-        // OR we can implement a simple alert that it's not fully ported yet.
-        if (window.openAddressSearch) {
-            // We need to bridge the callback. The existing function expects DOM IDs.
-            // We might need to refactor openAddressSearch to accept a callback.
-            // For this migration step, let's use a temporary alert or try to hook into the global if available.
-
-            // If we rely on the global function that sets DOM values by ID:
-            window.openAddressSearch('reg-zip', 'reg-addr1', 'reg-addr2');
-        } else {
-            console.warn("Address search not available in this context yet.");
-            // Mock for testing
-            setFormData(prev => ({ ...prev, zip: '12345', addr1: '강원도 강릉시' }));
+        if (!window.daum || !window.daum.Postcode) {
+            showAlert('오류', '주소 검색 서비스(Daum)를 불러올 수 없습니다.');
+            return;
         }
+
+        setShowAddrLayer(true);
+
+        setTimeout(() => {
+            new window.daum.Postcode({
+                oncomplete: (data) => {
+                    let fullAddr = data.address;
+                    let extraAddr = '';
+
+                    if (data.addressType === 'R') {
+                        if (data.bname !== '') extraAddr += data.bname;
+                        if (data.buildingName !== '') extraAddr += (extraAddr !== '' ? `, ${data.buildingName}` : data.buildingName);
+                        fullAddr += (extraAddr !== '' ? ` (${extraAddr})` : '');
+                    }
+
+                    setFormData(prev => ({
+                        ...prev,
+                        zip: data.zonecode,
+                        addr1: fullAddr
+                    }));
+                    setShowAddrLayer(false);
+                },
+                width: '100%',
+                height: '100%'
+            }).embed(document.getElementById('addr-layer-container-reg'));
+        }, 100);
     };
-
-    // Address Search Callback Hack (Sync React state if DOM changes by external script)
-    // In a pure React app, we wouldn't do this, but for hybrid migration:
-    useEffect(() => {
-        const checkAddressParams = () => {
-            // This is a workaround if the external script writes to inputs directly.
-            // Better: Pass a callback to openAddressSearch.
-        };
-        // Skip for now, assume manual entry or mock.
-    }, []);
-
 
     const checkDuplicates = async () => {
         const { name, mobile } = formData;
-        if (!name && !mobile) return;
+        if (!name && !mobile) return [];
 
-        if (!window.__TAURI__) return; // Skip if not in Tauri
+        if (!window.__TAURI__) return [];
 
         try {
             let duplicates = [];
@@ -109,12 +116,20 @@ const CustomerRegister = () => {
                 duplicates = duplicates.concat(uniqueMobileDups);
             }
 
-            if (duplicates.length > 0) {
-                await showAlert('중복 확인', `중복 가능성이 있는 고객이 ${duplicates.length}명 발견되었습니다.`);
-                // In future, show a nice modal with list
-            }
+            return duplicates;
         } catch (e) {
             console.error("Duplicate check failed:", e);
+            return [];
+        }
+    };
+
+    const handleBlurCheck = async (e) => {
+        const { value } = e.target;
+        if (!value || value.length < 2) return;
+
+        const dups = await checkDuplicates();
+        if (dups.length > 0) {
+            await showAlert('중복 확인', `중복 가능성이 있는 고객이 ${dups.length}명 발견되었습니다. 이미 등록된 고객인지 확인해주세요.`);
         }
     };
 
@@ -135,15 +150,29 @@ const CustomerRegister = () => {
             }
         }
 
-        if (await showConfirm('확인', '고객을 등록하시겠습니까?')) {
-            await submitRegistration();
+        // 최종 중복 체크
+        const dups = await checkDuplicates();
+        if (dups.length > 0) {
+            const exactMatch = dups.find(d =>
+                d.customer_name === formData.name &&
+                (d.mobile_number === formData.mobile || d.phone_number === formData.mobile)
+            );
+
+            let msg = exactMatch
+                ? '동일한 이름과 번호를 가진 고객이 이미 존재합니다. 그래도 등록하시겠습니까?'
+                : `중복 가능성이 있는 고객이 ${dups.length}명 발견되었습니다. 그래도 등록하시겠습니까?`;
+
+            if (!await showConfirm('중복 확인', msg)) return;
+        } else {
+            if (!await showConfirm('확인', '고객을 등록하시겠습니까?')) return;
         }
+
+        await submitRegistration();
     };
 
     const submitRegistration = async () => {
         setIsProcessing(true);
         try {
-            // Map state to backend payload
             const payload = {
                 name: formData.name,
                 mobile: formData.mobile,
@@ -167,20 +196,11 @@ const CustomerRegister = () => {
                 purchaseCycle: formData.purchaseCycle || null
             };
 
-            console.log('Sending payload:', payload);
-
             if (window.__TAURI__) {
                 await window.__TAURI__.core.invoke('create_customer', payload);
                 await showAlert('성공', '고객이 성공적으로 등록되었습니다.');
                 handleReset();
-            } else {
-                // Mock success for web preview
-                await new Promise(r => setTimeout(r, 1000));
-                console.log("Mock Submit Success");
-                await showAlert('성공', '고객 등록 테스트 성공');
-                handleReset();
             }
-
         } catch (error) {
             console.error('Failed to register customer:', error);
             await showAlert('오류', '고객 등록에 실패했습니다: ' + error);
@@ -190,290 +210,424 @@ const CustomerRegister = () => {
     };
 
     const handleReset = () => {
-        setFormData({
-            joinDate: new Date().toISOString().split('T')[0],
-            name: '',
-            level: '일반',
-            email: '',
-            zip: '',
-            addr1: '',
-            addr2: '',
-            phone: '',
-            mobile: '',
-            marketingConsent: false,
-            anniversaryDate: '',
-            anniversaryType: '',
-            acquisition: '',
-            purchaseCycle: '',
-            prefProduct: '',
-            prefPackage: '',
-            subInterest: false,
-            familyType: '',
-            healthConcern: '',
-            memo: ''
-        });
-        nameInputRef.current?.focus();
-    };
-
-    const handleOcrClick = () => {
-        ocrInputRef.current?.click();
+        setFormData(initialFormState);
+        if (nameInputRef.current) nameInputRef.current.focus();
     };
 
     const handleOcrFileChange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Implement OCR Logic later or mock
-        await showAlert("OCR", "OCR 기능은 현재 마이그레이션 중입니다.");
+        const reader = new FileReader();
+        reader.onload = async () => {
+            const base64 = reader.result.split(',')[1];
+            await processBusinessCard(base64, file.type);
+            e.target.value = '';
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const processBusinessCard = async (base64, mimeType) => {
+        setIsProcessing(true);
+        try {
+            const result = await window.__TAURI__.core.invoke('parse_business_card_ai', {
+                imageBase64: base64,
+                mimeType: mimeType
+            });
+
+            setFormData(prev => ({
+                ...prev,
+                name: result.name || prev.name,
+                mobile: result.mobile || prev.mobile,
+                phone: result.phone || prev.phone,
+                email: result.email || prev.email,
+                addr1: result.address || prev.addr1,
+                memo: (prev.memo ? prev.memo + "\n" : "") +
+                    [result.company, result.job_title, result.memo].filter(Boolean).join("\n")
+            }));
+
+            await showAlert('성공', '명함 정보가 성공적으로 인식되어 입력되었습니다.');
+        } catch (err) {
+            console.error(err);
+            let msg = '명함 인식에 실패했습니다. 이미지를 확인해주세요.';
+            const errStr = String(err);
+
+            if (errStr.includes('API 키') || errStr.includes('400') || errStr.includes('403')) {
+                msg = 'AI 설정 오류: API 키가 올바르지 않거나 설정되지 않았습니다.';
+            } else if (errStr.includes('Network Error')) {
+                msg = '네트워크 연결 상태를 확인해주세요.';
+            }
+
+            await showAlert('오류', msg);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    // Camera Refs and State
+    const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+    const videoRef = useRef(null);
+    const canvasRef = useRef(null);
+    const streamRef = useRef(null);
+
+    const handleCameraOcr = async () => {
+        setIsCameraModalOpen(true);
+    };
+
+    // Start camera when modal opens
+    useEffect(() => {
+        if (isCameraModalOpen) {
+            startCamera();
+        } else {
+            stopCamera();
+        }
+        return () => stopCamera();
+    }, [isCameraModalOpen]);
+
+    const startCamera = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+            streamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (e) {
+            console.error("Camera error:", e);
+            showAlert('오류', '카메라에 접근할 수 없습니다. 권한을 확인해주세요.');
+            setIsCameraModalOpen(false);
+        }
+    };
+
+    const stopCamera = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+    };
+
+    const capturePhoto = async () => {
+        if (!videoRef.current || !canvasRef.current) return;
+
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+
+        // Match canvas size to video size
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Get base64
+        const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+        stopCamera();
+        setIsCameraModalOpen(false);
+
+        // Process OCR
+        await processBusinessCard(base64, 'image/jpeg');
     };
 
     return (
-        <div className="sales-v3-container fade-in">
-            {/* Header */}
-            <div className="content-header" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                    <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="material-symbols-rounded" style={{ color: '#6366f1' }}>person_add</span>
-                        신규 고객 등록
-                    </h2>
-                    <p className="subtitle">새로운 고객 정보를 시스템에 등록합니다. 명함 촬영(OCR) 기능을 활용하면 더욱 편리합니다.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '12px', background: '#fff', padding: '8px 16px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', alignSelf: 'center', marginRight: '4px' }}>명함 인식(OCR)</span>
-                    <input type="file" ref={ocrInputRef} accept="image/*" style={{ display: 'none' }} onChange={handleOcrFileChange} />
-                    <button type="button" onClick={handleOcrClick} className="btn-secondary" style={{ height: '38px', padding: '0 16px', fontSize: '0.9rem', borderRadius: '10px' }}>
-                        <span className="material-symbols-rounded" style={{ fontSize: '20px', marginRight: '6px' }}>upload_file</span> 파일 선택
-                    </button>
-                    {/* Camera button skipped for MVP, easily added later */}
+        <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden animate-in fade-in duration-700">
+            {/* Header Area - Matches SalesReception Pattern */}
+            <div className="px-6 lg:px-8 min-[2000px]:px-12 pt-6 lg:pt-8 min-[2000px]:pt-12 pb-1">
+                <div className="flex justify-between items-end mb-6">
+                    <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                            <span className="w-6 h-1 bg-indigo-600 rounded-full"></span>
+                            <span className="text-[9px] font-black tracking-[0.2em] text-indigo-600 uppercase">Customer Relationship Management</span>
+                        </div>
+                        <h1 className="text-3xl font-black text-slate-600 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
+                            고객 등록 <span className="text-slate-300 font-light ml-1 text-xl">Registration</span>
+                        </h1>
+                    </div>
+                    <div className="flex gap-3">
+                        <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm">
+                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">명함 인식 (OCR)</span>
+                            <input type="file" ref={ocrInputRef} accept="image/*" className="hidden" onChange={handleOcrFileChange} />
+                            <button
+                                onClick={() => ocrInputRef.current?.click()}
+                                className="h-10 px-4 rounded-xl bg-slate-50 text-indigo-600 font-bold hover:bg-indigo-50 transition-all flex items-center gap-2 text-sm border border-indigo-100"
+                            >
+                                <span className="material-symbols-rounded text-lg">upload_file</span> 파일 선택
+                            </button>
+                            <button
+                                onClick={handleCameraOcr}
+                                className="h-10 px-4 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 transition-all flex items-center gap-2 text-sm shadow-sm"
+                            >
+                                <span className="material-symbols-rounded text-lg">photo_camera</span> 카메라 촬영
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <form onSubmit={handleSubmit} autoComplete="off" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
+            {/* Main Content Area */}
+            <form onSubmit={handleSubmit} className="px-4 lg:px-6 min-[2000px]:px-10 mt-0.5 flex flex-col gap-2 overflow-hidden flex-1 pb-4 lg:pb-6 min-[2000px]:pb-10">
+                <div className="flex-1 overflow-y-auto pr-2 space-y-2">
 
-                    {/* Basic Info Card */}
-                    <div className="modern-card" style={{ padding: '24px', borderRadius: '20px', marginBottom: '20px', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                        <h3 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', color: '#1e293b' }}>
-                            <span className="material-symbols-rounded" style={{ color: '#3b82f6' }}>info</span>
+                    {/* section 1: Basic Info */}
+                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                        <h3 className="text-lg font-black text-slate-800 mb-2 flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+                                <span className="material-symbols-rounded text-xl">info</span>
+                            </div>
                             기본 인적 사항
                         </h3>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '24px' }}>
-                            <div className="form-group">
-                                <label>등록 일자</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">calendar_today</span>
-                                    <input type="date" name="joinDate" className="input-field" value={formData.joinDate} onChange={handleChange} required />
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-y-2 gap-x-4">
+                            <div className="lg:col-span-3 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">등록 일자</label>
+                                <div className="relative">
+                                    <input type="date" name="joinDate" value={formData.joinDate} onChange={handleChange}
+                                        className="w-full h-10 bg-slate-50 border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all" />
                                 </div>
                             </div>
-                            <div className="form-group">
-                                <label>고객명</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">person</span>
-                                    <input type="text" name="name" className="input-field" placeholder="성함 입력" maxLength="50" required
-                                        ref={nameInputRef} value={formData.name} onChange={handleChange} onBlur={checkDuplicates} />
+                            <div className="lg:col-span-2 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">고객명 <span className="text-rose-500">*</span></label>
+                                <div className="relative">
+                                    <input type="text" name="name" ref={nameInputRef} value={formData.name} onChange={handleChange} onBlur={handleBlurCheck}
+                                        placeholder="이름 입력" required
+                                        className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-800 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                                 </div>
                             </div>
-                            <div className="form-group">
-                                <label>회원 등급</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">star</span>
-                                    <select name="level" className="input-field" value={formData.level} onChange={handleChange}>
-                                        <option value="일반">일반</option>
-                                        <option value="VIP">VIP</option>
-                                        <option value="VVIP">VVIP</option>
-                                        <option value="법인/단체">법인/단체</option>
-                                    </select>
-                                </div>
+                            <div className="lg:col-span-2 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">회원 등급</label>
+                                <select name="level" value={formData.level} onChange={handleChange}
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all appearance-none shadow-sm">
+                                    <option value="일반">일반</option>
+                                    <option value="VIP">VIP</option>
+                                    <option value="VVIP">VVIP</option>
+                                    <option value="법인/단체">법인/단체</option>
+                                </select>
                             </div>
-                            <div className="form-group">
-                                <label>이메일 주소</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">mail</span>
-                                    <input type="email" name="email" className="input-field" placeholder="example@mail.com" maxLength="100" value={formData.email} onChange={handleChange} />
-                                </div>
+                            <div className="lg:col-span-5 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">이메일 주소</label>
+                                <input type="email" name="email" value={formData.email} onChange={handleChange}
+                                    placeholder="example@mail.com"
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '180px 2fr 1.5fr', gap: '24px', marginBottom: '24px' }}>
-                            <div className="form-group">
-                                <label>우편번호</label>
-                                <div className="input-wrapper" style={{ cursor: 'pointer' }} onClick={handleAddressSearch}>
-                                    <span className="material-symbols-rounded">markunread_mailbox</span>
-                                    <input type="text" name="zip" id="reg-zip" className="input-field" placeholder="번호 검색" readOnly value={formData.zip} style={{ backgroundColor: '#fdfaff', cursor: 'pointer' }} />
-                                </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-y-2 gap-x-4 mt-3">
+                            <div className="lg:col-span-2 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">우편번호</label>
+                                <input type="text" name="zip" value={formData.zip} readOnly onClick={handleAddressSearch}
+                                    placeholder="검색"
+                                    className="w-full h-10 bg-slate-50 border-slate-200 border rounded-xl font-bold text-slate-700 px-4 cursor-pointer hover:bg-slate-100 transition-all text-center" />
                             </div>
-                            <div className="form-group">
-                                <label>기본 주소</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">home</span>
-                                    <input type="text" name="addr1" id="reg-addr1" className="input-field" placeholder="주소 검색" value={formData.addr1} style={{ backgroundColor: '#fdfaff' }} readOnly />
-                                </div>
+                            <div className="lg:col-span-5 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">기본 주소</label>
+                                <input type="text" name="addr1" value={formData.addr1} onClick={handleAddressSearch}
+                                    placeholder="클릭하여 주소 검색" readOnly
+                                    className="w-full h-10 bg-slate-50 border-slate-200 border rounded-xl font-bold text-slate-700 px-4 cursor-pointer hover:bg-slate-100 transition-all" />
                             </div>
-                            <div className="form-group">
-                                <label>상세 주소</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">apartment</span>
-                                    <input type="text" name="addr2" id="reg-addr2" className="input-field" placeholder="상세 주소" maxLength="255" value={formData.addr2} onChange={handleChange} />
-                                </div>
+                            <div className="lg:col-span-5 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">상세 주소</label>
+                                <input type="text" name="addr2" value={formData.addr2} onChange={handleChange}
+                                    placeholder="아파트 동/호수 등 상세 입력"
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
-                            <div className="form-group">
-                                <label>일반전화</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">call</span>
-                                    <input type="tel" name="phone" className="input-field" placeholder="02-000-0000" maxLength="20" value={formData.phone} onChange={handleChange} />
-                                </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-y-2 gap-x-4 mt-3">
+                            <div className="lg:col-span-3 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">일반 전화</label>
+                                <input type="tel" name="phone" value={formData.phone} onChange={handleChange}
+                                    placeholder="02-000-0000"
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                             </div>
-                            <div className="form-group">
-                                <label>휴대전화</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded" style={{ color: '#2563eb' }}>smartphone</span>
-                                    <input type="tel" name="mobile" className="input-field" placeholder="010-0000-0000" maxLength="20" style={{ fontWeight: 700 }} value={formData.mobile} onChange={handleChange} onBlur={checkDuplicates} />
-                                </div>
+                            <div className="lg:col-span-3 space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">휴대 전화</label>
+                                <input type="tel" name="mobile" value={formData.mobile} onChange={handleChange} onBlur={handleBlurCheck}
+                                    placeholder="010-0000-0000"
+                                    className="w-full h-10 bg-white border-indigo-200 border-2 rounded-xl font-black text-slate-900 px-4 focus:ring-4 focus:ring-indigo-500/20 transition-all shadow-sm" />
                             </div>
-                            <div className="form-group" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'flex-end', paddingBottom: '2px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0', width: '100%' }}>
-                                    <input type="checkbox" name="marketingConsent" checked={formData.marketingConsent} onChange={handleChange} style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-                                    <span style={{ fontSize: '1rem', color: '#1e293b', fontWeight: 600 }}>마케팅 정보 수신 동의 (이벤트 및 특판 알림)</span>
+                            <div className="lg:col-span-6 flex items-end pb-1">
+                                <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-6 py-3 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all w-full group/check">
+                                    <div className="relative flex items-center">
+                                        <input type="checkbox" name="marketingConsent" checked={formData.marketingConsent} onChange={handleChange}
+                                            className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer" />
+                                    </div>
+                                    <span className="text-sm font-black text-slate-600 group-hover/check:text-indigo-700">마케팅 정보 수신 동의</span>
                                 </label>
                             </div>
                         </div>
                     </div>
 
-                    {/* CRM Info Card */}
-                    <div className="modern-card" style={{ padding: '24px', borderRadius: '20px', marginBottom: '20px', background: 'linear-gradient(145deg, #fff, #f5f3ff)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                        <h3 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', color: '#1e293b', borderBottom: '1px solid #ddd6fe', paddingBottom: '12px' }}>
-                            <span className="material-symbols-rounded" style={{ color: '#7c3aed' }}>volunteer_activism</span>
+                    {/* Section 2: CRM & Taste */}
+                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50/30 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                        <h3 className="text-lg font-black text-slate-800 mb-2 flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+                                <span className="material-symbols-rounded text-xl">volunteer_activism</span>
+                            </div>
                             CRM 및 고객 취향 정보
                         </h3>
-                        {/* CRM Inputs Row 1 */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '24px' }}>
-                            <div className="form-group">
-                                <label>주요 기념일</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">cake</span>
-                                    <input type="date" name="anniversaryDate" className="input-field" value={formData.anniversaryDate} onChange={handleChange} />
-                                </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-y-2 gap-x-4">
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">주요 기념일</label>
+                                <input type="date" name="anniversaryDate" value={formData.anniversaryDate} onChange={handleChange}
+                                    className="w-full h-10 bg-slate-50 border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all" />
                             </div>
-                            <div className="form-group">
-                                <label>기념일 종류</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">category</span>
-                                    <select name="anniversaryType" className="input-field" value={formData.anniversaryType} onChange={handleChange}>
-                                        <option value="">선택 안함</option>
-                                        <option value="생일">생일</option>
-                                        <option value="결혼기념일">결혼기념일</option>
-                                        <option value="기타">기타</option>
-                                    </select>
-                                </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">기념일 종류</label>
+                                <select name="anniversaryType" value={formData.anniversaryType} onChange={handleChange}
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 appearance-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">선택 안함</option>
+                                    <option value="생일">생일</option>
+                                    <option value="결혼기념일">결혼기념일</option>
+                                    <option value="기타">기타</option>
+                                </select>
                             </div>
-                            <div className="form-group">
-                                <label>유입 경로</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">campaign</span>
-                                    <select name="acquisition" className="input-field" value={formData.acquisition} onChange={handleChange}>
-                                        <option value="">선택 하세요</option>
-                                        <option value="SNS(인스타/페이스북)">SNS</option>
-                                        <option value="인터넷 검색">인터넷 검색</option>
-                                        <option value="지인 소개">지인 소개</option>
-                                        <option value="유튜브">유튜브</option>
-                                        <option value="광고">광고</option>
-                                        <option value="기타">기타</option>
-                                    </select>
-                                </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">유입 경로</label>
+                                <select name="acquisition" value={formData.acquisition} onChange={handleChange}
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 appearance-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">선택 하세요</option>
+                                    <option value="SNS(인스타/페이스북)">SNS</option>
+                                    <option value="인터넷 검색">인터넷 검색</option>
+                                    <option value="지인 소개">지인 소개</option>
+                                    <option value="유튜브">유튜브</option>
+                                    <option value="광고">광고</option>
+                                    <option value="기타">기타</option>
+                                </select>
                             </div>
-                            <div className="form-group">
-                                <label>구매 주기</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">sync</span>
-                                    <select name="purchaseCycle" className="input-field" value={formData.purchaseCycle} onChange={handleChange}>
-                                        <option value="">선택 하세요</option>
-                                        <option value="매달 정기적">매달 정기적</option>
-                                        <option value="분기별">분기별</option>
-                                        <option value="명절/기념일">명절/기념일</option>
-                                        <option value="가끔 주문">가끔 주문</option>
-                                    </select>
-                                </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">구매 주기</label>
+                                <select name="purchaseCycle" value={formData.purchaseCycle} onChange={handleChange}
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 appearance-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">선택 하세요</option>
+                                    <option value="매달 정기적">매달 정기적</option>
+                                    <option value="분기별">분기별</option>
+                                    <option value="명절/기념일">명절/기념일</option>
+                                    <option value="가끔 주문">가끔 주문</option>
+                                </select>
                             </div>
                         </div>
 
-                        {/* CRM Inputs Row 2 */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '24px' }}>
-                            <div className="form-group">
-                                <label>선호 상품군</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">favorite</span>
-                                    <select name="prefProduct" className="input-field" value={formData.prefProduct} onChange={handleChange}>
-                                        <option value="">선택 하세요</option>
-                                        <option value="생버섯">생버섯</option>
-                                        <option value="건버섯">건버섯</option>
-                                        <option value="가공품(가루/차)">가공품</option>
-                                        <option value="체험 프로그램">체험 프로그램</option>
-                                    </select>
-                                </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-y-2 gap-x-4 mt-3">
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">선호 상품군</label>
+                                <select name="prefProduct" value={formData.prefProduct} onChange={handleChange}
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 appearance-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">선택 하세요</option>
+                                    <option value="생버섯">생버섯</option>
+                                    <option value="건버섯">건버섯</option>
+                                    <option value="가공품(가루/차)">가공품</option>
+                                    <option value="체험 프로그램">체험 프로그램</option>
+                                </select>
                             </div>
-                            <div className="form-group">
-                                <label>선호 포장</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">inventory_2</span>
-                                    <select name="prefPackage" className="input-field" value={formData.prefPackage} onChange={handleChange}>
-                                        <option value="">선택 하세요</option>
-                                        <option value="실속형(가정용)">실속형</option>
-                                        <option value="선물용(프리미엄)">선물용</option>
-                                    </select>
-                                </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">선호 포장</label>
+                                <select name="prefPackage" value={formData.prefPackage} onChange={handleChange}
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 appearance-none shadow-sm focus:ring-2 focus:ring-indigo-500">
+                                    <option value="">선택 하세요</option>
+                                    <option value="실속형(가정용)">실속형</option>
+                                    <option value="선물용(프리미엄)">선물용</option>
+                                </select>
                             </div>
-                            <div className="form-group" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'flex-end', paddingBottom: '2px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none', background: '#fff', padding: '12px 16px', borderRadius: '12px', border: '1px solid #ddd6fe', width: '100%' }}>
-                                    <input type="checkbox" name="subInterest" checked={formData.subInterest} onChange={handleChange} style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-                                    <span style={{ fontSize: '1rem', color: '#1e293b', fontWeight: 600 }}>정기 배송(구독형) 서비스에 관심이 있음</span>
+                            <div className="lg:col-span-2 flex items-end pb-1">
+                                <label className="flex items-center gap-3 bg-white border border-indigo-100 px-6 py-3 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all w-full group/check">
+                                    <input type="checkbox" name="subInterest" checked={formData.subInterest} onChange={handleChange}
+                                        className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+                                    <span className="text-sm font-black text-slate-600 group-hover/check:text-indigo-700">정기 배송(구독형) 서비스 관심</span>
                                 </label>
                             </div>
                         </div>
 
-                        {/* CRM Inputs Row 3 */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                            <div className="form-group">
-                                <label>가족 구성 특징</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">family_restroom</span>
-                                    <input type="text" name="familyType" className="input-field" placeholder="예: 자녀 있음" value={formData.familyType} onChange={handleChange} />
-                                </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4 mt-3">
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">가족 구성 특징</label>
+                                <input type="text" name="familyType" value={formData.familyType} onChange={handleChange}
+                                    placeholder="예: 자녀 있음, 부모님 선물용 위주 등"
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 shadow-sm" />
                             </div>
-                            <div className="form-group">
-                                <label>건강 관심사</label>
-                                <div className="input-wrapper">
-                                    <span className="material-symbols-rounded">health_and_safety</span>
-                                    <input type="text" name="healthConcern" className="input-field" placeholder="예: 당뇨관리" value={formData.healthConcern} onChange={handleChange} />
-                                </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-black text-slate-400 uppercase ml-1">건강 관심사</label>
+                                <input type="text" name="healthConcern" value={formData.healthConcern} onChange={handleChange}
+                                    placeholder="예: 당뇨관리, 면역력 등"
+                                    className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 shadow-sm" />
                             </div>
                         </div>
                     </div>
 
-                    {/* Memo */}
-                    <div className="modern-card" style={{ padding: '24px', borderRadius: '20px', marginBottom: '20px', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                        <div className="form-group">
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                <span className="material-symbols-rounded" style={{ color: '#64748b' }}>edit_note</span> 고객 상세 메모
-                            </label>
-                            <textarea name="memo" rows="4" className="input-field" style={{ width: '100%', padding: '16px', borderRadius: '12px', fontSize: '1rem', lineHeight: 1.6 }} value={formData.memo} onChange={handleChange}></textarea>
-                        </div>
+                    {/* Section 3: Memo */}
+                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 mb-2">
+                        <label className="text-[11px] font-black text-slate-400 uppercase ml-1 mb-1 block">고객 상세 메모</label>
+                        <textarea name="memo" value={formData.memo} onChange={handleChange} rows="3"
+                            placeholder="특이사항이나 상담 메모를 남겨주세요."
+                            className="w-full bg-slate-50 border-slate-200 border rounded-xl font-bold text-slate-700 p-3 focus:ring-2 focus:ring-indigo-500 transition-all resize-none" />
                     </div>
-                </div>
 
-                {/* Footer Actions */}
-                <div className="form-actions" style={{ flexShrink: 0, background: '#fff', borderTop: '1px solid #e2e8f0', padding: '20px 24px', zIndex: 20, display: 'flex', justifyContent: 'flex-end', gap: '16px', borderRadius: '0 0 20px 20px', boxShadow: '0 -4px 10px rgba(0,0,0,0.02)' }}>
-                    <button type="button" className="btn-secondary" onClick={handleReset} style={{ height: '48px', padding: '0 24px', borderRadius: '12px' }}>
-                        <span className="material-symbols-rounded">refresh</span> 화면 초기화
-                    </button>
-                    <button type="submit" className="btn-primary" disabled={isProcessing} style={{ height: '48px', padding: '0 36px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(37, 99, 235, 0.3)' }}>
-                        <span className="material-symbols-rounded">person_add</span> {isProcessing ? '처리 중...' : '신규 고객 등록하기'}
-                    </button>
+                    {/* Action Buttons - Moved inside scrollable area */}
+                    <div className="flex justify-end gap-3 pt-4 pb-2 border-t border-slate-100">
+                        <button type="button" onClick={handleReset}
+                            className="h-10 px-8 rounded-2xl bg-white border border-slate-200 text-slate-500 font-black hover:bg-slate-50 transition-all flex items-center gap-2">
+                            <span className="material-symbols-rounded">refresh</span> 화면 초기화
+                        </button>
+                        <button type="submit" disabled={isProcessing}
+                            className="h-10 px-12 rounded-2xl bg-indigo-600 text-white font-black hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2 disabled:opacity-50">
+                            <span className="material-symbols-rounded">{isProcessing ? 'sync' : 'person_add'}</span>
+                            {isProcessing ? '처리 중...' : '고객 등록'}
+                        </button>
+                    </div>
                 </div>
             </form>
+
+            {/* Daum Postcode Layer */}
+            {showAddrLayer && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAddrLayer(false)} />
+                    <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-300">
+                        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-indigo-600 text-white">
+                            <h3 className="text-xl font-black">주소 검색</h3>
+                            <button onClick={() => setShowAddrLayer(false)} className="w-10 h-9 rounded-full hover:bg-white/20 transition-colors flex items-center justify-center">
+                                <span className="material-symbols-rounded">close</span>
+                            </button>
+                        </div>
+                        <div id="addr-layer-container-reg" className="w-full h-[500px]" />
+                    </div>
+                </div>
+            )}
+
+            {/* Camera Modal */}
+            {isCameraModalOpen && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+                    <div className="relative w-full max-w-2xl bg-black rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+                        <div className="absolute top-4 right-4 z-10">
+                            <button onClick={() => setIsCameraModalOpen(false)} className="w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-all">
+                                <span className="material-symbols-rounded">close</span>
+                            </button>
+                        </div>
+
+                        <div className="relative aspect-[4/3] bg-black">
+                            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                            <canvas ref={canvasRef} className="hidden" />
+
+                            {/* Overlay Guide */}
+                            <div className="absolute inset-0 border-[3px] border-white/30 m-8 rounded-2xl pointer-events-none flex items-center justify-center">
+                                <div className="text-white/70 font-bold bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm text-sm">명함을 사각형 안에 맞춰주세요</div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-slate-900 flex justify-center items-center gap-6">
+                            <button onClick={() => setIsCameraModalOpen(false)} className="px-6 py-3 rounded-xl bg-slate-800 text-white font-bold hover:bg-slate-700 transition-all">
+                                취소
+                            </button>
+                            <button onClick={capturePhoto} className="w-16 h-16 rounded-full bg-white border-4 border-slate-300 flex items-center justify-center hover:scale-105 transition-transform shadow-lg shadow-indigo-500/30">
+                                <div className="w-12 h-12 rounded-full bg-indigo-600 border-2 border-white" />
+                            </button>
+                            <div className="w-[88px]" /> {/* Spacer for centering */}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

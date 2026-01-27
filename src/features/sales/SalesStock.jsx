@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { formatCurrency, showAlert, showConfirm } from '../../utils/common';
+import { formatCurrency } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const SalesStock = () => {
+    const { showAlert, showConfirm } = useModal();
     // --- State ---
     const [tab, setTab] = useState('product'); // 'product' | 'material'
     const [products, setProducts] = useState([]);

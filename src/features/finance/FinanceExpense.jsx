@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { formatCurrency, parseNumber, showAlert, showConfirm } from '../../utils/common';
+import { formatCurrency, parseNumber } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const FinanceExpense = () => {
+    const { showAlert, showConfirm } = useModal();
     const [expenses, setExpenses] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
 

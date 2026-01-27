@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { showAlert, showConfirm } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const FinanceVendor = () => {
+    const { showAlert, showConfirm } = useModal();
     const [vendors, setVendors] = useState([]);
     const [allVendors, setAllVendors] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');

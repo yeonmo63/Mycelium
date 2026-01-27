@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { formatCurrency, parseNumber, showAlert, showConfirm } from '../../utils/common';
+import { formatCurrency, parseNumber } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const SalesOnlineSync = () => {
+    const { showAlert, showConfirm } = useModal();
     // State
     const [file, setFile] = useState(null);
     const [mallType, setMallType] = useState('naver');

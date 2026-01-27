@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { showAlert, showConfirm } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const SMS_TEMPLATES = {
     greeting: `[{COMPANY}] 안녕하세요 고객님! 🍄\n싱싱한 버섯 향기가 가득한 계절입니다.\n항상 저희를 아껴주시는 마음에 깊이 감사드리며, 환절기 건강 유의하시길 바랍니다.`,
@@ -11,6 +11,7 @@ const SMS_TEMPLATES = {
 };
 
 const CustomerSms = () => {
+    const { showAlert, showConfirm } = useModal();
     // --- State ---
     const [targets, setTargets] = useState({
         all: false,

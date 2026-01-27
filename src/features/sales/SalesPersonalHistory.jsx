@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as echarts from 'echarts';
 import { formatCurrency, copyToClipboard } from '../../utils/common';
+import { useModal } from '../../contexts/ModalContext';
 
 const SalesPersonalHistory = () => {
+    const { showAlert, showConfirm } = useModal();
     // State
     const [keyword, setKeyword] = useState('');
     const [period, setPeriod] = useState('1year');
@@ -15,9 +17,6 @@ const SalesPersonalHistory = () => {
     // Modal State for Graph
     const [isGraphModalOpen, setIsGraphModalOpen] = useState(false);
     const [graphYear, setGraphYear] = useState(null); // null for yearly overview, 'YYYY' for monthly
-
-    // Alert/Modal state
-    const [alertState, setAlertState] = useState({ open: false, title: '', message: '' });
 
     // Refs
     const chartRef = useRef(null);
@@ -58,7 +57,7 @@ const SalesPersonalHistory = () => {
 
     const handleSearch = async () => {
         if (!keyword.trim()) {
-            setAlertState({ open: true, title: "알림", message: "검색할 고객의 성함이나 연락처를 입력해주세요." });
+            showAlert("알림", "검색할 고객의 성함이나 연락처를 입력해주세요.");
             return;
         }
 
@@ -74,7 +73,7 @@ const SalesPersonalHistory = () => {
         } catch (e) {
             console.error(e);
             setSales([]);
-            setAlertState({ open: true, title: "오류", message: "검색 실패: " + e });
+            showAlert("오류", "검색 실패: " + e);
         } finally {
             setIsLoading(false);
         }
@@ -224,7 +223,7 @@ const SalesPersonalHistory = () => {
 
     const handlePrint = () => {
         if (!sales || sales.length === 0) {
-            setAlertState({ open: true, title: "알림", message: "인쇄할 데이터가 없습니다. 먼저 검색을 수행해 주세요." });
+            showAlert("알림", "인쇄할 데이터가 없습니다. 먼저 검색을 수행해 주세요.");
             return;
         }
         window.print();
@@ -232,7 +231,7 @@ const SalesPersonalHistory = () => {
 
     const handleExportCsv = async () => {
         if (sales.length === 0) {
-            setAlertState({ open: true, title: "알림", message: "저장할 데이터가 없습니다." });
+            showAlert("알림", "저장할 데이터가 없습니다.");
             return;
         }
 
@@ -264,12 +263,12 @@ const SalesPersonalHistory = () => {
                 });
                 if (savePath) {
                     await window.__TAURI__.core.invoke('plugin:fs|write_text_file', { path: savePath, contents: csvContent });
-                    setAlertState({ open: true, title: "성공", message: "성공적으로 저장되었습니다." });
+                    showAlert("성공", "성공적으로 저장되었습니다.");
                 }
             }
         } catch (e) {
             console.error(e);
-            setAlertState({ open: true, title: "오류", message: "저장 실패: " + e });
+            showAlert("오류", "저장 실패: " + e);
         }
     };
 
@@ -520,28 +519,6 @@ const SalesPersonalHistory = () => {
                         <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end">
                             <button onClick={() => setIsGraphModalOpen(false)} className="px-5 py-2.5 rounded-xl bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 transition-colors shadow-lg shadow-slate-200">
                                 닫기
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Custom Alert Modal */}
-            {alertState.open && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 print:hidden">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setAlertState({ ...alertState, open: false })}></div>
-                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-6 text-center">
-                            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-500">
-                                <span className="material-symbols-rounded text-2xl">info</span>
-                            </div>
-                            <h3 className="text-lg font-bold text-slate-800 mb-2">{alertState.title}</h3>
-                            <p className="text-sm text-slate-500 whitespace-pre-wrap leading-relaxed">{alertState.message}</p>
-                        </div>
-                        <div className="p-3 bg-slate-50 border-t border-slate-100">
-                            <button onClick={() => setAlertState({ ...alertState, open: false })}
-                                className="w-full h-11 rounded-xl bg-slate-800 text-white font-bold text-sm shadow-lg shadow-slate-200 hover:bg-slate-700 transition-colors">
-                                확인
                             </button>
                         </div>
                     </div>

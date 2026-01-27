@@ -3661,9 +3661,9 @@ async fn get_sale_detail(state: State<'_, DbPool>, sales_id: String) -> Result<S
         "SELECT s.*, c.customer_name 
          FROM sales s 
          LEFT JOIN customers c ON s.customer_id = c.customer_id 
-         WHERE s.sales_id = $1",
+         WHERE s.sales_id = $1 LIMIT 1",
     )
-    .bind(sales_id)
+    .bind(sales_id.trim())
     .fetch_optional(&*state)
     .await
     .map_err(|e| e.to_string())?
