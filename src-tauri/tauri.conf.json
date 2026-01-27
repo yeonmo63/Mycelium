@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "csi-manager",
+  "version": "1.0.1",
+  "identifier": "com.csi-manager",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/yeonmo63/mushroomFarm/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5QTk5MkQ3ODI2NTcyQTYKUldTbWNtV0MxNUtwR2VYdHpnUWJLcGdVeERTejhjblorSi8vY0YyeWZWTWV3YnpHeEgzbjdocUoK"
+    }
+  },
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "resizable": true,
+        "title": "csi-manager",
+        "width": 1920,
+        "height": 1030,
+        "minWidth": 1920,
+        "minHeight": 1030,
+        "maxWidth": 2560,
+        "maxHeight": 1440,
+        "center": true,
+        "maximizable": true,
+        "minimizable": true,
+        "visible": true,
+        "backgroundColor": "#020617"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://t1.daumcdn.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' * data: blob:; connect-src 'self' *"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "wix": {
+        "language": "ko-KR"
+      }
+    }
+  }
+}

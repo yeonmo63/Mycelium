@@ -1,0 +1,59 @@
+
+#[tauri::command]
+async fn update_customer_address(
+    state: State<'_, DbPool>,
+    address_id: i32,
+    customer_id: String,
+    alias: String,
+    recipient: String,
+    mobile: String,
+    zip: Option<String>,
+    addr1: String,
+    addr2: Option<String>,
+    is_default: bool,
+    memo: Option<String>,
+) -> Result<(), String> {
+    // 1. If setting as default, reset others
+    if is_default {
+        sqlx::query("UPDATE customer_addresses SET is_default = false WHERE customer_id = $1")
+            .bind(&customer_id)
+            .execute(&*state)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    // 2. Update the address
+    sqlx::query(
+        "UPDATE customer_addresses SET
+            address_alias = $1, recipient_name = $2, mobile_number = $3,
+            zip_code = $4, address_primary = $5, address_detail = $6,
+            is_default = $7, shipping_memo = $8
+        WHERE address_id = $9"
+    )
+    .bind(alias)
+    .bind(recipient)
+    .bind(mobile)
+    .bind(&zip)
+    .bind(&addr1)
+    .bind(&addr2)
+    .bind(is_default)
+    .bind(memo)
+    .bind(address_id)
+    .execute(&*state)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 3. If default, sync to customer
+    if is_default {
+        sqlx::query("UPDATE customers SET zip_code = $1, address_primary = $2, address_detail = $3 WHERE customer_id = $4")
+            .bind(zip)
+            .bind(addr1)
+            .bind(addr2)
+            .bind(customer_id)
+            .execute(&*state)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}

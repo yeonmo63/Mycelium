@@ -1,0 +1,3434 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+
+    --radius: 0.5rem;
+    color-scheme: dark;
+    /* Helps browser defaults */
+  }
+}
+
+/* Force Autofill styles to match dark theme */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #0f172a inset !important;
+  /* matches slate-950 */
+  -webkit-text-fill-color: white !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+#app-splash {
+  transition: opacity 0.5s ease;
+}
+
+.text-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.consolidate-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Tabs Styling (Premium Segmented Control) */
+.tab-btn {
+  padding: 10px 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 10px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-btn.active {
+  background: white !important;
+  font-weight: 700 !important;
+  color: #1e293b !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+.tab-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.5) !important;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.logo.vanilla:hover {
+  filter: drop-shadow(0 0 2em #ffe21c);
+}
+
+:root {
+  /* Default Theme (Blue) */
+  --primary-color: #2563eb;
+  /* Blue 600 */
+  --primary-hover: #1d4ed8;
+  /* Blue 700 */
+  --primary-light: #3b82f6;
+  /* Blue 500 */
+  --primary-faint: rgba(37, 99, 235, 0.1);
+  /* Faint background for active items */
+
+  --bg-color: #f3f4f6;
+  --sidebar-bg: #1f2937;
+  /* Default sidebar (overridden in styles usually) */
+  --sidebar-gradient-start: #1e293b;
+  --sidebar-gradient-end: #0f172a;
+
+  --text-main: #111827;
+  --text-scnd: #6b7280;
+
+  --card-bg: #ffffff;
+  --border-color: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.app-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-color);
+  overflow: hidden;
+  position: relative;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  background: linear-gradient(180deg, var(--sidebar-gradient-start) 0%, var(--sidebar-gradient-end) 100%);
+  color: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.logo {
+  padding: 32px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 16px;
+}
+
+.logo h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  background: linear-gradient(to right, #60a5fa, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: -0.02em;
+}
+
+/* Menu Styles */
+.menu {
+  list-style: none;
+  padding: 0 16px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.menu li {
+  margin-bottom: 4px;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.menu a {
+  color: #94a3b8;
+  text-decoration: none;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+}
+
+.btn-icon-action,
+.btn-icon-small {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+}
+
+.btn-icon-small:hover {
+  background-color: #f1f5f9;
+  color: var(--primary-color);
+}
+
+.menu a .material-symbols-rounded {
+  margin-right: 12px;
+  font-size: 20px;
+  transition: color 0.2s;
+}
+
+.menu>li:hover>a {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+.menu>li:hover>a .material-symbols-rounded {
+  color: #60a5fa;
+}
+
+.menu li.active>a {
+  background: linear-gradient(to right, var(--primary-color), var(--primary-light));
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+.menu li.active>a .material-symbols-rounded {
+  color: white;
+}
+
+/* Submenu Styles */
+.submenu {
+  list-style: none;
+  background-color: transparent;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding-left: 12px;
+  margin-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.submenu li {
+  margin: 2px 0;
+}
+
+.submenu li a {
+  padding: 10px 16px;
+  font-size: 0.9em;
+  color: #f8fafc;
+  /* Changed to off-white for better visibility on dark sidebar */
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.submenu li a .material-symbols-rounded {
+  font-size: 18px;
+  margin-right: 10px;
+  color: #94a3b8;
+}
+
+.submenu li:hover a {
+  color: white;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.submenu li:hover a .material-symbols-rounded {
+  color: #60a5fa;
+}
+
+.submenu li.active a {
+  color: white;
+  background-color: rgba(37, 99, 235, 0.2);
+  font-weight: 600;
+}
+
+.submenu li.active a .material-symbols-rounded {
+  color: #60a5fa;
+}
+
+/* Toggle State */
+.menu-item-has-children.expanded .submenu {
+  max-height: 800px;
+  /* Arbitrary large height for animation */
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.menu-toggle {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.menu-label {
+  display: flex;
+  align-items: center;
+}
+
+.menu-toggle::after {
+  content: 'expand_more';
+  font-family: 'Material Symbols Rounded';
+  font-size: 20px;
+  transition: transform 0.3s ease;
+  color: #64748b;
+}
+
+.menu-item-has-children.expanded .menu-toggle::after {
+  transform: rotate(180deg);
+  color: #e2e8f0;
+}
+
+/* Main Content */
+.main-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.view {
+  display: none;
+  width: 100%;
+  max-width: none;
+  /* Updated for responsiveness on high-res displays */
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.view.active {
+  display: flex;
+}
+
+/* Fluid container for sales modules */
+.sales-v3-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  width: 100%;
+  max-width: none;
+  /* Updated for responsiveness on high-res displays */
+  margin-left: 0;
+  margin-right: auto;
+}
+
+h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--card-bg);
+  padding: 12px 16px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stat-card h3 {
+  font-size: 0.8rem;
+  color: var(--text-scnd);
+  margin-bottom: 2px;
+  font-weight: 500;
+}
+
+.stat-card .value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.charts-container {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+}
+
+.chart-card {
+  background: var(--card-bg);
+  padding: 16px;
+  /* Reduced padding */
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  height: 320px;
+  /* Enforce height */
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-card canvas {
+  flex: 1;
+  max-height: 260px;
+  /* Constrain canvas height */
+}
+
+.recent-sales-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.recent-sales-table th,
+.recent-sales-table td {
+  text-align: left;
+  padding: 12px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.recent-sales-table th {
+  color: var(--text-scnd);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.recent-sales-table td {
+  font-size: 0.8rem;
+}
+
+/* View & Content Styles - Already defined in Main Content section for QHD support */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.content-header {
+  margin-bottom: 8px;
+}
+
+.content-header h2 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  background: linear-gradient(to right, #111827, #374151);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Fallback matches bg roughly if not supported, but usually ok */
+  margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  color: #6b7280;
+  font-size: 1rem;
+  line-height: 1.5;
+  max-width: 600px;
+}
+
+.subtitle {
+  color: var(--text-scnd);
+  font-size: 0.95rem;
+}
+
+/* Modern Form Container */
+.form-container {
+  background: white;
+  padding: 16px 32px;
+  border-radius: 20px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  max-width: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-sizing: border-box;
+}
+
+.form-group {
+  margin-bottom: 10px;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: #374151;
+  font-size: 0.9rem;
+  letter-spacing: -0.01em;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-wrapper .material-symbols-rounded {
+  position: absolute;
+  left: 16px;
+  color: #9ca3af;
+  font-size: 20px;
+  pointer-events: none;
+  transition: color 0.2s;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea,
+.input-field {
+  width: 100%;
+  padding: 8px 12px 8px 42px;
+  /* Slightly taller inputs */
+  border: 1px solid #334155;
+  /* Darker border */
+  border-radius: 10px;
+  font-size: 0.9rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #f8fafc;
+  /* White text */
+  font-family: inherit;
+  background-color: #0f172a;
+  /* Dark background (slate-950) */
+  box-sizing: border-box;
+}
+
+.form-group input,
+.form-group select,
+.input-field:not(textarea) {
+  height: 34px;
+}
+
+/* Inputs without icons should have less padding-left */
+.input-field:not([class*="col-width"]) {
+  padding-left: 16px;
+}
+
+/* Fix specific inputs that do have icons but use input-field class */
+.input-wrapper .input-field {
+  padding-left: 42px;
+}
+
+.form-group input:hover,
+.form-group select:hover,
+.form-group textarea:hover {
+  background-color: #1e293b;
+  /* Slightly lighter dark (slate-800) */
+  border-color: #475569;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus,
+.input-field:focus {
+  outline: none;
+  border-color: var(--primary-light);
+  background-color: #0f172a;
+  /* Keep dark background */
+  color: #fff;
+  /* Ensure text is white */
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+  /* Trendy focus ring */
+}
+
+.input-wrapper input:focus+.material-symbols-rounded,
+.input-wrapper:focus-within .material-symbols-rounded {
+  color: var(--primary-light);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+  /* Reduced from 32px->27px->22px */
+}
+
+/* Row Action Buttons Container */
+.row-actions {
+  display: flex;
+  flex-direction: row;
+  /* Explicitly set row */
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  /* Prevent wrapping */
+}
+
+/* Modern Buttons */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+  border: none;
+  letter-spacing: 0.01em;
+}
+
+button .material-symbols-rounded {
+  font-size: 20px;
+  margin-right: 8px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+  color: white;
+  box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2), 0 2px 4px rgba(37, 99, 235, 0.1);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 12px rgba(37, 99, 235, 0.25), 0 4px 6px rgba(37, 99, 235, 0.1);
+  filter: brightness(110%);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background-color: white;
+  color: #4b5563;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-secondary:hover {
+  background-color: #f9fafb;
+  border-color: #d1d5db;
+  color: #111827;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Text Action Button (Icon + Text) used in Tables */
+.btn-text-action {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.btn-text-action:hover {
+  background-color: #f1f5f9;
+  color: var(--primary-color);
+  transform: translateY(-1px);
+}
+
+.btn-text-action:active {
+  transform: translateY(0);
+}
+
+.btn-text-action .material-symbols-rounded {
+  font-size: 18px;
+  margin-right: 6px;
+}
+
+/* Modern Tables */
+.table-container {
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  /* Ensure radius clips content */
+}
+
+.recent-sales-table {
+  width: 100%;
+  border-collapse: separate;
+  /* Required for border-radius */
+  border-spacing: 0;
+}
+
+.recent-sales-table th {
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.recent-sales-table td {
+  padding: 10px 12px;
+  background: white;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.8rem;
+  color: #334155;
+  transition: background 0.1s;
+}
+
+.recent-sales-table tr:hover td {
+  background: #f8fafc;
+}
+
+.recent-sales-table tr:last-child td {
+  border-bottom: none;
+}
+
+.compact-table th,
+.compact-table td {
+  padding: 8px 12px;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+
+/* Specific Column Widths - !important to override .form-group input 100% width */
+.col-width-10 {
+  width: 130px !important;
+  max-width: 100%;
+}
+
+/* +30px */
+.col-width-12 {
+  width: 140px !important;
+  max-width: 100%;
+}
+
+/* +30px */
+.col-width-15 {
+  width: 180px !important;
+  max-width: 100%;
+}
+
+/* +30px */
+.col-width-20 {
+  width: 140px !important;
+  max-width: 100%;
+}
+
+.col-width-30 {
+  width: 240px !important;
+  max-width: 100%;
+}
+
+.col-width-50 {
+  width: 50% !important;
+  max-width: 100%;
+}
+
+/* Modal Styles */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Ensures full width */
+  bottom: 0;
+  /* Ensures full height */
+  width: auto;
+  /* Allow flex to handle content */
+  height: auto;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 20000;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+
+.modal.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.modal-content {
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 320px;
+  text-align: center;
+}
+
+.modal-content h3 {
+  margin-bottom: 12px;
+  font-size: 1.1rem;
+  color: #111827;
+}
+
+.modal-content p {
+  color: #4b5563;
+  margin-bottom: 24px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  word-break: break-all;
+  /* Ensure long paths wrap */
+}
+
+.modal-buttons {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* Local Content Loading Overlay - Global Style */
+.local-loading {
+  position: relative;
+  min-height: 400px;
+  pointer-events: none;
+  /* Prevent clicks while loading */
+}
+
+.local-loading>* {
+  opacity: 0.1;
+  /* Fade out content */
+  transition: opacity 0.3s;
+}
+
+.local-loading::after {
+  content: "sync";
+  font-family: 'Material Symbols Rounded';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 60px;
+  height: 60px;
+  margin: -40px 0 0 -30px;
+  font-size: 60px;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: spin 1s linear infinite;
+  z-index: 50;
+}
+
+.local-loading::before {
+  content: attr(data-loading-text);
+  position: absolute;
+  top: calc(50% + 40px);
+  left: 0;
+  width: 100%;
+  text-align: center;
+  color: #475569;
+  font-weight: 600;
+  font-size: 1.05rem;
+  z-index: 50;
+  text-shadow: 0 2px 4px rgba(255, 255, 255, 0.8);
+}
+
+@media print {
+
+  /* Hide non-printable elements */
+  .sidebar,
+  .form-actions,
+  .search-bar-container,
+  .modal,
+  .content-header p,
+  /* Hide subtitle */
+  .menu-toggle,
+  /* Hide buttons */
+  #btn-shipping-csv,
+  #btn-shipping-print,
+  /* Hide buttons */
+  header,
+  .view {
+    display: none !important;
+  }
+
+  /* Reset layout */
+  .app-container {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .main-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  body {
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  /* Show ONLY the active view */
+  .view.active {
+    display: block !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+
+
+  /* Table styling for print */
+  .modern-card,
+  .form-container {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  .table-container {
+    border: 1px solid #000 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Modal Print Support */
+  #monthly-sales-modal:not(.hidden),
+  #monthly-chart-modal:not(.hidden),
+  #product-10yr-sales-modal:not(.hidden) {
+    display: block !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    background: white !important;
+    z-index: 9999 !important;
+  }
+
+  #monthly-sales-modal:not(.hidden) .modal-content,
+  #monthly-chart-modal:not(.hidden) .modal-content,
+  #product-10yr-sales-modal:not(.hidden) .modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide main content when printing modal */
+  body:has(#monthly-sales-modal:not(.hidden)) .main-content,
+  body:has(#monthly-sales-modal:not(.hidden)) .sidebar,
+  body:has(#monthly-chart-modal:not(.hidden)) .main-content,
+  body:has(#monthly-chart-modal:not(.hidden)) .sidebar,
+  body:has(#product-10yr-sales-modal:not(.hidden)) .main-content,
+  body:has(#product-10yr-sales-modal:not(.hidden)) .sidebar {
+    display: none !important;
+  }
+
+  /* Hide modal buttons during print */
+  #monthly-sales-modal .modal-buttons,
+  #monthly-chart-modal .modal-buttons,
+  #product-10yr-sales-modal .modal-buttons {
+    display: none !important;
+  }
+
+  .recent-sales-table th,
+  .recent-sales-table td {
+    color: black !important;
+    border: 1px solid #ccc !important;
+    white-space: normal !important;
+    /* Allow wrapping */
+  }
+
+  /* Hide scrollbars just in case */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Duplicate List Styles */
+.duplicate-item-row:hover {
+  background-color: var(--color-gray-50);
+}
+
+.duplicate-action-btn {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  background-color: var(--color-gray-200);
+  color: var(--color-gray-700);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.duplicate-action-btn:hover {
+  background-color: #d1d5db;
+}
+
+/* ========================================= */
+/*  Sales General Receipt Redesign Sections  */
+/* ========================================= */
+
+/* Layout Grid */
+.sales-layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  /* Fixed left width, flexible right */
+  gap: 24px;
+  height: calc(100vh - 140px);
+  /* Adjust based on header height, make full available height */
+  overflow: hidden;
+  /* Prevent main scrollbar if cards scroll internally */
+}
+
+/* Modern Card */
+.modern-card {
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+  padding: 10px 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(243, 244, 246, 0.8);
+}
+
+.modern-card h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modern-card h3 .material-symbols-rounded {
+  color: var(--primary-color);
+  font-size: 20px;
+  background: #eff6ff;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+/* Scrollable areas within cards */
+.card-content-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  /* Space for scrollbar */
+}
+
+/* Customer Info Vertical Stack */
+.info-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.info-item label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.info-item input {
+  /* Inherits global style, just ensure background if needed */
+  background-color: #f8fafc;
+}
+
+/* Sales History Table in Card */
+.sales-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  border-radius: 12px;
+  border: 1px solid #f1f5f9;
+}
+
+.modern-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.modern-table th {
+  background: #f8fafc;
+  height: 30px;
+  padding: 0;
+  font-size: 0.85rem;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid #e2e8f0;
+  z-index: 10;
+}
+
+.modern-table td {
+  height: 20px;
+  padding: 0;
+  text-align: center;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.8rem;
+  color: #1e293b;
+  line-height: 20px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.modern-table tr {
+  height: 20px;
+}
+
+.modern-table input,
+.modern-table select {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+  font-size: inherit;
+  font-family: inherit;
+  line-height: 20px;
+  display: block;
+}
+
+.modern-table .material-symbols-rounded {
+  font-size: 16px !important;
+  line-height: 1 !important;
+  display: block;
+}
+
+.modern-table input:focus,
+.modern-table select:focus {
+  outline: 2px solid var(--primary-color);
+  background-color: #fff;
+}
+
+.modern-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  /* Pill shape */
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.status-badge.pending {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.status-badge.paid {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.status-badge.shipping {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.status-badge.delivered {
+  background-color: #f3f4f6;
+  color: #4b5563;
+}
+
+/* New Order Horizontal Form */
+.new-order-form {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.new-order-form label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.new-order-form input,
+.new-order-form select {
+  /* Inherits global style */
+  background: white;
+}
+
+/* Layout 3.0 Vertical Stack */
+.sales-v3-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  /* Dynamic fill */
+  height: 100%;
+  /* Ensure it takes full height of parent */
+  min-height: 0;
+  /* Enable internal scrolling */
+}
+
+/* Input Table Styling */
+.input-table .input-row td {
+  padding: 8px;
+  background: #f0f9ff;
+  border-bottom: 2px solid #bae6fd;
+}
+
+.input-product,
+.input-field {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: inherit;
+  font-size: inherit;
+}
+
+/* Table Container - Supports 2D Scrolling */
+.table-container {
+  width: 100%;
+  overflow: auto;
+  /* allow both scroll */
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+}
+
+.input-table input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  /* Unified font size */
+}
+
+.input-table input:focus {
+  border-color: #2563eb;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+/* ========================================= */
+/*  Refined Compact Table & Modern Buttons   */
+/* ========================================= */
+
+/* Ultra Compact Input Table Styles */
+/* Ultra Compact Input Table Styles */
+.input-table td {
+  padding: 4px 6px !important;
+  /* increased padding */
+  vertical-align: middle;
+  height: 44px;
+  /* increased from 32px */
+}
+
+.input-table input,
+.input-table select {
+  padding: 4px 8px;
+  /* Compact Padding */
+  font-size: 0.9rem;
+  /* Compact Font Size */
+  height: 36px !important;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.input-table input:hover,
+.input-table input:focus,
+.input-table select:hover,
+.input-table select:focus {
+  background: #ffffff;
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  /* Match global focus color */
+}
+
+.input-table input::placeholder {
+  color: #cbd5e1;
+}
+
+.input-table .input-price {
+  text-align: right;
+}
+
+.input-table select {
+  cursor: pointer;
+}
+
+/* Row Action Buttons Container */
+/* Row Action Buttons Container */
+.row-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  /* Changed from center to flex-start */
+  gap: 6px;
+  white-space: nowrap;
+  padding-left: 4px;
+  /* Added slight padding for visual balance */
+}
+
+/* Modern Icon Buttons (Squircle & Ghost) */
+.btn-icon-action {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: transparent;
+}
+
+.btn-icon-delete {
+  color: #94a3b8;
+}
+
+.btn-icon-delete:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.btn-icon-add {
+  color: var(--primary-light);
+  background: #eff6ff;
+}
+
+.btn-icon-add:hover {
+  background: var(--primary-color);
+  color: white;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+
+.btn-icon-action span {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+/* Specific Adjustments for Customer Management Views to Reduce Scrolling */
+#customer-register-view .content-header,
+#customer-edit-view .content-header,
+#customer-batch-view .content-header {
+  margin-bottom: 12px;
+}
+
+#customer-register-view .form-container,
+#customer-edit-view .form-container,
+#customer-batch-view .form-container {
+  padding: 24px;
+}
+
+#customer-batch-view .form-container {
+  padding: 20px 24px;
+}
+
+#customer-register-view .form-group,
+#customer-edit-view .form-group {
+  margin-bottom: 6px;
+}
+
+#customer-register-view .form-group label,
+#customer-edit-view .form-group label {
+  margin-bottom: 2px;
+}
+
+/* Event Info Card Specifics */
+.event-info-card {
+  padding: 10px 16px !important;
+}
+
+.event-info-card .input-field {
+  font-size: 0.9rem;
+  /* Unified font size */
+  padding: 6px 12px;
+}
+
+/* ========================================= */
+/*  Customer Form Height Reduction (Aggressive) */
+/* ========================================= */
+
+#customer-register-view .content-header,
+#customer-edit-view .content-header,
+#customer-batch-view .content-header {
+  margin-bottom: 8px;
+  /* Reduced from default */
+}
+
+/* Specific overrides for Customer forms to prevent scrolling */
+#customer-register-view .form-group input,
+#customer-register-view .form-group select,
+#customer-register-view .form-group textarea,
+#customer-edit-view .form-group input,
+#customer-edit-view .form-group select,
+#customer-edit-view .form-group textarea {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  height: 38px !important;
+  /* Force a compact height */
+}
+
+/* Reduce form container padding */
+#customer-register-view .form-container,
+#customer-edit-view .form-container {
+  padding: 12px !important;
+}
+
+/* Compact form groups */
+#customer-register-view .form-group,
+#customer-edit-view .form-group {
+  margin-bottom: 6px !important;
+}
+
+/* Adjust labels to be closer */
+#customer-register-view .form-group label,
+#customer-edit-view .form-group label {
+  margin-bottom: 4px !important;
+  font-size: 0.85rem;
+}
+
+/* -------------------------------------------------------------
+   Modern Theme Overrides
+   ------------------------------------------------------------- */
+body.modern-theme {
+  font-family: 'Pretendard', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #1e293b;
+  background-color: #f8fafc;
+}
+
+/* Sidebar Modern */
+body.modern-theme .sidebar {
+  background: var(--sidebar-bg);
+  border-right: none;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.05);
+}
+
+body.modern-theme .menu li>a {
+  border-radius: 8px;
+  margin: 0 10px;
+}
+
+body.modern-theme .menu li.active>a {
+  background: var(--primary-light);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  /* Keep shadow static or calc? Keep for now */
+}
+
+/* Buttons Modern */
+body.modern-theme .btn-primary {
+  border-radius: 8px;
+  padding: 10px 20px;
+  box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+body.modern-theme .btn-primary:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px -2px rgba(59, 130, 246, 0.4);
+}
+
+body.modern-theme .btn-secondary {
+  border-radius: 8px;
+  padding: 10px 20px;
+  background: white;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
+/* Inputs Modern */
+body.modern-theme .input-field,
+body.modern-theme input[type="text"],
+body.modern-theme input[type="number"],
+body.modern-theme select {
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  transition: all 0.2s;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+body.modern-theme .input-field:focus,
+body.modern-theme input[type="text"]:focus {
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  /* Static shadow color for now */
+  outline: none;
+}
+
+/* Cards Modern */
+body.modern-theme .stat-card,
+body.modern-theme .chart-card,
+body.modern-theme .modern-card,
+body.modern-theme .view {
+  border-radius: 16px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.03), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  border: 1px solid #f1f5f9;
+}
+
+/* Table Modern */
+body.modern-theme .recent-sales-table th {
+  background: #f8fafc;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+body.modern-theme .recent-sales-table tr:hover td {
+  background-color: #f1f5f9;
+}
+
+/* Badge Modern */
+body.modern-theme .status-badge {
+  border-radius: 6px;
+  font-weight: 600;
+  padding: 4px 10px;
+}
+
+/* ========================================= */
+/*  Print Styles                             */
+/* ========================================= */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body {
+    background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Global Print Reset */
+  .sidebar,
+  header,
+  nav,
+  .app-header,
+  .menu-toggle,
+  .content-header,
+  .search-bar-container,
+  .shipping-stats-row,
+  .btn-secondary,
+  .btn-primary,
+  .subtitle,
+  p.text-right {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Reset Layout Stacking to Full Page */
+  .app-container,
+  .main-content {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+
+  /* Show the active view only */
+  .view {
+    display: none !important;
+  }
+
+  .view.active {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Reset card/table containers */
+  .modern-card,
+  .table-container {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Mode 1: Default List Print Title (Shipping) */
+  #sales-shipping-view.active:not(.print-mode-request)::before {
+    content: '배송 처리 현황';
+    display: block;
+    font-size: 18pt;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  #sales-shipping-view.active::after {
+    content: '인쇄 일시: ' attr(data-print-date);
+    display: block;
+    text-align: right;
+    font-size: 9pt;
+    color: #666;
+    margin-bottom: 20px;
+  }
+
+  /* Daily Receipts Title is now in JSX (Removed CSS content) */
+
+  /* Specific: Daily Sales Receipts Traditional Print */
+  #sales-daily-receipts-view {
+    background: white !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Reset container styles specifically for print */
+  #sales-daily-receipts-view .shadow-xl,
+  #sales-daily-receipts-view .rounded-\[1\.5rem\],
+  #sales-daily-receipts-view .border-slate-200,
+  #sales-daily-receipts-view .bg-white {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Force Table Styles */
+  #sales-daily-receipts-view table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    border: 1px solid #000 !important;
+    font-family: "Malgun Gothic", dotum, sans-serif !important;
+  }
+
+  #sales-daily-receipts-view th,
+  #sales-daily-receipts-view td {
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    background: white !important;
+    padding: 6px 4px !important;
+    font-size: 9pt !important;
+    font-weight: normal !important;
+    vertical-align: middle !important;
+  }
+
+  #sales-daily-receipts-view thead tr,
+  #sales-daily-receipts-view th {
+    background: #f0f0f0 !important;
+    font-weight: bold !important;
+    color: #000 !important;
+    border-bottom: 1px solid #000 !important;
+  }
+
+  /* Footer Stats - Large & Bold */
+  #sales-daily-receipts-view tfoot td {
+    font-size: 14pt !important;
+    font-weight: 900 !important;
+    padding: 15px 5px !important;
+    border-top: 2px solid #000 !important;
+    border-bottom: 2px solid #000 !important;
+    background-color: white !important;
+    color: #000 !important;
+  }
+
+  /* Reset Status Badges for Print */
+  #sales-daily-receipts-view td span {
+    background: transparent !important;
+    color: #000 !important;
+    padding: 0 !important;
+    font-weight: normal !important;
+    border: none !important;
+  }
+
+  /* Mode 2: Delivery Request Print (Show custom table) */
+  #sales-shipping-view.active.print-mode-request .modern-shipping-table,
+  #sales-shipping-view.active.print-mode-request footer,
+  #sales-shipping-view.active.print-mode-request .modern-card>div:last-child {
+    display: none !important;
+  }
+
+  #shipping-request-print-area {
+    display: none;
+  }
+
+  #sales-shipping-view.active.print-mode-request #shipping-request-print-area {
+    display: block !important;
+  }
+
+  #sales-shipping-view.active.print-mode-request::before {
+    content: '발송 의뢰서 (Delivery Request)' !important;
+    font-size: 26pt !important;
+    margin-bottom: 20px !important;
+    text-align: center !important;
+    display: block !important;
+  }
+
+  #sales-shipping-view.active.print-mode-request::after {
+    content: '의뢰 일자: ' attr(data-request-date) !important;
+    text-align: left !important;
+    font-size: 12pt !important;
+    color: #000 !important;
+    margin-bottom: 25px !important;
+    font-weight: normal !important;
+  }
+
+  .request-print-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .request-print-table th,
+  .request-print-table td {
+    border: 1px solid #000 !important;
+    padding: 6px 4px !important;
+    font-size: 9pt !important;
+    color: #000 !important;
+    word-break: break-all;
+  }
+
+  .request-print-table th {
+    background: #f2f2f2 !important;
+    font-weight: bold;
+    text-align: center;
+  }
+
+  /* Hide unselected rows when printing */
+  tr.unselected-print {
+    display: none !important;
+  }
+
+  /* Ensure DOM header is visible and override global resets if any */
+  #sales-daily-receipts-view .print-table-header {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+  }
+}
+
+/* ========================================= */
+/*  Compact 10-Year Sales View               */
+/* ========================================= */
+#ten-year-sales-view .recent-sales-table th,
+#ten-year-sales-view .recent-sales-table td {
+  padding: 8px 12px;
+  /* Reduced from 16px */
+  font-size: 0.85rem;
+}
+
+#ten-year-sales-view .table-container {
+  /* Ensure container doesn't push footer off screen on small screens */
+  max-height: calc(100vh - 280px) !important;
+}
+
+
+.sch-list-item.inprogress {
+  border-color: #f59e0b;
+}
+
+.sch-list-item.completed {
+  border-color: #10b981;
+}
+
+.sch-list-item.important {
+  border-color: #ef4444;
+}
+
+.sch-list-item .sch-time {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.sch-list-item .sch-title {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.btn-icon-nav {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+}
+
+.btn-icon-nav:hover {
+  background: #f8fafc;
+  color: var(--primary-light);
+  border-color: var(--primary-light);
+}
+
+.btn-secondary-sm {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary-sm:hover {
+  background: #e2e8f0;
+}
+
+/* ========================================= */
+/*  Modern Schedule Management (Zero Base)   */
+/* ========================================= */
+.btn-icon-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+}
+
+.btn-icon-circle:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  transform: scale(1.05);
+}
+
+.btn-text-sm {
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.btn-text-sm:hover {
+  text-decoration: underline;
+}
+
+/* Calendar Legend & Grid */
+.cal-legend .legend-dot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.cal-legend .legend-dot::before {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-dot.planned::before {
+  background: #3b82f6;
+}
+
+/* Blue */
+.legend-dot.inprogress::before {
+  background: #f59e0b;
+}
+
+/* Amber */
+.legend-dot.completed::before {
+  background: #10b981;
+}
+
+/* Emerald */
+.legend-dot.important::before {
+  background: #ef4444;
+}
+
+/* Red */
+
+.cal-day-name {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.cal-day-name.sun {
+  color: #ef4444;
+}
+
+.cal-day-name.sat {
+  color: #3b82f6;
+}
+
+/* Grid Cells */
+.modern-cal-cell {
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  min-height: 80px;
+  /* Base height */
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.modern-cal-cell:hover {
+  background: #f8fafc;
+}
+
+.modern-cal-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.modern-cal-cell.other-month {
+  background: #fafbfc;
+}
+
+.modern-cal-cell.other-month .day-num {
+  color: #cbd5e1;
+}
+
+.modern-cal-cell.today {
+  background: #fff;
+}
+
+.modern-cal-cell.selected {
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+  background: #f0f9ff;
+}
+
+/* Day Number */
+.day-num {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.modern-cal-cell.today .day-num {
+  background: var(--primary-color);
+  color: white;
+}
+
+.modern-cal-cell.sun .day-num {
+  color: #ef4444;
+}
+
+/* Optional: Red Sundays */
+.modern-cal-cell.today.sun .day-num {
+  color: white;
+}
+
+/* Today overrides red */
+
+/* Events on Calendar */
+.cal-event-bar {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2px;
+  height: 20px;
+  line-height: 16px;
+}
+
+.cal-event-bar:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.cal-event-bar.planned {
+  background: #3b82f6;
+}
+
+.cal-event-bar.inprogress {
+  background: #f59e0b;
+}
+
+.cal-event-bar.completed {
+  background: #10b981;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.cal-event-bar.important {
+  background: #ef4444;
+  font-weight: 700;
+}
+
+/* Sidebar Event List Items */
+.side-event-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.side-event-item:hover {
+  background: white;
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transform: translateX(4px);
+}
+
+.side-event-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 50px;
+  border-right: 1px solid #e2e8f0;
+  padding-right: 12px;
+  margin-right: 12px;
+}
+
+.side-time-start {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+.side-time-end {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.side-event-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.side-event-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #334155;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-event-chip {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  font-weight: 600;
+}
+
+.side-event-chip.planned {
+  color: #2563eb;
+  background: #dbeafe;
+}
+
+.side-event-chip.inprogress {
+  color: #d97706;
+  background: #fef3c7;
+}
+
+.side-event-chip.completed {
+  color: #059669;
+  background: #d1fae5;
+}
+
+.side-event-chip.important {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+/* Radio Chips for Modal */
+.radio-chip-group input {
+  display: none;
+}
+
+.radio-chip-group .chip-label {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #64748b;
+  background: #f1f5f9;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.radio-chip-group input:checked+.chip-label {
+  background: white;
+  border-color: currentColor;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.radio-chip-group input:checked+.chip-label.status-planned {
+  color: #3b82f6;
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.radio-chip-group input:checked+.chip-label.status-inprogress {
+  color: #f59e0b;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.radio-chip-group input:checked+.chip-label.status-completed {
+  color: #10b981;
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.radio-chip-group input:checked+.chip-label.status-important {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+/* Empty State */
+.empty-state-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: #94a3b8;
+}
+
+/* ========================================= */
+/*  Modal Overlay Styles (Fixed for New Modal) */
+/* ========================================= */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  /* transition: opacity 0.2s; */
+}
+
+/* Fallback for existing .modal class if needed */
+.modal {
+  display: flex;
+  /* Ensure flex if active */
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-container {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.modal-body {
+  /* Padding handled inline or here */
+  background: white;
+}
+
+.modal-footer {
+  padding: 20px 24px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #f8fafc;
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ========================================= */
+/*  Modern Schedule Management (Zero Base)   */
+/* ========================================= */
+.btn-icon-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+}
+
+.btn-icon-circle:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  transform: scale(1.05);
+}
+
+.btn-text-sm {
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.btn-text-sm:hover {
+  text-decoration: underline;
+}
+
+/* Legend */
+.cal-legend .legend-dot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.cal-legend .legend-dot::before {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-dot.planned::before {
+  background: #3b82f6;
+}
+
+/* Blue */
+.legend-dot.inprogress::before {
+  background: #f59e0b;
+}
+
+/* Amber */
+.legend-dot.completed::before {
+  background: #10b981;
+}
+
+/* Emerald */
+.legend-dot.important::before {
+  background: #ef4444;
+}
+
+/* Red */
+
+/* Day Names */
+.cal-day-name {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding-bottom: 8px;
+}
+
+.cal-day-name.sun {
+  color: #ef4444;
+}
+
+.cal-day-name.sat {
+  color: #3b82f6;
+}
+
+/* Grid Cells */
+.modern-cal-cell {
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  min-height: 80px;
+  /* Base height */
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.modern-cal-cell:hover {
+  background: #f8fafc;
+}
+
+.modern-cal-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.modern-cal-cell.other-month {
+  background: #fafbfc;
+}
+
+.modern-cal-cell.other-month .day-num {
+  color: #cbd5e1;
+}
+
+.modern-cal-cell.today {
+  background: #fff;
+}
+
+.modern-cal-cell.selected {
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+  background: #f0f9ff;
+}
+
+/* Day Number */
+.day-num {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.modern-cal-cell.today .day-num {
+  background: var(--primary-color);
+  color: white;
+}
+
+.modern-cal-cell.sun .day-num {
+  color: #ef4444;
+}
+
+/* Optional: Red Sundays */
+.modern-cal-cell.today.sun .day-num {
+  color: white;
+  /* Today overrides red */
+}
+
+/* Events on Calendar */
+.cal-event-bar {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2px;
+  height: 20px;
+  line-height: 16px;
+}
+
+.cal-event-bar:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.cal-event-bar.planned {
+  background: #3b82f6;
+}
+
+.cal-event-bar.inprogress {
+  background: #f59e0b;
+}
+
+.cal-event-bar.completed {
+  background: #10b981;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.cal-event-bar.important {
+  background: #ef4444;
+  font-weight: 700;
+}
+
+/* Sidebar Event List Items */
+.side-event-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 12px;
+}
+
+.side-event-item:hover {
+  background: white;
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transform: translateX(4px);
+}
+
+.side-event-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 50px;
+  border-right: 1px solid #e2e8f0;
+  padding-right: 12px;
+  margin-right: 12px;
+}
+
+.side-time-start {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+.side-time-end {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.side-event-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.side-event-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #334155;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-event-chip {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  font-weight: 600;
+}
+
+.side-event-chip.planned {
+  color: #2563eb;
+  background: #dbeafe;
+}
+
+.side-event-chip.inprogress {
+  color: #d97706;
+  background: #fef3c7;
+}
+
+.side-event-chip.completed {
+  color: #059669;
+  background: #d1fae5;
+}
+
+.side-event-chip.important {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+/* Radio Chips for Modal */
+.radio-chip-group input {
+  display: none;
+}
+
+.radio-chip-group .chip-label {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #64748b;
+  background: #f1f5f9;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.radio-chip-group input:checked+.chip-label {
+  background: white;
+  border-color: currentColor;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.radio-chip-group input:checked+.chip-label.status-planned {
+  color: #3b82f6;
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.radio-chip-group input:checked+.chip-label.status-inprogress {
+  color: #f59e0b;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.radio-chip-group input:checked+.chip-label.status-completed {
+  color: #10b981;
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.radio-chip-group input:checked+.chip-label.status-important {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+/* Empty State */
+.empty-state-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: #94a3b8;
+}
+
+/* ========================================= */
+/*  Standardized Input Styles                */
+/* ========================================= */
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input[type='email'],
+input[type='date'],
+input[type='time'],
+input[type='datetime-local'],
+select,
+textarea,
+.input-field {
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #1e293b;
+  background-color: #ffffff;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.input-field:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: #f1f5f9;
+  color: #64748b;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
+
+/* Compact Inputs for Tables */
+.modern-table input,
+.input-table input,
+.modern-table select,
+.input-table select {
+  padding: 4px 8px !important;
+  font-size: 0.9rem !important;
+  height: 36px !important;
+  border-radius: 6px !important;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.modern-table input:hover,
+.input-table input:hover,
+.modern-table input:focus,
+.input-table input:focus {
+  background: #ffffff;
+  border-color: #3b82f6;
+}
+
+/* Clean up specific overrides */
+.info-item input,
+.new-order-form input,
+.new-order-form select {
+  width: 100%;
+}
+
+/* ========================================= */
+/*  Input Wrapper Fix (Icon Overlap)         */
+/* ========================================= */
+.input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.input-wrapper .material-symbols-rounded {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 20px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Ensure input inside wrapper has space for icon */
+.input-wrapper input,
+.input-wrapper select {
+  padding-left: 42px !important;
+  width: 100%;
+}
+
+.input-wrapper textarea {
+  padding-left: 42px !important;
+}
+
+/* Icon alignment for textarea */
+.input-wrapper textarea+.material-symbols-rounded,
+.input-wrapper .material-symbols-rounded:has(+ textarea) {
+  top: 14px;
+  transform: none;
+}
+
+/* ========================================= */
+/*  Login View Styles                        */
+/* ========================================= */
+.login-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.login-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 48px;
+  border-radius: 24px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.5);
+  width: 100%;
+  max-width: 420px;
+  animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.login-logo {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-logo h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin: 12px 0 4px;
+  letter-spacing: -0.02em;
+}
+
+.login-logo p {
+  color: var(--text-scnd);
+  font-size: 0.95rem;
+}
+
+.login-card .input-wrapper .input-field {
+  height: 52px;
+  font-size: 1.05rem;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ========================================= */
+/*  Special Sales Table Specifics (Fix)      */
+/* ========================================= */
+#special-sales-history-table td {
+  padding: 4px !important;
+  vertical-align: middle;
+}
+
+#special-sales-history-table .input-field {
+  padding: 6px 8px !important;
+  height: 34px !important;
+  font-size: 0.9rem !important;
+  margin: 0 !important;
+}
+
+#special-sales-history-table .btn-icon-action {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto;
+}
+
+/* Modern Shipping Table Styles */
+.modern-shipping-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+}
+
+.modern-shipping-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.modern-shipping-table th {
+  background: #f1f5f9;
+  /* Slate 100 */
+  color: #475569;
+  /* Slate 600 */
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  padding: 12px 16px;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+  text-transform: uppercase;
+  /* Sticky header requirements */
+  position: sticky;
+  top: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.modern-shipping-table tbody tr {
+  transition: all 0.2s ease;
+  background-color: white;
+}
+
+.modern-shipping-table tbody tr:hover {
+  background-color: #eff6ff !important;
+  /* Blue 50 */
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  position: relative;
+  z-index: 1;
+}
+
+.modern-shipping-table td {
+  padding: 8px 12px !important;
+  height: 42px !important;
+  /* Slightly more breathing room than 35px but still compact */
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.9rem;
+  color: #334155;
+  /* Slate 700 */
+  vertical-align: middle;
+}
+
+.modern-shipping-table td:first-child,
+.modern-shipping-table th:first-child {
+  padding-left: 20px !important;
+}
+
+.modern-shipping-table td:last-child,
+.modern-shipping-table th:last-child {
+  padding-right: 20px !important;
+}
+
+/* Row alternate background for better readability */
+.modern-shipping-table tbody tr:nth-child(even) {
+  background-color: #fcfcfc;
+}
+
+/* Action button in table (if any) */
+.modern-shipping-table .btn-action-icon {
+  padding: 4px;
+  border-radius: 6px;
+  color: #94a3b8;
+  transition: all 0.2s;
+}
+
+.modern-shipping-table .btn-action-icon:hover {
+  background-color: #e2e8f0;
+  color: #3b82f6;
+}
+
+/* Specific styling for shipping status */
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-badge.receipt {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.status-badge.paid {
+  background-color: #dcfce7;
+  color: #16a34a;
+}
+
+.status-badge.shipped {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+/* Shipping Dashboard Unified Styles */
+.shipping-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.shipping-stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.shipping-stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-light);
+}
+
+.shipping-stat-card.active {
+  background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 6px rgba(37, 99, 235, 0.1);
+}
+
+.shipping-stat-card.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--primary-color);
+}
+
+.shipping-stat-card .label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shipping-stat-card .value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.shipping-stat-card .icon-box {
+  position: absolute;
+  right: -10px;
+  top: -10px;
+  font-size: 4rem;
+  opacity: 0.05;
+  color: var(--primary-color);
+}
+
+/* Workflow Stepper */
+.workflow-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  position: relative;
+}
+
+.step-dot.active {
+  background: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.step-dot.completed {
+  background: #10b981;
+}
+
+.step-line {
+  width: 12px;
+  height: 2px;
+  background: #e2e8f0;
+}
+
+.step-line.completed {
+  background: #10b981;
+}
+
+.workflow-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.workflow-label.receipt {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.workflow-label.paid {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.workflow-label.shipped {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* Hidden delivery request area for normal screen */
+#shipping-request-print-area {
+  display: none;
+}
+
+/* Selected row highlight */
+.modern-shipping-table tbody tr.selected-row {
+  background-color: #e0f2fe !important;
+  color: #0369a1;
+}
+
+.modern-shipping-table tbody tr.selected-row td {
+  font-weight: 500;
+}
+
+/* Bulk Action Button Style */
+.btn-primary.btn-bulk {
+  background-color: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.btn-primary.btn-bulk:hover {
+  background-color: #6d28d9;
+  border-color: #6d28d9;
+}
+
+/* Loading Spinner Animation */
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Utility classes for fixed widths */
+.w-fixed-150 {
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px !important;
+  flex: none !important;
+  /* Prevent flex resizing */
+}
+
+/* User Manual Styles (Added for v0.1.5) */
+.manual-section h2 {
+  margin-top: 40px;
+  font-size: 1.8rem;
+  color: var(--text-main);
+  border-left: 5px solid var(--primary-color);
+  padding-left: 15px;
+  margin-bottom: 20px;
+}
+
+.manual-section h3 {
+  margin-top: 25px;
+  font-size: 1.3rem;
+  color: var(--primary-light);
+  margin-bottom: 10px;
+}
+
+.manual-section p {
+  margin-bottom: 15px;
+  color: var(--text-scnd);
+  line-height: 1.6;
+}
+
+.manual-section ul {
+  background: #f1f5f9;
+  padding: 20px 40px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.manual-section li {
+  margin-bottom: 8px;
+  color: var(--text-main);
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+}
+
+.badge-neutral,
+.badge-default {
+  background-color: #94a3b8;
+  color: white;
+}
+
+.badge-new {
+  background-color: #ef4444;
+  color: white;
+}
+
+/* Emergency/New */
+.badge-shipping {
+  background-color: #f59e0b;
+  color: white;
+}
+
+/* In Progress */
+.badge-complete {
+  background-color: #10b981;
+  color: white;
+}
+
+/* Completed */
+.badge-warning {
+  background-color: #f59e0b;
+  color: white;
+}
+
+/* Priority High / Pending */
+.badge-danger {
+  background-color: #ef4444;
+  color: white;
+}
+
+/* Priority Extreme */
+.badge-info {
+  background-color: #3b82f6;
+  color: white;
+}
+
+/* Priority Low */
+.badge-default {
+  background-color: #94a3b8;
+  color: white;
+}
+
+/* Default */
+.badge-secondary {
+  background-color: #64748b;
+  color: white;
+}
+
+.badge-success {
+  background-color: #10b981;
+  color: white;
+}
+
+.badge-paid {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.badge-cancelled {
+  background-color: #64748b;
+  color: white;
+}
+
+.menu-structure {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.menu-item {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.menu-item:last-child {
+  border-bottom: none;
+}
+
+.menu-item strong {
+  margin-right: 8px;
+}
+
+code {
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  color: #c026d3;
+}
+
+/* Stylish Table for Dashboard */
+.stylish-table th {
+  padding: 12px 10px !important;
+  font-size: 0.85rem;
+  background: transparent !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.stylish-table td {
+  padding: 12px 10px !important;
+  background: transparent !important;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.stylish-table tr:hover td {
+  background-color: rgba(241, 245, 249, 0.5) !important;
+}
+
+.stylish-table-container {
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+}
+
+/* Skeleton Loading Animation */
+.skeleton {
+  background: #f1f5f9;
+  /* Fallback */
+  background: linear-gradient(110deg, #ececec 8%, #f5f5f5 18%, #ececec 33%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 8px;
+  display: inline-block;
+  min-height: 24px;
+}
+
+@keyframes shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
+
+.skeleton-value {
+  width: 120px;
+  height: 2rem;
+  margin-top: 4px;
+}
+
+/* Voice Command Styles */
+@keyframes wave {
+
+  0%,
+  100% {
+    height: 10px;
+    opacity: 0.5;
+  }
+
+  50% {
+    height: 30px;
+    opacity: 1;
+  }
+}
+
+.voice-wave div {
+  width: 4px;
+  background: #6366f1;
+  border-radius: 2px;
+  animation: wave 1s infinite ease-in-out;
+}
+
+#btn-voice-trigger.active {
+  color: #ef4444;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.2);
+    opacity: 0.7;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+#voice-search-bar:focus-within {
+  background: white !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+/* Global Loading Spinner */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+/* Tweaks for Dashboard Top Products Table */
+#dashboard-top-products-card .stylish-table td {
+  padding: 8px 10px !important;
+}
+
+.stylish-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.stylish-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.stylish-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
+}
+
+.stylish-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(99, 102, 241, 0.6);
+}
