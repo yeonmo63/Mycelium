@@ -4537,9 +4537,138 @@ struct BackupData {
     schedules: Vec<Schedule>,
     company_info: Vec<CompanyInfo>,
     expenses: Vec<Expense>,
-    purchases: Vec<Purchase>,
+    purchases: Vec<PurchaseBackup>,
     consultations: Vec<ConsultationAiAdvice>,
     inventory_logs: Vec<InventoryLog>,
+}
+
+// Backup-specific Purchase struct (without JOIN columns)
+#[derive(Debug, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+struct PurchaseBackup {
+    pub purchase_id: Option<i32>,
+    pub vendor_id: Option<i32>,
+    pub purchase_date: Option<NaiveDate>,
+    pub item_name: String,
+    pub quantity: i32,
+    pub unit_price: i32,
+    pub total_amount: i32,
+    pub memo: Option<String>,
+    pub inventory_synced: Option<bool>,
+    pub material_item_id: Option<i32>,
+}
+
+// DB Location Information
+#[derive(Debug, serde::Serialize)]
+struct DbLocationInfo {
+    is_local: bool,
+    has_pg_service: bool,
+    is_db_server: bool,
+    can_backup: bool,
+    db_host: String,
+    message: String,
+}
+
+// Check if PostgreSQL service is running on this PC (Windows)
+fn is_postgresql_service_running() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        // Try common PostgreSQL service names
+        let service_names = vec![
+            "postgresql-x64-16",
+            "postgresql-x64-15",
+            "postgresql-x64-14",
+            "postgresql",
+        ];
+
+        for service_name in service_names {
+            if let Ok(output) = std::process::Command::new("sc")
+                .args(&["query", service_name])
+                .output()
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.contains("RUNNING") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+#[tauri::command]
+async fn check_db_location(state: State<'_, DbPool>) -> Result<DbLocationInfo, String> {
+    let pool = &*state;
+
+    // 1. Query PostgreSQL for server address
+    let server_addr: Option<(Option<String>,)> = sqlx::query_as("SELECT inet_server_addr()::text")
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("Failed to query server address: {}", e))?;
+
+    let db_host = server_addr
+        .and_then(|r| r.0)
+        .unwrap_or_else(|| "localhost".to_string());
+
+    println!("[DB Location] db_host: {}", db_host);
+
+    // 2. Check if it's a local connection
+    let is_local = db_host.is_empty()
+        || db_host == "localhost"
+        || db_host == "127.0.0.1"
+        || db_host == "::1"
+        || db_host.starts_with("192.168.") && db_host == get_local_ip().unwrap_or_default();
+
+    println!("[DB Location] is_local: {}", is_local);
+
+    // 3. Check if PostgreSQL service is running on this PC
+    let has_pg_service = is_postgresql_service_running();
+
+    println!("[DB Location] has_pg_service: {}", has_pg_service);
+
+    // 4. Determine if this is the DB server
+    let is_db_server = is_local && has_pg_service;
+
+    println!("[DB Location] is_db_server: {}", is_db_server);
+
+    // 5. Create message
+    let message = if is_db_server {
+        "이 PC는 DB 서버입니다. 백업을 실행할 수 있습니다.".to_string()
+    } else if is_local && !has_pg_service {
+        "DB는 로컬이지만 PostgreSQL 서비스를 찾을 수 없습니다.".to_string()
+    } else {
+        format!(
+            "원격 DB 서버({})에 연결되어 있습니다. 백업은 DB 서버에서 실행하세요.",
+            db_host
+        )
+    };
+
+    Ok(DbLocationInfo {
+        is_local,
+        has_pg_service,
+        is_db_server,
+        can_backup: is_db_server,
+        db_host,
+        message,
+    })
+}
+
+// Helper function to get local IP
+fn get_local_ip() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("ipconfig").output() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if line.contains("IPv4") && line.contains("192.168.") {
+                    if let Some(ip) = line.split(':').nth(1) {
+                        return Some(ip.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]
@@ -4770,7 +4899,7 @@ async fn backup_database(
     );
     batch_table!(
         "purchases",
-        Purchase,
+        PurchaseBackup,
         "SELECT * FROM purchases",
         "purchases",
         "구매 내역 백업 중",

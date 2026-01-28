@@ -19,6 +19,7 @@ const SettingsBackup = () => {
     const [backupProgress, setBackupProgress] = useState({ progress: 0, message: '' });
     const [showProgress, setShowProgress] = useState(false);
     const [operationType, setOperationType] = useState('backup'); // 'backup' or 'restore'
+    const [dbLocationInfo, setDbLocationInfo] = useState(null);
 
     // --- Admin Guard Check ---
     const checkRunComp = React.useRef(false);
@@ -37,6 +38,11 @@ const SettingsBackup = () => {
     const loadBackups = useCallback(async () => {
         setIsLoading(true);
         try {
+            // Check DB location
+            const dbInfo = await invoke('check_db_location');
+            console.log('[DB Location Info]', dbInfo);
+            setDbLocationInfo(dbInfo);
+
             const list = await invoke('get_auto_backups');
             setBackups(list || []);
 
@@ -284,6 +290,55 @@ const SettingsBackup = () => {
             <div className="flex-1 px-6 lg:px-8 min-[2000px]:px-12 pb-8 overflow-y-auto custom-scrollbar">
                 <div className="w-full space-y-8">
 
+                    {/* DB Location Info Banner */}
+                    {dbLocationInfo && (
+                        <div className={`p-6 rounded-xl border-2 ${dbLocationInfo.is_db_server
+                            ? 'bg-green-50 border-green-200'
+                            : 'bg-blue-50 border-blue-200'
+                            }`}>
+                            <div className="flex items-start gap-4">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${dbLocationInfo.is_db_server
+                                    ? 'bg-green-100'
+                                    : 'bg-blue-100'
+                                    }`}>
+                                    <span className={`material-symbols-rounded text-2xl ${dbLocationInfo.is_db_server
+                                        ? 'text-green-600'
+                                        : 'text-blue-600'
+                                        }`}>
+                                        {dbLocationInfo.is_db_server ? 'dns' : 'cloud'}
+                                    </span>
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className={`text-lg font-bold mb-1 ${dbLocationInfo.is_db_server
+                                        ? 'text-green-800'
+                                        : 'text-blue-800'
+                                        }`}>
+                                        {dbLocationInfo.is_db_server ? '✅ DB 서버 PC' : 'ℹ️ 클라이언트 PC'}
+                                    </h3>
+                                    <p className={`text-sm mb-2 ${dbLocationInfo.is_db_server
+                                        ? 'text-green-700'
+                                        : 'text-blue-700'
+                                        }`}>
+                                        {dbLocationInfo.message}
+                                    </p>
+                                    <div className="flex gap-4 text-xs">
+                                        <span className={`${dbLocationInfo.is_db_server
+                                            ? 'text-green-600'
+                                            : 'text-blue-600'
+                                            }`}>
+                                            DB 호스트: <strong>{dbLocationInfo.db_host}</strong>
+                                        </span>
+                                        {dbLocationInfo.has_pg_service && (
+                                            <span className="text-green-600">
+                                                PostgreSQL 서비스: <strong>실행 중</strong>
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Top Tier: Ported mushroomfarm cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mt-2">
                         {/* Backup Card */}
@@ -295,9 +350,16 @@ const SettingsBackup = () => {
                             <p className="text-[13px] text-slate-500 leading-relaxed mb-8 flex-1">
                                 현재 운영 중인 모든 데이터(고객, 판매, 상품 등)를 안전하게 <strong>백업 파일</strong>로 내보냅니다.
                             </p>
-                            <button onClick={handleDbBackup} className="w-full h-[52px] rounded-xl text-white font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#3b82f6] to-[#2563eb] shadow-[0_4px_6px_-1px_rgba(59,130,246,0.5)] active:scale-95 transition-transform">
+                            <button
+                                onClick={handleDbBackup}
+                                disabled={!dbLocationInfo?.can_backup}
+                                className={`w-full h-[52px] rounded-xl text-white font-bold flex items-center justify-center gap-2 shadow-[0_4px_6px_-1px_rgba(59,130,246,0.5)] transition-transform ${dbLocationInfo?.can_backup
+                                    ? 'bg-gradient-to-r from-[#3b82f6] to-[#2563eb] active:scale-95'
+                                    : 'bg-gray-300 cursor-not-allowed'
+                                    }`}
+                            >
                                 <span className="material-symbols-rounded text-lg">download</span>
-                                백업 파일 다운로드
+                                {dbLocationInfo?.can_backup ? '백업 파일 다운로드' : 'DB 서버에서만 가능'}
                             </button>
                         </div>
 
