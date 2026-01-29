@@ -27,7 +27,7 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_sales_order_date ON sales (order_date);
         CREATE INDEX IF NOT EXISTS idx_sales_customer_id ON sales (customer_id);
         CREATE INDEX IF NOT EXISTS idx_sales_status ON sales (status);
-        CREATE INDEX IF NOT EXISTS idx_sales_product_name ON sales (product_name);
+        CREATE INDEX IF NOT EXISTS idx_sales_updated_at ON sales (updated_at);
         CREATE INDEX IF NOT EXISTS idx_products_product_name ON products (product_name);
         CREATE INDEX IF NOT EXISTS idx_inventory_logs_product_name ON inventory_logs (product_name);
 
@@ -73,6 +73,96 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             -- Purchases
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchases' AND column_name='inventory_synced') THEN ALTER TABLE purchases ADD COLUMN inventory_synced BOOLEAN DEFAULT FALSE; END IF;
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchases' AND column_name='material_item_id') THEN ALTER TABLE purchases ADD COLUMN material_item_id INTEGER; END IF;
+
+            -- UPDATED_AT Columns for all major tables
+            DECLARE
+                t text;
+                tables_to_update text[] := ARRAY['users', 'products', 'customers', 'customer_addresses', 'sales', 'event', 'schedules', 'experience_programs', 'experience_reservations', 'consultations', 'vendors', 'purchases', 'expenses', 'customer_ledger', 'sales_claims', 'inventory_logs', 'company_info'];
+            BEGIN
+                FOREACH t IN ARRAY tables_to_update
+                LOOP
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = t AND column_name = 'updated_at') THEN
+                        EXECUTE format('ALTER TABLE %I ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP', t);
+                    END IF;
+                END LOOP;
+            END;
+        END $$;
+
+        -- Automatic updated_at trigger function
+        CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        -- Deletion Log Table
+        CREATE TABLE IF NOT EXISTS deletion_log (
+            log_id SERIAL PRIMARY KEY,
+            table_name VARCHAR(100) NOT NULL,
+            record_id VARCHAR(100) NOT NULL,
+            deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_deletion_log_at ON deletion_log(deleted_at);
+
+        -- Log deletion trigger function
+        CREATE OR REPLACE FUNCTION log_deletion() RETURNS TRIGGER AS $$
+        DECLARE
+            v_record_id VARCHAR(100);
+        BEGIN
+            -- Dynamically pick ID column based on table
+            CASE TG_TABLE_NAME
+                WHEN 'users' THEN v_record_id := OLD.id::VARCHAR;
+                WHEN 'products' THEN v_record_id := OLD.product_id::VARCHAR;
+                WHEN 'customers' THEN v_record_id := OLD.customer_id::VARCHAR;
+                WHEN 'customer_addresses' THEN v_record_id := OLD.address_id::VARCHAR;
+                WHEN 'sales' THEN v_record_id := OLD.sales_id::VARCHAR;
+                WHEN 'event' THEN v_record_id := OLD.event_id::VARCHAR;
+                WHEN 'schedules' THEN v_record_id := OLD.schedule_id::VARCHAR;
+                WHEN 'company_info' THEN v_record_id := OLD.id::VARCHAR;
+                WHEN 'experience_programs' THEN v_record_id := OLD.program_id::VARCHAR;
+                WHEN 'experience_reservations' THEN v_record_id := OLD.reservation_id::VARCHAR;
+                WHEN 'consultations' THEN v_record_id := OLD.consult_id::VARCHAR;
+                WHEN 'vendors' THEN v_record_id := OLD.vendor_id::VARCHAR;
+                WHEN 'purchases' THEN v_record_id := OLD.purchase_id::VARCHAR;
+                WHEN 'expenses' THEN v_record_id := OLD.expense_id::VARCHAR;
+                WHEN 'customer_ledger' THEN v_record_id := OLD.ledger_id::VARCHAR;
+                WHEN 'sales_claims' THEN v_record_id := OLD.claim_id::VARCHAR;
+                WHEN 'inventory_logs' THEN v_record_id := OLD.log_id::VARCHAR;
+                ELSE v_record_id := 'unknown';
+            END CASE;
+
+            INSERT INTO deletion_log (table_name, record_id) VALUES (TG_TABLE_NAME, v_record_id);
+            RETURN OLD;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        -- Apply update triggers
+        DO $$
+        DECLARE
+            t text;
+            tables_to_trigger text[] := ARRAY['users', 'products', 'customers', 'customer_addresses', 'sales', 'event', 'schedules', 'company_info', 'experience_programs', 'experience_reservations', 'consultations', 'vendors', 'purchases', 'expenses', 'customer_ledger', 'sales_claims', 'inventory_logs'];
+        BEGIN
+            FOREACH t IN ARRAY tables_to_trigger
+            LOOP
+                IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_set_updated_at_' || t) THEN
+                    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()', 'trg_set_updated_at_' || t, t);
+                END IF;
+            END LOOP;
+        END $$;
+
+        -- Apply deletion triggers
+        DO $$
+        DECLARE
+            t text;
+            tables_to_delete_log text[] := ARRAY['users', 'products', 'customers', 'customer_addresses', 'sales', 'event', 'schedules', 'company_info', 'experience_programs', 'experience_reservations', 'consultations', 'vendors', 'purchases', 'expenses', 'customer_ledger', 'sales_claims', 'inventory_logs'];
+        BEGIN
+            FOREACH t IN ARRAY tables_to_delete_log
+            LOOP
+                IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_log_deletion_' || t) THEN
+                    EXECUTE format('CREATE TRIGGER %I AFTER DELETE ON %I FOR EACH ROW EXECUTE FUNCTION log_deletion()', 'trg_log_deletion_' || t, t);
+                END IF;
+            END LOOP;
         END $$;
     "#;
 
@@ -229,6 +319,8 @@ pub struct Sales {
     pub paid_amount: Option<i32>,
     #[sqlx(default)]
     pub payment_status: Option<String>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -241,6 +333,7 @@ pub struct CustomerLedger {
     pub description: Option<String>,
     pub reference_id: Option<String>,
     pub created_at: Option<chrono::NaiveDateTime>,
+    pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -299,6 +392,8 @@ pub struct Customer {
     pub join_date: Option<NaiveDate>,
     #[sqlx(default)]
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -314,6 +409,8 @@ pub struct CustomerAddress {
     pub is_default: bool,
     pub shipping_memo: Option<String>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -325,6 +422,8 @@ pub struct Schedule {
     pub end_time: NaiveDateTime,
     pub status: Option<String>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
     pub related_type: Option<String>, // 'EXPERIENCE', etc.
     pub related_id: Option<i32>,      // reservation_id
 }
@@ -396,6 +495,8 @@ pub struct Product {
     pub material_ratio: Option<f64>,
     #[sqlx(default)]
     pub item_type: Option<String>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -410,6 +511,9 @@ pub struct Event {
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
     pub memo: Option<String>,
+    pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -419,6 +523,8 @@ pub struct User {
     pub password_hash: Option<String>,
     pub role: String,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -435,6 +541,7 @@ pub struct CompanyInfo {
     pub registration_date: Option<NaiveDateTime>,
     pub memo: Option<String>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
     pub updated_at: Option<NaiveDateTime>,
 }
 
@@ -448,6 +555,8 @@ pub struct ExperienceProgram {
     pub price_per_person: i32,
     pub is_active: Option<bool>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -466,6 +575,8 @@ pub struct ExperienceReservation {
     pub payment_status: String,
     pub memo: Option<String>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -607,6 +718,8 @@ pub struct Consultation {
     pub consult_date: NaiveDate,
     pub follow_up_date: Option<NaiveDate>,
     pub created_at: Option<chrono::NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<chrono::NaiveDateTime>,
     pub sentiment: Option<String>,
 }
 
@@ -624,6 +737,8 @@ pub struct SalesClaim {
     pub memo: Option<String>,
     pub created_at: Option<chrono::NaiveDateTime>,
     #[sqlx(default)]
+    pub updated_at: Option<chrono::NaiveDateTime>,
+    #[sqlx(default)]
     pub customer_name: Option<String>,
 }
 
@@ -640,6 +755,8 @@ pub struct Vendor {
     pub memo: Option<String>,
     pub is_active: Option<bool>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, FromRow)]
@@ -658,6 +775,8 @@ pub struct Purchase {
     pub inventory_synced: Option<bool>,
     pub material_item_id: Option<i32>,
     pub created_at: Option<NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -675,6 +794,7 @@ pub struct Expense {
     pub payment_method: Option<String>,
     pub memo: Option<String>,
     pub created_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

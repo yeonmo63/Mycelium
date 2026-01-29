@@ -108,6 +108,35 @@ export const ModalProvider = ({ children }) => {
 
 const ModalItem = ({ modal, index }) => {
     const [password, setPassword] = useState('');
+    const modalRef = React.useRef(null);
+
+    // Focus Trap Logic
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key !== 'Tab') return;
+
+            const focusableElements = modalRef.current.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            const firstElement = focusableElements[0];
+            const lastElement = focusableElements[focusableElements.length - 1];
+
+            if (e.shiftKey) { // Shift + Tab
+                if (document.activeElement === firstElement) {
+                    lastElement.focus();
+                    e.preventDefault();
+                }
+            } else { // Tab
+                if (document.activeElement === lastElement) {
+                    firstElement.focus();
+                    e.preventDefault();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     const handleConfirm = () => {
         if (modal.type === 'password') {
@@ -125,6 +154,7 @@ const ModalItem = ({ modal, index }) => {
             />
 
             <div
+                ref={modalRef}
                 className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative animate-in zoom-in-95 duration-200 slide-in-from-bottom-4"
                 style={{ zIndex: 10000 + index }}
             >

@@ -88,19 +88,10 @@ const SettingsBackup = () => {
 
     useEffect(() => {
         if (blocker.state === "blocked") {
-            (async () => {
-                const confirmed = await showConfirm(
-                    "📍 작업 진행 중 이동 알림",
-                    "현재 데이터 작업(백업/복구)이 진행 중입니다. 페이지를 벗어나면 실시간 진행 상태 정보를 더 이상 확인할 수 없습니다. 그래도 이동하시겠습니까?"
-                );
-                if (confirmed) {
-                    blocker.proceed();
-                } else {
-                    blocker.reset();
-                }
-            })();
+            // No message, just reset to prevent navigation during active backup/restore
+            blocker.reset();
         }
-    }, [blocker, showConfirm]);
+    }, [blocker]);
 
     // Prevent window close/refresh
     useEffect(() => {
@@ -198,12 +189,18 @@ const SettingsBackup = () => {
     const handleDbMaintenance = async () => {
         try {
             setIsLoading(true);
+            setShowProgress(true);
+            setOperationType('maintenance');
+            setBackupProgress({ progress: 50, message: '데이터베이스 최적화 작업 중...' });
+
             const msg = await invoke('run_db_maintenance');
             await showAlert('최적화 완료', msg);
         } catch (err) {
             showAlert('최적화 실패', err);
         } finally {
             setIsLoading(false);
+            setShowProgress(false);
+            setBackupProgress({ progress: 0, message: '' });
         }
     };
 
@@ -234,15 +231,29 @@ const SettingsBackup = () => {
         );
         if (!ok) return;
 
-        setIsLoading(true);
         try {
-            const msg = await invoke('restore_database', { path: item.path });
-            await showAlert('복구 완료', msg);
-            window.location.reload();
+            setIsLoading(true);
+            setShowProgress(true);
+            setOperationType('restore');
+            setBackupProgress({ progress: 0, message: '복구 준비 중...' });
+
+            const unlisten = await listen('restore-progress', (event) => {
+                setBackupProgress(event.payload);
+            });
+
+            try {
+                const msg = await invoke('restore_database', { path: item.path });
+                await showAlert('복구 완료', msg);
+                window.location.reload();
+            } finally {
+                unlisten();
+            }
         } catch (err) {
-            showAlert('복구 실패', err);
+            showAlert('복구 실패', typeof err === 'string' ? err : err.message);
         } finally {
             setIsLoading(false);
+            setShowProgress(false);
+            setBackupProgress({ progress: 0, message: '' });
         }
     };
 
@@ -283,18 +294,25 @@ const SettingsBackup = () => {
 
             {/* Progress Overlay */}
             {showProgress && (
-                <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 w-[480px] max-w-[90%]">
-                        <div className="text-center mb-6">
-                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${operationType === 'backup' ? 'bg-indigo-100' : 'bg-purple-100'
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[99999] flex items-center justify-center animate-in fade-in duration-300">
+                    <div className="bg-white rounded-3xl shadow-[0_30px_70px_-15px_rgba(0,0,0,0.4)] p-10 w-[520px] max-w-[95%] border border-white/20 relative group overflow-hidden">
+                        {/* Decorative background for progress modal */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl transition-all"></div>
+
+                        <div className="text-center mb-8">
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${operationType === 'backup' ? 'bg-indigo-100' :
+                                    operationType === 'restore' ? 'bg-purple-100' : 'bg-emerald-100'
                                 }`}>
-                                <span className={`material-symbols-rounded text-4xl animate-pulse ${operationType === 'backup' ? 'text-indigo-600' : 'text-purple-600'
+                                <span className={`material-symbols-rounded text-4xl animate-pulse ${operationType === 'backup' ? 'text-indigo-600' :
+                                        operationType === 'restore' ? 'text-purple-600' : 'text-emerald-600'
                                     }`}>
-                                    {operationType === 'backup' ? 'backup' : 'restore'}
+                                    {operationType === 'backup' ? 'backup' :
+                                        operationType === 'restore' ? 'restore' : 'architecture'}
                                 </span>
                             </div>
                             <h3 className="text-xl font-bold text-slate-800 mb-2">
-                                {operationType === 'backup' ? '데이터 백업 진행 중' : '데이터 복구 진행 중'}
+                                {operationType === 'backup' ? '데이터 백업 진행 중' :
+                                    operationType === 'restore' ? '데이터 복구 진행 중' : '시스템 최적화 진행 중'}
                             </h3>
                             <p className="text-sm text-slate-500">{backupProgress.message}</p>
                         </div>
@@ -302,9 +320,9 @@ const SettingsBackup = () => {
                         {/* Progress Bar */}
                         <div className="relative w-full h-3 bg-slate-200 rounded-full overflow-hidden mb-3">
                             <div
-                                className={`absolute top-0 left-0 h-full transition-all duration-300 ease-out ${operationType === 'backup'
-                                    ? 'bg-gradient-to-r from-indigo-500 to-indigo-600'
-                                    : 'bg-gradient-to-r from-purple-500 to-purple-600'
+                                className={`absolute top-0 left-0 h-full transition-all duration-300 ease-out ${operationType === 'backup' ? 'bg-gradient-to-r from-indigo-500 to-indigo-600' :
+                                        operationType === 'restore' ? 'bg-gradient-to-r from-purple-500 to-purple-600' :
+                                            'bg-gradient-to-r from-emerald-500 to-emerald-600'
                                     }`}
                                 style={{ width: `${backupProgress.progress}%` }}
                             />
@@ -312,7 +330,8 @@ const SettingsBackup = () => {
 
                         {/* Percentage */}
                         <div className="text-center mb-8">
-                            <span className={`text-2xl font-bold ${operationType === 'backup' ? 'text-indigo-600' : 'text-purple-600'
+                            <span className={`text-2xl font-bold ${operationType === 'backup' ? 'text-indigo-600' :
+                                    operationType === 'restore' ? 'text-purple-600' : 'text-emerald-600'
                                 }`}>
                                 {backupProgress.progress}%
                             </span>

@@ -818,6 +818,8 @@ dependencies = [
  "bcrypt",
  "chrono",
  "dotenvy",
+ "flate2",
+ "futures-util",
  "log",
  "polars",
  "qrcode-generator",

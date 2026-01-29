@@ -49,6 +49,7 @@ import ExperienceReservation from './features/exp/ExperienceReservation';
 import ExperienceStatus from './features/exp/ExperienceStatus';
 import ExperienceSchedule from './features/exp/ExperienceSchedule';
 import ScheduleMgmt from './features/schedule/ScheduleMgmt';
+import UserManual from './features/manual/UserManual';
 import Placeholder from './components/Placeholder';
 
 const router = createBrowserRouter(
@@ -93,7 +94,7 @@ const router = createBrowserRouter(
       <Route path="settings/template-mgmt" element={<SettingsTemplate />} />
       <Route path="settings/db-backup-restore" element={<SettingsBackup />} />
       <Route path="settings/db-reset" element={<SettingsDbReset />} />
-      <Route path="manual" element={<Placeholder title="사용자 메뉴얼" />} />
+      <Route path="manual" element={<UserManual />} />
     </Route>
   )
 );

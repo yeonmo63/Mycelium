@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(50) NOT NULL UNIQUE,
     password_hash VARCHAR(255),
     role VARCHAR(20) NOT NULL, -- 'admin', 'viewer', etc.
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 2. Products Table
@@ -19,7 +20,8 @@ CREATE TABLE IF NOT EXISTS products (
     stock_quantity INTEGER DEFAULT 0,
     safety_stock INTEGER DEFAULT 10, -- 안전 재고 (권장 최소 보유량)
     material_id INTEGER REFERENCES products(product_id), -- 연결된 자재 품목 ID
-    material_ratio FLOAT DEFAULT 1.0  -- 전환 시 자재 소모 비율 (예: 1.0)
+    material_ratio FLOAT DEFAULT 1.0,  -- 전환 시 자재 소모 비율 (예: 1.0)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 2.1 Inventory Logs (Stock Ledger)
@@ -32,7 +34,8 @@ CREATE TABLE IF NOT EXISTS inventory_logs (
     current_stock   INTEGER NOT NULL,      -- 변동 후 재고
     reference_id    VARCHAR(50),           -- sales_id 등 참조 ID
     memo            TEXT,                  -- 상세 사유
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3. Customers Table
@@ -63,7 +66,8 @@ CREATE TABLE IF NOT EXISTS customers (
     
     memo TEXT,
     join_date DATE DEFAULT CURRENT_DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3.1 Customer Addresses Table
@@ -79,6 +83,7 @@ CREATE TABLE IF NOT EXISTS customer_addresses (
     is_default       BOOLEAN DEFAULT FALSE,             -- 기본 배송지
     shipping_memo    TEXT,                              -- 배송 요청사항
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(customer_id) ON DELETE CASCADE
 );
 
@@ -103,7 +108,8 @@ CREATE TABLE IF NOT EXISTS sales (
     shipping_mobile_number VARCHAR(20),
     shipping_date DATE,
     courier_name VARCHAR(50),
-    tracking_number VARCHAR(50)
+    tracking_number VARCHAR(50),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 5. Events Table (Special Sales / Occasions)
@@ -118,7 +124,8 @@ CREATE TABLE IF NOT EXISTS event (
     start_date DATE,
     end_date DATE,
     memo TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 6. Schedule Table (Calendar)
@@ -129,7 +136,8 @@ CREATE TABLE IF NOT EXISTS schedules (
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP NOT NULL,
     status VARCHAR(20),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 7. Company Info Table (Singleton)
@@ -155,7 +163,8 @@ CREATE TABLE IF NOT EXISTS experience_programs (
     max_capacity INTEGER DEFAULT 10,
     price_per_person INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 9. Experience Reservations
@@ -172,7 +181,8 @@ CREATE TABLE IF NOT EXISTS experience_reservations (
     status VARCHAR(20) DEFAULT '예약완료',
     payment_status VARCHAR(20) DEFAULT '미결제',
     memo TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 10. Performance Indexes
@@ -202,7 +212,8 @@ CREATE TABLE IF NOT EXISTS consultations (
     priority VARCHAR(10) DEFAULT '보통', -- '낮음', '보통', '높음', '긴급'
     consult_date DATE DEFAULT CURRENT_DATE,
     follow_up_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_consultations_date ON consultations(consult_date);
@@ -220,7 +231,8 @@ CREATE TABLE IF NOT EXISTS vendors (
     main_items      TEXT, -- 주요 취급 품목
     memo            TEXT,
     is_active       BOOLEAN DEFAULT TRUE,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 13. Purchases Table (Raw materials / Inventory input from vendors)
@@ -237,7 +249,8 @@ CREATE TABLE IF NOT EXISTS purchases (
     memo            TEXT,
     inventory_synced BOOLEAN DEFAULT FALSE, -- 재고 연동 여부
     material_item_id INTEGER REFERENCES products(product_id), -- 구매한 자재 품목 ID
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 14. Expenses Table (Operating Expenses / G&A)
@@ -248,7 +261,8 @@ CREATE TABLE IF NOT EXISTS expenses (
     amount          INTEGER NOT NULL DEFAULT 0,
     payment_method  VARCHAR(20), -- '카드', '계좌이체', '현금'
     memo            TEXT,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 15. Financial Indexes
@@ -269,6 +283,7 @@ CREATE TABLE IF NOT EXISTS customer_ledger (
                                                  -- 편의상: amount(거래금액), balance(잔액)
     description     VARCHAR(255),
     reference_id    VARCHAR(50), -- sales_id or other ref
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_customer ON customer_ledger(customer_id);

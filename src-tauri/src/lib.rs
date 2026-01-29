@@ -4952,7 +4952,7 @@ async fn backup_database_internal(
                 write!(encoder, "\n    {}", json).map_err(|e| e.to_string())?;
                 processed += 1;
 
-                if processed % 5000 == 0 {
+                if processed % 100 == 0 {
                     emit_progress(
                         processed,
                         total_records,
@@ -4960,6 +4960,7 @@ async fn backup_database_internal(
                     );
                 }
             }
+            emit_progress(processed, total_records, $msg);
             writeln!(encoder, "\n  ],").map_err(|e| e.to_string())?;
         }};
     }
@@ -5171,7 +5172,8 @@ async fn restore_database(
         + backup.purchases.len() as i64
         + backup.consultations.len() as i64
         + backup.sales_claims.len() as i64
-        + backup.inventory_logs.len() as i64;
+        + backup.inventory_logs.len() as i64
+        + backup.deletions.len() as i64;
 
     println!(
         "[Restore] Total records to restore: {} (users: {}, company: {}, products: {}, customers: {}, addresses: {}, events: {}, sales: {}, schedules: {}, expenses: {}, purchases: {}, consultations: {}, claims: {}, inventory: {})",
@@ -5218,6 +5220,9 @@ async fn restore_database(
     emit_progress(processed, total_records, "사용자 정보 복구 중...");
     // Insert Users
     for u in backup.users {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO users (id, username, password_hash, role, created_at, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6)
@@ -5236,11 +5241,17 @@ async fn restore_database(
         .await
         .map_err(|e| format!("Restore users failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "사용자 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "회사 정보 복구 중...");
     // Insert Company Info
     for c in backup.company_info {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO company_info (id, company_name, representative_name, business_reg_number, phone_number, mobile_number, address, business_type, item, registration_date, memo, created_at, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -5262,11 +5273,17 @@ async fn restore_database(
             .bind(c.item).bind(c.registration_date).bind(c.memo).bind(c.created_at).bind(c.updated_at)
             .execute(&mut *tx).await.map_err(|e| format!("Restore company_info failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "회사 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "상품 정보 복구 중...");
     // Insert Products
     for p in backup.products {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -5286,11 +5303,17 @@ async fn restore_database(
           .bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.item_type).bind(p.updated_at)
           .execute(&mut *tx).await.map_err(|e| format!("Restore products failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "상품 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "고객 정보 복구 중...");
     // Insert Customers
     for c in backup.customers {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO customers (customer_id, customer_name, mobile_number, membership_level, phone_number, email, zip_code, address_primary, address_detail, anniversary_date, anniversary_type, marketing_consent, acquisition_channel, pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle, memo, current_balance, join_date, created_at, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
@@ -5324,11 +5347,17 @@ async fn restore_database(
         .bind(c.memo).bind(c.current_balance).bind(c.join_date).bind(c.created_at).bind(c.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore customers failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "고객 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "배송지 정보 복구 중...");
     // Insert Customer Addresses
     for ca in backup.customer_addresses {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO customer_addresses (address_id, customer_id, address_alias, recipient_name, mobile_number, zip_code, address_primary, address_detail, is_default, shipping_memo, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -5347,11 +5376,17 @@ async fn restore_database(
         .bind(ca.zip_code).bind(ca.address_primary).bind(ca.address_detail).bind(ca.is_default).bind(ca.shipping_memo).bind(ca.created_at).bind(ca.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore customer_addresses failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "배송지 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "행사 정보 복구 중...");
     // Insert Events
     for e in backup.events {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO event (event_id, event_name, organizer, manager_name, manager_contact, location_address, location_detail, start_date, end_date, memo, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -5371,11 +5406,17 @@ async fn restore_database(
         .bind(e.location_address).bind(e.location_detail).bind(e.start_date).bind(e.end_date).bind(e.memo).bind(e.created_at).bind(e.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore events failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "행사 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "판매 내역 복구 중...");
     // Insert Sales
     for s in backup.sales {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO sales (sales_id, customer_id, product_name, specification, unit_price, quantity, total_amount, status, order_date, memo, shipping_name, shipping_zip_code, shipping_address_primary, shipping_address_detail, shipping_mobile_number, shipping_date, courier_name, tracking_number, discount_rate, paid_amount, payment_status, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
@@ -5408,11 +5449,17 @@ async fn restore_database(
         .bind(s.discount_rate).bind(s.paid_amount).bind(s.payment_status).bind(s.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore sales failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "판매 내역 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "일정 정보 복구 중...");
     // Insert Schedules
     for s in backup.schedules {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO schedules (schedule_id, title, start_time, end_time, description, status, related_type, related_id, created_at, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -5429,11 +5476,17 @@ async fn restore_database(
         .bind(s.schedule_id).bind(s.title).bind(s.start_time).bind(s.end_time).bind(s.description).bind(s.status).bind(s.related_type).bind(s.related_id).bind(s.created_at).bind(s.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore schedules failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "일정 정보 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "지출 내역 복구 중...");
     // Insert Expenses
     for e in backup.expenses {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO expenses (expense_id, expense_date, category, memo, amount, payment_method, created_at, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -5448,11 +5501,17 @@ async fn restore_database(
          .bind(e.expense_id).bind(e.expense_date).bind(e.category).bind(e.memo).bind(e.amount).bind(e.payment_method).bind(e.created_at).bind(e.updated_at)
          .execute(&mut *tx).await.map_err(|e| format!("Restore expenses failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "지출 내역 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "구매 내역 복구 중...");
     // Insert Purchases
     for p in backup.purchases {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO purchases (purchase_id, purchase_date, vendor_id, item_name, specification, quantity, unit_price, total_amount, payment_status, memo, inventory_synced, material_item_id, created_at, updated_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -5473,11 +5532,17 @@ async fn restore_database(
          .bind(p.purchase_id).bind(p.purchase_date).bind(p.vendor_id).bind(p.item_name).bind(p.specification).bind(p.quantity).bind(p.unit_price).bind(p.total_amount).bind(p.payment_status).bind(p.memo).bind(p.inventory_synced).bind(p.material_item_id).bind(p.created_at).bind(p.updated_at)
          .execute(&mut *tx).await.map_err(|e| format!("Restore purchases failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "구매 내역 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "상담 내역 복구 중...");
     // Insert Consultations
     for c in backup.consultations {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO consultations (consult_id, customer_id, guest_name, contact, channel, counselor_name, category, title, content, answer, status, priority, consult_date, follow_up_date, created_at, updated_at, sentiment)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
@@ -5501,11 +5566,17 @@ async fn restore_database(
         .bind(c.consult_id).bind(c.customer_id).bind(c.guest_name).bind(c.contact).bind(c.channel).bind(c.counselor_name).bind(c.category).bind(c.title).bind(c.content).bind(c.answer).bind(c.status).bind(c.priority).bind(c.consult_date).bind(c.follow_up_date).bind(c.created_at).bind(c.updated_at).bind(c.sentiment)
         .execute(&mut *tx).await.map_err(|e| format!("Restore consultations failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "상담 내역 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "판매 클레임 복구 중...");
     // Insert Sales Claims
     for sc in backup.sales_claims {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO sales_claims (claim_id, sales_id, customer_id, claim_type, claim_status, reason_category, quantity, refund_amount, is_inventory_recovered, memo, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -5524,11 +5595,17 @@ async fn restore_database(
         .bind(sc.claim_id).bind(sc.sales_id).bind(sc.customer_id).bind(sc.claim_type).bind(sc.claim_status).bind(sc.reason_category).bind(sc.quantity).bind(sc.refund_amount).bind(sc.is_inventory_recovered).bind(sc.memo).bind(sc.created_at).bind(sc.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore sales_claims failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "판매 클레임 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "재고 로그 복구 중...");
     // Insert Inventory Logs
     for l in backup.inventory_logs {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         sqlx::query(
             "INSERT INTO inventory_logs (log_id, product_name, specification, change_type, change_quantity, current_stock, reference_id, memo, created_at) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -5544,11 +5621,17 @@ async fn restore_database(
          .bind(l.log_id).bind(l.product_name).bind(l.specification).bind(l.change_type).bind(l.change_quantity).bind(l.current_stock).bind(l.reference_id).bind(l.memo).bind(l.created_at)
          .execute(&mut *tx).await.map_err(|e| format!("Restore inventory_logs failed: {}", e))?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "재고 로그 복구 중...");
+        }
     }
 
     emit_progress(processed, total_records, "삭제된 데이터 반영 중...");
     // Handle Deletions
     for del in backup.deletions {
+        if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+            return Err("사용자에 의해 복구가 중단되었습니다.".to_string());
+        }
         let pk_col = match del.table_name.as_str() {
             "users" | "company_info" => "id",
             "products" => "product_id",
@@ -5581,6 +5664,9 @@ async fn restore_database(
                 )
             })?;
         processed += 1;
+        if processed % 100 == 0 {
+            emit_progress(processed, total_records, "삭제된 데이터 반영 중...");
+        }
     }
 
     // Clean up local deletion_log after syncing
@@ -5656,7 +5742,7 @@ async fn reset_database(state: State<'_, DbPool>) -> Result<String, String> {
         schedules, inventory_logs, consultations, 
         sales_claims, customer_ledger, customer_addresses,
         experience_programs, experience_reservations, 
-        vendors, purchases, expenses, sms_logs 
+        vendors, purchases, expenses, deletion_log
         RESTART IDENTITY CASCADE";
 
     sqlx::query(sql)

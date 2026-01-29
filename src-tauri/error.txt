@@ -1,0 +1,16 @@
+cargo :     Blocking waitin
+g for file lock on build di
+rectory
+At line:1 char:1
++ cargo check 2>&1 | Out-Fi
+le -FilePath error.txt -Enc
+oding ascii
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo         
+     : NotSpecified: (     
+   Blocking wa...build d   
+ irectory:String) [], R    
+emoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 

@@ -7,8 +7,10 @@ import {
     Trash2,
     AlertTriangle,
     Lock,
-    RefreshCw,
-    CheckCircle2
+    CheckCircle2,
+    XCircle,
+    Database,
+    ShieldAlert
 } from 'lucide-react';
 
 const SettingsDbReset = () => {
@@ -28,7 +30,7 @@ const SettingsDbReset = () => {
             if (!ok) navigate('/');
         };
         init();
-    }, []);
+    }, [checkAdmin, navigate]);
 
     const handleReset = async () => {
         if (confirmText !== '초기화') {
@@ -36,16 +38,16 @@ const SettingsDbReset = () => {
             return;
         }
 
-        if (!await showConfirm('데이터 전체 초기화', '정말로 모든 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
+        if (!await showConfirm(
+            '데이터 영구 삭제 경고',
+            '정말로 모든 운영 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없으며 삭제된 데이터는 절대 복구할 수 없습니다.\n\n(※ 실행 전 백업을 강력히 권장합니다.)'
+        )) return;
 
         setIsLoading(true);
         try {
-            // Re-use restore with an empty or schema-only SQL if available, 
-            // but usually we have a specific command.
-            // Let's assume we can call a clear command.
-            // In mushroomfarm there was a 'reset_database' command.
-            await invoke('restore_database', { path: '' }); // Simplified or placeholder
-            await showAlert('초기화 완료', '모든 데이터가 초기화되었습니다. 프로그램을 다시 시작해 주세요.');
+            const msg = await invoke('reset_database');
+            await showAlert('초기화 완료', msg);
+            setConfirmText('');
         } catch (err) {
             showAlert('초기화 실패', err);
         } finally {
@@ -72,63 +74,128 @@ const SettingsDbReset = () => {
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden animate-in fade-in duration-700 relative">
+            {/* Background elements for premium feel */}
+            <div className="absolute top-[-10%] right-[-5%] w-[40%] h-[40%] bg-rose-400/5 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-indigo-400/5 rounded-full blur-[120px] pointer-events-none" />
+
             {/* Local Modal Root */}
             <div id="local-modal-root" className="absolute inset-0 z-[9999] pointer-events-none" />
 
-            {/* Header */}
+            {/* Header - Matching SalesReception Style */}
             <div className="px-6 lg:px-8 min-[2000px]:px-12 pt-6 lg:pt-8 min-[2000px]:pt-12 pb-4">
-                <div className="flex justify-between items-end">
+                <div className="flex flex-col items-center text-center">
                     <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                            <span className="w-6 h-1 bg-rose-600 rounded-full"></span>
-                            <span className="text-[9px] font-black tracking-[0.2em] text-rose-600 uppercase">System Maintenance</span>
+                        <div className="flex flex-col items-center gap-2 mb-0.5">
+                            <span className="w-10 h-1 bg-rose-600 rounded-full animate-pulse"></span>
+                            <span className="text-[10px] font-black tracking-[0.2em] text-rose-600 uppercase">System Administration</span>
                         </div>
-                        <h1 className="text-3xl font-black text-slate-600 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
-                            데이터 초기화 <span className="text-slate-300 font-light ml-1 text-xl">Factory Reset</span>
+                        <h1 className="text-4xl font-black text-slate-800 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
+                            데이터 초기화 <span className="text-slate-300 font-light ml-2 text-2xl tracking-normal">Factory Reset</span>
                         </h1>
                     </div>
                 </div>
             </div>
 
+            {/* Main Content */}
             <div className="flex-1 px-6 lg:px-8 min-[2000px]:px-12 pb-8 flex items-center justify-center">
-                <div className="max-w-xl w-full bg-white rounded-[3rem] shadow-2xl shadow-rose-100 border border-slate-200 p-12 text-center ring-1 ring-slate-900/5">
-                    <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-8 animate-bounce">
-                        <AlertTriangle size={40} />
-                    </div>
+                <div className="max-w-xl w-full">
+                    {/* The "BOX" */}
+                    <div className="bg-white rounded-[3.5rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.07)] border border-slate-200/60 p-10 lg:p-14 text-center relative overflow-hidden group">
+                        {/* Decorative Top Accent (Mushroomfarm style but modern) */}
+                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-rose-500 via-rose-600 to-rose-400" />
 
-                    <h2 className="text-2xl font-black text-slate-800 mb-4 tracking-tight">위험: 데이터 완전 삭제</h2>
-                    <p className="text-slate-500 font-bold text-sm leading-relaxed mb-10">
-                        이 기능을 실행하면 모든 고객 정보, 판매 내역, 재고 데이터 및 환경 설정이 삭제되고 초기 상태로 돌아갑니다.<br />
-                        <span className="text-rose-500 underline decoration-rose-200 underline-offset-4">삭제된 데이터는 복구할 수 없습니다.</span>
-                    </p>
-
-                    <div className="space-y-6">
-                        <div className="text-left space-y-2">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">초기화 확인 입력</label>
-                            <input
-                                type="text"
-                                value={confirmText}
-                                onChange={e => setConfirmText(e.target.value)}
-                                placeholder="'초기화'를 직접 입력하세요"
-                                className="w-full h-14 px-6 bg-slate-50 border-none rounded-2xl font-bold text-center text-lg focus:ring-4 focus:ring-rose-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200"
-                            />
+                        {/* Main Warning Icon Wrapper */}
+                        <div className="relative mb-8">
+                            <div className="w-24 h-24 bg-rose-50 text-rose-500 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-sm ring-8 ring-rose-50/50 group-hover:scale-110 transition-transform duration-500">
+                                <AlertTriangle size={48} />
+                            </div>
+                            <div className="absolute top-0 right-1/2 translate-x-12 -translate-y-2">
+                                <span className="flex h-4 w-4">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-4 w-4 bg-rose-500"></span>
+                                </span>
+                            </div>
                         </div>
 
-                        <button
-                            onClick={handleReset}
-                            disabled={confirmText !== '초기화' || isLoading}
-                            className="w-full h-16 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-100 disabled:text-slate-300 text-white rounded-[1.25rem] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-rose-200 transition-all active:scale-[0.98]"
-                        >
-                            <Trash2 size={24} /> {isLoading ? '처리 중...' : '데이터 초기화 실행'}
-                        </button>
-                    </div>
+                        <h2 className="text-2xl font-black text-slate-800 mb-5 tracking-tight">공장 초기화 실행</h2>
+                        <p className="text-slate-500 font-medium text-[0.95rem] leading-relaxed mb-10">
+                            이 작업은 모든 거래 내역과 상품 정보를 영구적으로 삭제하며,<br />
+                            <strong className="text-rose-600 font-black">삭제된 데이터는 절대 복구할 수 없습니다.</strong><br />
+                            신중하게 결정하여 진행해 주세요.
+                        </p>
 
-                    <div className="mt-8 flex items-center justify-center gap-2 text-[11px] font-bold text-slate-400 bg-slate-50 py-3 rounded-xl border border-slate-100">
-                        <Lock size={14} className="text-slate-300" />
-                        관리자 권한으로 보호되는 구역입니다
+                        {/* Mushroomfarm Info Box */}
+                        <div className="bg-slate-50 rounded-[2rem] border border-slate-100 p-8 text-left mb-10 space-y-6">
+                            <div className="flex items-start gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                                    <XCircle size={20} />
+                                </div>
+                                <div className="flex-1">
+                                    <span className="block text-sm font-black text-slate-800 mb-1">삭제되는 데이터</span>
+                                    <span className="text-[0.82rem] text-slate-500 font-bold leading-tight">
+                                        모든 매출 내역, 고객 정보, 행사 정보, 상품 재고, 배송 데이터, 상담 일지, 재고 로그 등
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="h-px bg-slate-200/60 mx-2" />
+
+                            <div className="flex items-start gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                    <CheckCircle2 size={20} />
+                                </div>
+                                <div className="flex-1">
+                                    <span className="block text-sm font-black text-slate-800 mb-1">보존되는 데이터</span>
+                                    <span className="text-[0.82rem] text-slate-500 font-bold leading-tight">
+                                        관리자/사용자 계정 정보, 회사 기본 설정(사업자 정보, 마크 등)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Action Area */}
+                        <div className="space-y-6">
+                            <div className="relative group/input">
+                                <div className="absolute inset-0 bg-rose-500/5 rounded-2xl blur-lg transition-opacity opacity-0 group-focus-within/input:opacity-100" />
+                                <input
+                                    type="text"
+                                    value={confirmText}
+                                    onChange={e => setConfirmText(e.target.value)}
+                                    placeholder="'초기화'를 직접 입력하세요"
+                                    className="relative w-full h-16 px-8 bg-slate-50 border-2 border-transparent rounded-2xl font-black text-center text-xl text-rose-600 placeholder:text-slate-300 focus:bg-white focus:border-rose-100 focus:outline-none transition-all shadow-inner"
+                                />
+                            </div>
+
+                            <button
+                                onClick={handleReset}
+                                disabled={confirmText !== '초기화' || isLoading}
+                                className="w-full h-18 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 disabled:from-slate-100 disabled:to-slate-100 disabled:text-slate-300 text-white rounded-[1.5rem] font-black text-xl flex items-center justify-center gap-4 shadow-xl shadow-rose-200/50 transition-all hover:-translate-y-1 active:scale-[0.98] active:translate-y-0"
+                            >
+                                {isLoading ? (
+                                    <RefreshCw className="animate-spin" size={24} />
+                                ) : (
+                                    <Trash2 size={26} />
+                                )}
+                                {isLoading ? '데이터 삭제 중...' : '데이터 초기화 실행'}
+                            </button>
+                        </div>
+
+                        {/* Security Footer */}
+                        <div className="mt-10 flex items-center justify-center gap-3 text-[11px] font-black text-slate-400 opacity-60">
+                            <ShieldAlert size={14} />
+                            ADMINISTRATOR PRIVILEGE REQUIRED
+                        </div>
                     </div>
                 </div>
             </div>
+
+            {/* Global Scrollbar Style */}
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+            `}} />
         </div>
     );
 };
