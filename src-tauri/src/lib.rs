@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub mod analysis;
 pub mod db;
 pub mod ledger_cmds;
@@ -6,21 +7,26 @@ use analysis::{
     get_sales_period_analysis, sales_polars_analysis_v4,
 };
 use bcrypt::{hash, verify, DEFAULT_COST};
-use chrono::{Local, NaiveDate, NaiveTime, Utc};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use db::Schedule;
 use db::{
-    init_pool, AiMarketingProposal, AnalyzedMention, ChurnRiskCustomer, CompanyInfo,
+    init_pool, AiMarketingProposal, AnalyzedMention, ChurnRiskCustomer, CompanyInfo, Consultation,
     ConsultationAiAdvice, Customer, CustomerAddress, CustomerLifecycle, DashboardStats, DbPool,
     Event, Expense, ExperienceProgram, ExperienceReservation, InventoryAlert, InventorySyncItem,
     KeywordItem, LtvCustomer, MonthlyCohortStats, OnlineMentionInput, Product, ProductAssociation,
     ProductSalesStats, ProfitAnalysisResult, Purchase, RawRfmData, Sales, SalesClaim,
     SentimentAnalysisResult, StrategyItem, TenYearSalesStats, User, Vendor,
 };
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use futures_util::StreamExt;
 use ledger_cmds::*;
-use sqlx::ConnectOptions; // Import ConnectOptions trait
-use sqlx::Connection; // Import Connection trait
+use sqlx::ConnectOptions;
+use sqlx::Connection;
 use sqlx::FromRow;
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use tauri::{Emitter, Manager, State};
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
@@ -31,10 +37,12 @@ async fn save_qr_image(
     path: String,
 ) -> Result<(), String> {
     use base64::{engine::general_purpose, Engine as _};
-    use std::io::Write;
 
     // Remove data:image/png;base64, prefix
-    let data = base64_data.split(',').last().ok_or("Invalid image data")?;
+    let data = base64_data
+        .split(',')
+        .next_back()
+        .ok_or("Invalid image data")?;
     let bytes = general_purpose::STANDARD
         .decode(data)
         .map_err(|e| e.to_string())?;
@@ -2472,9 +2480,10 @@ async fn save_general_sales_batch(
     let mut next_seq_map: HashMap<String, i32> = HashMap::new();
 
     // 2-1. Collect dates that need new IDs
-    for item in items.iter().filter(|i| {
-        i.sales_id.is_none() || i.sales_id.as_ref().map_or(true, |s| s.trim().is_empty())
-    }) {
+    for item in items
+        .iter()
+        .filter(|i| i.sales_id.is_none() || i.sales_id.as_ref().is_none_or(|s| s.trim().is_empty()))
+    {
         let order_date = NaiveDate::parse_from_str(&item.order_date_str, "%Y-%m-%d")
             .map_err(|e| format!("Invalid date: {}", e))?;
         let date_key = order_date.format("%Y%m%d").to_string();
@@ -2628,7 +2637,7 @@ async fn consolidate_products(
 #[tauri::command]
 async fn get_user_list(state: State<'_, DbPool>) -> Result<Vec<User>, String> {
     sqlx::query_as::<_, User>(
-        "SELECT id, username, password_hash, role, created_at FROM users ORDER BY created_at DESC",
+        "SELECT id, username, password_hash, role, created_at, updated_at FROM users ORDER BY created_at DESC",
     )
     .fetch_all(&*state)
     .await
@@ -3229,12 +3238,10 @@ async fn adjust_product_stock(
                 "조정".to_string()
             }
         }
+    } else if change_qty > 0 {
+        "입고".to_string()
     } else {
-        if change_qty > 0 {
-            "입고".to_string()
-        } else {
-            "조정".to_string()
-        }
+        "조정".to_string()
     };
 
     sqlx::query(
@@ -3266,6 +3273,8 @@ pub struct InventoryLog {
     pub reference_id: Option<String>,
     pub memo: Option<String>,
     pub created_at: Option<chrono::NaiveDateTime>,
+    #[sqlx(default)]
+    pub updated_at: Option<chrono::NaiveDateTime>,
 }
 
 #[tauri::command]
@@ -3930,12 +3939,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static IS_EXITING: AtomicBool = AtomicBool::new(false);
 pub static DB_MODIFIED: AtomicBool = AtomicBool::new(false);
+static BACKUP_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+async fn cancel_backup_restore() {
+    BACKUP_CANCELLED.store(true, Ordering::Relaxed);
+    println!("[System] Cancellation requested by user.");
+}
 
 #[tauri::command]
 async fn confirm_exit(app: tauri::AppHandle) -> Result<(), String> {
     // 0. Check if DB was modified
     if !DB_MODIFIED.load(Ordering::Relaxed) {
-        println!("No changes detected. Skipping auto-backup.");
+        // println!("No changes detected. Skipping auto-backup.");
         IS_EXITING.store(true, Ordering::Relaxed);
         std::process::exit(0);
     }
@@ -3947,25 +3963,41 @@ async fn confirm_exit(app: tauri::AppHandle) -> Result<(), String> {
         }
 
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let backup_file_name = format!("auto_backup_{}.sql", timestamp); // JSON dump disguised as .sql for consistency
-        let _backup_path = backup_dir.join(&backup_file_name);
+        let day_of_week = chrono::Local::now().weekday();
 
-        // Reuse the JSON dump logic from backup_database via internal call or refactoring
-        // Since we can't easily call async command handler from here without some gymnastics,
-        // We instantiated the logic inside backup_database which just does a JSON dump.
-        // Let's call it directly.
+        // Friday is Full Backup, other days are skip or Incremental
+        let since = if day_of_week == chrono::Weekday::Fri {
+            // println!("[Auto-Backup] Friday detected. Performing FULL compressed backup.");
+            None
+        } else {
+            // println!("[Auto-Backup] Performing INCREMENTAL compressed backup.");
+            get_last_backup_at(&app)
+        };
 
-        // Backup logic temporarily disabled to ensure stable exit.
-        // TODO: Re-enable backup after resolving State injection issue.
-        /*
-        match backup_database(_state.clone(), backup_path.to_string_lossy().to_string()).await {
-            Ok(_) => {
-                // ... (omitted)
+        let backup_file_prefix = if since.is_none() {
+            "full_backup"
+        } else {
+            "inc_backup"
+        };
+        let backup_file_name = format!("{}_{}.json.gz", backup_file_prefix, timestamp);
+        let backup_path = backup_dir.join(&backup_file_name);
+
+        if let Some(pool) = app.try_state::<DbPool>() {
+            match backup_database_internal(
+                None, // Don't emit progress during exit for now, or use a dummy handle
+                &*pool,
+                backup_path.to_string_lossy().to_string(),
+                since,
+            )
+            .await
+            {
+                Ok(_msg) => {
+                    // println!("[Auto-Backup] Success: {}", msg);
+                    let _ = update_last_backup_at(&app, chrono::Local::now().naive_local());
+                }
+                Err(e) => eprintln!("[Auto-Backup] Failed: {}", e),
             }
-            Err(e) => eprintln!("Auto-backup failed: {}", e),
         }
-        */
-        println!("Skipping backup to ensure exit.");
     }
 
     IS_EXITING.store(true, Ordering::Relaxed);
@@ -4230,6 +4262,11 @@ pub fn run() {
             get_message_templates,
             save_message_templates,
             reset_message_templates,
+            check_db_location,
+            get_backup_status,
+            cancel_backup_restore,
+            run_daily_custom_backup,
+            get_internal_backup_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -4251,13 +4288,14 @@ async fn trigger_auto_backup(
         }
 
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let backup_file_name = format!("auto_backup_{}.sql", timestamp);
+        let backup_file_name = format!("auto_backup_{}.json.gz", timestamp);
         let backup_path = backup_dir.join(&backup_file_name);
 
         match backup_database(
             app.clone(),
             state.clone(),
             backup_path.to_string_lossy().to_string(),
+            true, // is_incremental
         )
         .await
         {
@@ -4281,6 +4319,7 @@ async fn trigger_auto_backup(
                                                 app.clone(),
                                                 state.clone(),
                                                 ext_backup_path.to_string_lossy().to_string(),
+                                                true, // is_incremental
                                             )
                                             .await;
                                         }
@@ -4353,7 +4392,9 @@ async fn get_auto_backups(app: tauri::AppHandle) -> Result<Vec<AutoBackupItem>, 
             if let Ok(entries) = std::fs::read_dir(&backup_dir) {
                 for entry in entries.filter_map(|e| e.ok()) {
                     let fname = entry.file_name().to_string_lossy().to_string();
-                    if fname.starts_with("auto_backup_") && fname.ends_with(".sql") {
+                    if fname.starts_with("auto_backup_")
+                        && (fname.ends_with(".sql") || fname.ends_with(".gz"))
+                    {
                         if let Ok(metadata) = entry.metadata() {
                             if let Ok(modified) = metadata.modified() {
                                 let datetime: chrono::DateTime<chrono::Local> = modified.into();
@@ -4376,7 +4417,9 @@ async fn get_auto_backups(app: tauri::AppHandle) -> Result<Vec<AutoBackupItem>, 
             if let Ok(entries) = std::fs::read_dir(&daily_dir) {
                 for entry in entries.filter_map(|e| e.ok()) {
                     let fname = entry.file_name().to_string_lossy().to_string();
-                    if fname.starts_with("daily_backup_") && fname.ends_with(".sql") {
+                    if fname.starts_with("daily_backup_")
+                        && (fname.ends_with(".sql") || fname.ends_with(".gz"))
+                    {
                         if let Ok(metadata) = entry.metadata() {
                             if let Ok(modified) = metadata.modified() {
                                 let datetime: chrono::DateTime<chrono::Local> = modified.into();
@@ -4397,6 +4440,15 @@ async fn get_auto_backups(app: tauri::AppHandle) -> Result<Vec<AutoBackupItem>, 
     // Sort desc by timestamp
     list.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     Ok(list)
+}
+
+#[tauri::command]
+async fn get_internal_backup_path(app: tauri::AppHandle) -> Result<String, String> {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let daily_dir = config_dir.join("daily_backups");
+        return Ok(daily_dir.to_string_lossy().to_string());
+    }
+    Err("Config dir not found".to_string())
 }
 
 fn format_and_push(
@@ -4433,9 +4485,27 @@ fn format_and_push(
 }
 
 #[tauri::command]
+async fn run_daily_custom_backup(
+    app: tauri::AppHandle,
+    state: State<'_, DbPool>,
+    is_incremental: bool,
+) -> Result<String, String> {
+    run_backup_logic(app, state, is_incremental, true).await
+}
+
+#[tauri::command]
 async fn check_daily_backup(
     app: tauri::AppHandle,
     state: State<'_, DbPool>,
+) -> Result<String, String> {
+    run_backup_logic(app, state, true, false).await
+}
+
+async fn run_backup_logic(
+    app: tauri::AppHandle,
+    state: State<'_, DbPool>,
+    is_incremental: bool,
+    force: bool,
 ) -> Result<String, String> {
     if let Ok(config_dir) = app.path().app_config_dir() {
         let daily_dir = config_dir.join("daily_backups");
@@ -4443,69 +4513,55 @@ async fn check_daily_backup(
             let _ = std::fs::create_dir_all(&daily_dir);
         }
 
-        let today = chrono::Local::now().format("%Y%m%d").to_string(); // YYYYMMDD
-        let daily_filename = format!("daily_backup_{}.sql", today);
+        let today = chrono::Local::now().format("%Y%m%d").to_string();
+        let daily_filename = format!("daily_backup_{}.json.gz", today);
         let daily_path = daily_dir.join(&daily_filename);
 
-        // If today's backup doesn't exist, create it
-        if !daily_path.exists() {
+        // Run if forced (manual button) OR if file doesn't exist (auto)
+        if force || !daily_path.exists() {
             match backup_database(
                 app.clone(),
                 state.clone(),
                 daily_path.to_string_lossy().to_string(),
+                is_incremental,
             )
             .await
             {
-                Ok(_) => {
+                Ok(msg) => {
                     // --- External Cloud Backup Branch ---
-                    if let Ok(config_dir) = app.path().app_config_dir() {
-                        let config_path = config_dir.join("config.json");
-                        if config_path.exists() {
-                            if let Ok(content) = std::fs::read_to_string(&config_path) {
-                                if let Ok(json) =
-                                    serde_json::from_str::<serde_json::Value>(&content)
-                                {
-                                    if let Some(ext_path) =
-                                        json.get("external_backup_path").and_then(|v| v.as_str())
-                                    {
-                                        if !ext_path.trim().is_empty() {
-                                            let ext_dir = std::path::Path::new(ext_path);
-                                            if ext_dir.exists() {
-                                                let ext_daily_dir = ext_dir.join("daily");
-                                                if !ext_daily_dir.exists() {
-                                                    let _ = std::fs::create_dir_all(&ext_daily_dir);
-                                                }
-                                                let ext_backup_path =
-                                                    ext_daily_dir.join(&daily_filename);
-                                                let _ = backup_database(
-                                                    app.clone(),
-                                                    state.clone(),
-                                                    ext_backup_path.to_string_lossy().to_string(),
-                                                )
-                                                .await;
-                                            }
-                                        }
+                    let config_path = config_dir.join("config.json");
+                    if let Ok(content) = std::fs::read_to_string(&config_path) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(ext_path) =
+                                json.get("external_backup_path").and_then(|v| v.as_str())
+                            {
+                                if !ext_path.trim().is_empty() {
+                                    let ext_dir = std::path::Path::new(ext_path);
+                                    if ext_dir.exists() {
+                                        let ext_daily_dir = ext_dir.join("daily");
+                                        let _ = std::fs::create_dir_all(&ext_daily_dir);
+                                        let ext_backup_path = ext_daily_dir.join(&daily_filename);
+                                        let _ = std::fs::copy(&daily_path, ext_backup_path);
                                     }
                                 }
                             }
                         }
                     }
-                    // ------------------------------------
 
                     // Cleanup old daily backups (Keep 90 days)
                     if let Ok(entries) = std::fs::read_dir(&daily_dir) {
                         let mut backups: Vec<_> = entries
                             .filter_map(|e| e.ok())
                             .filter(|e| {
-                                e.file_name().to_string_lossy().starts_with("daily_backup_")
-                                    && e.file_name().to_string_lossy().ends_with(".sql")
+                                let fname_os = e.file_name();
+                                let fname = fname_os.to_string_lossy();
+                                fname.starts_with("daily_backup_")
+                                    && (fname.ends_with(".sql") || fname.ends_with(".gz"))
                             })
                             .collect();
 
-                        // Sort by name (which acts as date sort)
                         backups.sort_by_key(|b| b.file_name());
 
-                        // Delete if more than 90
                         if backups.len() > 90 {
                             let to_delete = backups.len() - 90;
                             for b in backups.iter().take(to_delete) {
@@ -4513,7 +4569,7 @@ async fn check_daily_backup(
                             }
                         }
                     }
-                    return Ok(format!("Daily backup created: {:?}", daily_path));
+                    return Ok(msg);
                 }
                 Err(e) => return Err(format!("Daily backup failed: {}", e)),
             }
@@ -4528,6 +4584,10 @@ async fn check_daily_backup(
 struct BackupData {
     version: String,
     timestamp: String,
+    #[serde(default)]
+    is_incremental: bool,
+    #[serde(default)]
+    since: Option<String>,
     users: Vec<User>,
     products: Vec<Product>,
     customers: Vec<Customer>,
@@ -4538,8 +4598,18 @@ struct BackupData {
     company_info: Vec<CompanyInfo>,
     expenses: Vec<Expense>,
     purchases: Vec<PurchaseBackup>,
-    consultations: Vec<ConsultationAiAdvice>,
+    consultations: Vec<Consultation>,
+    sales_claims: Vec<SalesClaim>,
     inventory_logs: Vec<InventoryLog>,
+    #[serde(default)]
+    deletions: Vec<DeletionLog>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+struct DeletionLog {
+    pub table_name: String,
+    pub record_id: String,
+    pub deleted_at: Option<NaiveDateTime>,
 }
 
 // Backup-specific Purchase struct (without JOIN columns)
@@ -4549,51 +4619,26 @@ struct PurchaseBackup {
     pub vendor_id: Option<i32>,
     pub purchase_date: Option<NaiveDate>,
     pub item_name: String,
+    pub specification: Option<String>,
     pub quantity: i32,
     pub unit_price: i32,
     pub total_amount: i32,
+    pub payment_status: Option<String>,
     pub memo: Option<String>,
     pub inventory_synced: Option<bool>,
     pub material_item_id: Option<i32>,
+    pub created_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 // DB Location Information
 #[derive(Debug, serde::Serialize)]
 struct DbLocationInfo {
     is_local: bool,
-    has_pg_service: bool,
     is_db_server: bool,
     can_backup: bool,
     db_host: String,
     message: String,
-}
-
-// Check if PostgreSQL service is running on this PC (Windows)
-fn is_postgresql_service_running() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        // Try common PostgreSQL service names
-        let service_names = vec![
-            "postgresql-x64-16",
-            "postgresql-x64-15",
-            "postgresql-x64-14",
-            "postgresql",
-        ];
-
-        for service_name in service_names {
-            if let Ok(output) = std::process::Command::new("sc")
-                .args(&["query", service_name])
-                .output()
-            {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if stdout.contains("RUNNING") {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
 }
 
 #[tauri::command]
@@ -4621,33 +4666,28 @@ async fn check_db_location(state: State<'_, DbPool>) -> Result<DbLocationInfo, S
 
     println!("[DB Location] is_local: {}", is_local);
 
-    // 3. Check if PostgreSQL service is running on this PC
-    let has_pg_service = is_postgresql_service_running();
+    // 3. Determine if this is the DB server (Simply based on connectivity for now)
+    let is_db_server = is_local;
 
-    println!("[DB Location] has_pg_service: {}", has_pg_service);
+    println!(
+        "[DB Location] is_db_server: {}, host: {}",
+        is_db_server, db_host
+    );
 
-    // 4. Determine if this is the DB server
-    let is_db_server = is_local && has_pg_service;
-
-    println!("[DB Location] is_db_server: {}", is_db_server);
-
-    // 5. Create message
+    // 4. Create message (Now allowing backup from all locations)
     let message = if is_db_server {
-        "이 PC는 DB 서버입니다. 백업을 실행할 수 있습니다.".to_string()
-    } else if is_local && !has_pg_service {
-        "DB는 로컬이지만 PostgreSQL 서비스를 찾을 수 없습니다.".to_string()
+        "이 PC는 메인 DB 서버(또는 로컬 접속)입니다.".to_string()
     } else {
         format!(
-            "원격 DB 서버({})에 연결되어 있습니다. 백업은 DB 서버에서 실행하세요.",
+            "원격 DB 서버({})에 연결되어 있습니다. 현재 PC에서 자유롭게 백업/복구가 가능합니다.",
             db_host
         )
     };
 
     Ok(DbLocationInfo {
         is_local,
-        has_pg_service,
         is_db_server,
-        can_backup: is_db_server,
+        can_backup: true, // ALWAYS TRUE to unlock for all computers
         db_host,
         message,
     })
@@ -4676,77 +4716,170 @@ async fn backup_database(
     app: tauri::AppHandle,
     state: State<'_, DbPool>,
     path: String,
+    is_incremental: bool,
 ) -> Result<String, String> {
-    use std::io::Write;
-
-    println!("[Backup] Starting database backup to: {}", path);
-    let pool = &*state;
-
-    let emit_progress = |processed: i64, total: i64, message: &str| {
-        let progress = if total > 0 {
-            ((processed as f64 / total as f64) * 100.0) as i32
-        } else {
-            0
-        };
-        let _ = app.emit(
-            "backup-progress",
-            serde_json::json!({
-                "progress": progress,
-                "message": message,
-                "processed": processed,
-                "total": total
-            }),
-        );
+    let since = if is_incremental {
+        get_last_backup_at(&app)
+    } else {
+        None
     };
 
-    emit_progress(0, 1, "데이터 개수 확인 중...");
-    println!("[Backup] Counting records...");
+    let result = backup_database_internal(Some(app.clone()), &*state, path, since).await?;
 
-    // Count records
-    let count_users: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+    // Update last backup time on success
+    let _ = update_last_backup_at(&app, chrono::Local::now().naive_local());
+
+    Ok(result)
+}
+
+fn get_last_backup_at(app: &tauri::AppHandle) -> Option<chrono::NaiveDateTime> {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let config_path = config_dir.join("config.json");
+        if config_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(ts) = json.get("last_backup_at").and_then(|v| v.as_str()) {
+                        return chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%S").ok();
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn update_last_backup_at(app: &tauri::AppHandle, ts: chrono::NaiveDateTime) -> Result<(), String> {
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config_path = config_dir.join("config.json");
+    let mut config_data = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        serde_json::from_str::<serde_json::Value>(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    config_data["last_backup_at"] = serde_json::json!(ts.format("%Y-%m-%dT%H:%M:%S").to_string());
+    let content = serde_json::to_string_pretty(&config_data).map_err(|e| e.to_string())?;
+    std::fs::write(&config_path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_backup_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let last_at = get_last_backup_at(&app);
+    Ok(serde_json::json!({
+        "last_backup_at": last_at.map(|ts| ts.format("%Y-%m-%dT%H:%M:%S").to_string()),
+        "day_of_week": chrono::Local::now().weekday().to_string(),
+        "is_friday": chrono::Local::now().weekday() == chrono::Weekday::Fri
+    }))
+}
+
+async fn backup_database_internal(
+    app: Option<tauri::AppHandle>,
+    pool: &DbPool,
+    path: String,
+    since: Option<chrono::NaiveDateTime>,
+) -> Result<String, String> {
+    // println!("[Backup] Starting database backup to: {}", path);
+
+    let emit_progress = |processed: i64, total: i64, message: &str| {
+        if let Some(ref handle) = app {
+            let progress = if total > 0 {
+                ((processed as f64 / total as f64) * 100.0) as i32
+            } else {
+                0
+            };
+            let _ = handle.emit(
+                "backup-progress",
+                serde_json::json!({
+                    "progress": progress,
+                    "message": message,
+                    "processed": processed,
+                    "total": total
+                }),
+            );
+        }
+    };
+
+    // ... (logic remains same but using emit_progress wrapper and pool argument)
+    BACKUP_CANCELLED.store(false, Ordering::Relaxed);
+    emit_progress(0, 1, "데이터 개수 확인 중...");
+
+    // Count records actually needing backup
+    let count_query = |table: &str| {
+        if let Some(s) = since {
+            format!(
+                "SELECT COUNT(*) FROM {} WHERE updated_at > '{}'",
+                table,
+                s.format("%Y-%m-%d %H:%M:%S")
+            )
+        } else {
+            format!("SELECT COUNT(*) FROM {}", table)
+        }
+    };
+
+    let count_users: (i64,) = sqlx::query_as(&count_query("users"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count users: {}", e))?;
-    let count_products: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM products")
+        .map_err(|e| e.to_string())?;
+    let count_products: (i64,) = sqlx::query_as(&count_query("products"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count products: {}", e))?;
-    let count_customers: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM customers")
+        .map_err(|e| e.to_string())?;
+    let count_customers: (i64,) = sqlx::query_as(&count_query("customers"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count customers: {}", e))?;
-    let count_addresses: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM customer_addresses")
+        .map_err(|e| e.to_string())?;
+    let count_addresses: (i64,) = sqlx::query_as(&count_query("customer_addresses"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count customer_addresses: {}", e))?;
-    let count_sales: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sales")
+        .map_err(|e| e.to_string())?;
+    let count_sales: (i64,) = sqlx::query_as(&count_query("sales"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count sales: {}", e))?;
-    let count_events: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM event")
+        .map_err(|e| e.to_string())?;
+    let count_events: (i64,) = sqlx::query_as(&count_query("event"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count events: {}", e))?;
-    let count_schedules: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM schedules")
+        .map_err(|e| e.to_string())?;
+    let count_schedules: (i64,) = sqlx::query_as(&count_query("schedules"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count schedules: {}", e))?;
-    let count_company: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM company_info")
+        .map_err(|e| e.to_string())?;
+    let count_company: (i64,) = sqlx::query_as(&count_query("company_info"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count company_info: {}", e))?;
-    let count_expenses: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM expenses")
+        .map_err(|e| e.to_string())?;
+    let count_expenses: (i64,) = sqlx::query_as(&count_query("expenses"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count expenses: {}", e))?;
-    let count_purchases: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM purchases")
+        .map_err(|e| e.to_string())?;
+    let count_purchases: (i64,) = sqlx::query_as(&count_query("purchases"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count purchases: {}", e))?;
-    let count_inventory: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM inventory_logs")
+        .map_err(|e| e.to_string())?;
+    let count_consultations: (i64,) = sqlx::query_as(&count_query("consultations"))
         .fetch_one(pool)
         .await
-        .map_err(|e| format!("Failed to count inventory_logs: {}", e))?;
+        .map_err(|e| e.to_string())?;
+    let count_claims: (i64,) = sqlx::query_as(&count_query("sales_claims"))
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let count_inventory: (i64,) = sqlx::query_as(&count_query("inventory_logs"))
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let count_deletions: (i64,) = if let Some(s) = since {
+        sqlx::query_as(&format!(
+            "SELECT COUNT(*) FROM deletion_log WHERE deleted_at > '{}'",
+            s.format("%Y-%m-%d %H:%M:%S")
+        ))
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?
+    } else {
+        (0,) // Full backup doesn't need deletion logs as it truncates everything
+    };
 
     let total_records = count_users.0
         + count_products.0
@@ -4758,169 +4891,221 @@ async fn backup_database(
         + count_company.0
         + count_expenses.0
         + count_purchases.0
-        + count_inventory.0;
-
-    println!(
-        "[Backup] Total records: {} (sales: {})",
-        total_records, count_sales.0
-    );
+        + count_consultations.0
+        + count_claims.0
+        + count_inventory.0
+        + count_deletions.0;
 
     let mut processed = 0i64;
-    let batch_size = 10000i64; // Process 10k records at a time
 
-    // Open file for writing
-    let mut file =
-        std::fs::File::create(&path).map_err(|e| format!("Failed to create file: {}", e))?;
+    let file = std::fs::File::create(&path).map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut encoder = GzEncoder::new(file, Compression::default());
 
-    // Write JSON header
-    writeln!(file, "{{").map_err(|e| e.to_string())?;
-    writeln!(file, "  \"version\": \"1.0\",").map_err(|e| e.to_string())?;
+    writeln!(encoder, "{{").map_err(|e| e.to_string())?;
+    writeln!(encoder, "  \"version\": \"2.1\",").map_err(|e| e.to_string())?;
     writeln!(
-        file,
+        encoder,
         "  \"timestamp\": \"{}\",",
         chrono::Local::now().to_rfc3339()
     )
     .map_err(|e| e.to_string())?;
+    writeln!(encoder, "  \"is_incremental\": {},", since.is_some()).map_err(|e| e.to_string())?;
+    if let Some(s) = since {
+        writeln!(
+            encoder,
+            "  \"since\": \"{}\",",
+            s.format("%Y-%m-%dT%H:%M:%S")
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        writeln!(encoder, "  \"since\": null,").map_err(|e| e.to_string())?;
+    }
 
-    // Helper macro for batch processing table data
-    macro_rules! batch_table {
-        ($table:expr, $type:ty, $query:expr, $field:expr, $msg:expr, $count:expr) => {{
+    macro_rules! batch_table_internal {
+        ($table:expr, $type:ty, $query:expr, $field:expr, $msg:expr, $count:expr, $time_col:expr) => {{
             emit_progress(processed, total_records, $msg);
-            write!(file, "  \"{}\": [", $field).map_err(|e| e.to_string())?;
-
-            let mut offset = 0i64;
+            write!(encoder, "  \"{}\": [", $field).map_err(|e| e.to_string())?;
             let mut first_record = true;
-
-            while offset < $count {
-                let limit = batch_size.min($count - offset);
-                let query = format!("{} LIMIT {} OFFSET {}", $query, limit, offset);
-
-                let batch: Vec<$type> =
-                    sqlx::query_as(&query).fetch_all(pool).await.map_err(|e| {
-                        format!("Failed to fetch {} (offset {}): {}", $table, offset, e)
-                    })?;
-
-                for record in batch {
-                    if !first_record {
-                        write!(file, ",").map_err(|e| e.to_string())?;
-                    }
-                    first_record = false;
-
-                    let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
-                    write!(file, "\n    {}", json).map_err(|e| e.to_string())?;
-
-                    processed += 1;
+            let base_query = if let Some(s) = since {
+                format!(
+                    "{} WHERE {} > '{}'",
+                    $query,
+                    $time_col,
+                    s.format("%Y-%m-%d %H:%M:%S")
+                )
+            } else {
+                $query.to_string()
+            };
+            let mut rows = sqlx::query_as::<_, $type>(&base_query).fetch(pool);
+            while let Some(record) = rows.next().await {
+                if BACKUP_CANCELLED.load(Ordering::Relaxed) {
+                    return Err("사용자에 의해 백업이 중단되었습니다.".to_string());
                 }
+                let record = record.map_err(|e| format!("Fetch from {} failed: {}", $table, e))?;
 
-                offset += limit;
-                emit_progress(
-                    processed,
-                    total_records,
-                    &format!("{} ({}/{})", $msg, processed, total_records),
-                );
+                if !first_record {
+                    write!(encoder, ",").map_err(|e| e.to_string())?;
+                }
+                first_record = false;
+
+                let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
+                write!(encoder, "\n    {}", json).map_err(|e| e.to_string())?;
+                processed += 1;
+
+                if processed % 5000 == 0 {
+                    emit_progress(
+                        processed,
+                        total_records,
+                        &format!("{} ({}/{})", $msg, processed, total_records),
+                    );
+                }
             }
-
-            writeln!(file, "\n  ],").map_err(|e| e.to_string())?;
+            writeln!(encoder, "\n  ],").map_err(|e| e.to_string())?;
         }};
     }
 
-    // Process each table in batches
-    batch_table!(
+    batch_table_internal!(
         "users",
         User,
         "SELECT * FROM users",
         "users",
         "사용자 정보 백업 중",
-        count_users.0
+        count_users.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "products",
         Product,
         "SELECT * FROM products",
         "products",
         "상품 정보 백업 중",
-        count_products.0
+        count_products.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "customers",
         Customer,
         "SELECT * FROM customers",
         "customers",
         "고객 정보 백업 중",
-        count_customers.0
+        count_customers.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "customer_addresses",
         CustomerAddress,
         "SELECT * FROM customer_addresses",
         "customer_addresses",
         "배송지 정보 백업 중",
-        count_addresses.0
+        count_addresses.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "sales",
         Sales,
         "SELECT * FROM sales",
         "sales",
         "판매 내역 백업 중",
-        count_sales.0
+        count_sales.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "event",
         Event,
         "SELECT * FROM event",
         "events",
         "행사 정보 백업 중",
-        count_events.0
+        count_events.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "schedules",
         Schedule,
         "SELECT * FROM schedules",
         "schedules",
         "일정 정보 백업 중",
-        count_schedules.0
+        count_schedules.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "company_info",
         CompanyInfo,
         "SELECT * FROM company_info",
         "company_info",
         "회사 정보 백업 중",
-        count_company.0
+        count_company.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "expenses",
         Expense,
         "SELECT * FROM expenses",
         "expenses",
         "지출 내역 백업 중",
-        count_expenses.0
+        count_expenses.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
         "purchases",
         PurchaseBackup,
         "SELECT * FROM purchases",
         "purchases",
         "구매 내역 백업 중",
-        count_purchases.0
+        count_purchases.0,
+        "updated_at"
     );
-    batch_table!(
+    batch_table_internal!(
+        "consultations",
+        Consultation,
+        "SELECT * FROM consultations",
+        "consultations",
+        "상담 내역 백업 중",
+        count_consultations.0,
+        "updated_at"
+    );
+    batch_table_internal!(
+        "sales_claims",
+        SalesClaim,
+        "SELECT * FROM sales_claims",
+        "sales_claims",
+        "판매 클레임 백업 중",
+        count_claims.0,
+        "updated_at"
+    );
+    batch_table_internal!(
         "inventory_logs",
         InventoryLog,
         "SELECT * FROM inventory_logs",
         "inventory_logs",
         "재고 로그 백업 중",
-        count_inventory.0
+        count_inventory.0,
+        "created_at"
     );
 
-    // Write consultations (empty) and close JSON
-    writeln!(file, "  \"consultations\": []").map_err(|e| e.to_string())?;
-    writeln!(file, "}}").map_err(|e| e.to_string())?;
+    // Deletion Logs - Only for Incremental
+    if since.is_some() {
+        batch_table_internal!(
+            "deletion_log",
+            DeletionLog,
+            "SELECT table_name, record_id, deleted_at FROM deletion_log",
+            "deletions",
+            "삭제 이력 백업 중",
+            count_deletions.0,
+            "deleted_at"
+        );
+    } else {
+        write!(encoder, "  \"deletions\": []").map_err(|e| e.to_string())?;
+    }
+
+    writeln!(encoder, "  \"backup_complete\": true").map_err(|e| e.to_string())?;
+    writeln!(encoder, "}}").map_err(|e| e.to_string())?;
+    encoder
+        .finish()
+        .map_err(|e| format!("Failed to finish compression: {}", e))?;
 
     emit_progress(total_records, total_records, "백업 완료!");
     let success_msg = format!("백업이 완료되었습니다: {} ({} 레코드)", path, total_records);
-    println!("[Backup] {}", success_msg);
+    // println!("[Backup] {}", success_msg);
     Ok(success_msg)
 }
 
@@ -4930,7 +5115,7 @@ async fn restore_database(
     state: State<'_, DbPool>,
     path: String,
 ) -> Result<String, String> {
-    println!("[Restore] Starting database restore from: {}", path);
+    // println!("[Restore] Starting database restore from: {}", path);
     let pool = &*state;
 
     // Progress tracking based on actual record counts
@@ -4951,9 +5136,27 @@ async fn restore_database(
         );
     };
 
+    BACKUP_CANCELLED.store(false, Ordering::Relaxed);
     emit_progress(0, 1, "백업 파일 읽는 중...");
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let backup: BackupData = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(&path).map_err(|e| format!("파일을 열 수 없습니다: {}", e))?;
+
+    // Auto-detect Gzip: check for magic bytes [0x1f, 0x8b]
+    let mut magic = [0u8; 2];
+    let is_gzipped = if let Ok(mut f) = std::fs::File::open(&path) {
+        f.read_exact(&mut magic).is_ok() && magic == [0x1f, 0x8b]
+    } else {
+        false
+    };
+
+    let reader: Box<dyn std::io::Read> = if is_gzipped {
+        Box::new(GzDecoder::new(file))
+    } else {
+        Box::new(file)
+    };
+
+    let reader = std::io::BufReader::new(reader);
+    let backup: BackupData = serde_json::from_reader(reader)
+        .map_err(|e| format!("백업 형식이 올바르지 않거나 파일이 손상되었습니다: {}", e))?;
 
     // Calculate total records to restore
     let total_records = backup.users.len() as i64
@@ -4966,10 +5169,12 @@ async fn restore_database(
         + backup.schedules.len() as i64
         + backup.expenses.len() as i64
         + backup.purchases.len() as i64
+        + backup.consultations.len() as i64
+        + backup.sales_claims.len() as i64
         + backup.inventory_logs.len() as i64;
 
     println!(
-        "[Restore] Total records to restore: {} (users: {}, company: {}, products: {}, customers: {}, addresses: {}, events: {}, sales: {}, schedules: {}, expenses: {}, purchases: {}, inventory: {})",
+        "[Restore] Total records to restore: {} (users: {}, company: {}, products: {}, customers: {}, addresses: {}, events: {}, sales: {}, schedules: {}, expenses: {}, purchases: {}, consultations: {}, claims: {}, inventory: {})",
         total_records,
         backup.users.len(),
         backup.company_info.len(),
@@ -4981,6 +5186,8 @@ async fn restore_database(
         backup.schedules.len(),
         backup.expenses.len(),
         backup.purchases.len(),
+        backup.consultations.len(),
+        backup.sales_claims.len(),
         backup.inventory_logs.len()
     );
 
@@ -4989,23 +5196,42 @@ async fn restore_database(
     // Start Transaction
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-    emit_progress(processed, total_records, "기존 데이터 삭제 중...");
-    // Truncate tables (Cascading)
-    sqlx::query("TRUNCATE TABLE users, products, customers, customer_addresses, sales, event, schedules, company_info, expenses, purchases, inventory_logs RESTART IDENTITY CASCADE")
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Truncate failed: {}", e))?;
+    if !backup.is_incremental {
+        emit_progress(
+            processed,
+            total_records,
+            "기존 데이터 삭제 중 (전체 복구)...",
+        );
+        // Truncate tables (Cascading)
+        sqlx::query("TRUNCATE TABLE users, products, customers, customer_addresses, sales, event, schedules, company_info, expenses, purchases, consultations, sales_claims, inventory_logs RESTART IDENTITY CASCADE")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Truncate failed: {}", e))?;
+    } else {
+        emit_progress(
+            processed,
+            total_records,
+            "데이터 병합 준비 중 (증분 복구)...",
+        );
+    }
 
     emit_progress(processed, total_records, "사용자 정보 복구 중...");
     // Insert Users
     for u in backup.users {
         sqlx::query(
-            "INSERT INTO users (username, password_hash, role, created_at) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO users (id, username, password_hash, role, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (username) DO UPDATE SET 
+                password_hash = EXCLUDED.password_hash,
+                role = EXCLUDED.role,
+                updated_at = EXCLUDED.updated_at",
         )
+        .bind(u.id)
         .bind(u.username)
         .bind(u.password_hash)
         .bind(u.role)
         .bind(u.created_at)
+        .bind(u.updated_at)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("Restore users failed: {}", e))?;
@@ -5015,8 +5241,25 @@ async fn restore_database(
     emit_progress(processed, total_records, "회사 정보 복구 중...");
     // Insert Company Info
     for c in backup.company_info {
-        sqlx::query("INSERT INTO company_info (company_name, representative_name, business_reg_number, phone_number, address) VALUES ($1, $2, $3, $4, $5)")
-            .bind(c.company_name).bind(c.representative_name).bind(c.business_reg_number).bind(c.phone_number).bind(c.address)
+        sqlx::query(
+            "INSERT INTO company_info (id, company_name, representative_name, business_reg_number, phone_number, mobile_number, address, business_type, item, registration_date, memo, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             ON CONFLICT (id) DO UPDATE SET 
+                company_name = EXCLUDED.company_name,
+                representative_name = EXCLUDED.representative_name,
+                business_reg_number = EXCLUDED.business_reg_number,
+                phone_number = EXCLUDED.phone_number,
+                mobile_number = EXCLUDED.mobile_number,
+                address = EXCLUDED.address,
+                business_type = EXCLUDED.business_type,
+                item = EXCLUDED.item,
+                registration_date = EXCLUDED.registration_date,
+                memo = EXCLUDED.memo,
+                updated_at = EXCLUDED.updated_at"
+        )
+            .bind(c.id).bind(c.company_name).bind(c.representative_name).bind(c.business_reg_number)
+            .bind(c.phone_number).bind(c.mobile_number).bind(c.address).bind(c.business_type)
+            .bind(c.item).bind(c.registration_date).bind(c.memo).bind(c.created_at).bind(c.updated_at)
             .execute(&mut *tx).await.map_err(|e| format!("Restore company_info failed: {}", e))?;
         processed += 1;
     }
@@ -5025,13 +5268,23 @@ async fn restore_database(
     // Insert Products
     for p in backup.products {
         sqlx::query(
-            "INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, material_id, material_ratio, item_type) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             ON CONFLICT (product_id) DO UPDATE SET product_name = EXCLUDED.product_name"
-         )
-         .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price)
-         .bind(p.stock_quantity).bind(p.safety_stock).bind(p.material_id).bind(p.material_ratio).bind(p.item_type)
-         .execute(&mut *tx).await.map_err(|e| format!("Restore products failed: {}", e))?;
+            "INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             ON CONFLICT (product_id) DO UPDATE SET 
+                product_name = EXCLUDED.product_name,
+                specification = EXCLUDED.specification,
+                unit_price = EXCLUDED.unit_price,
+                stock_quantity = EXCLUDED.stock_quantity,
+                safety_stock = EXCLUDED.safety_stock,
+                cost_price = EXCLUDED.cost_price,
+                material_id = EXCLUDED.material_id,
+                material_ratio = EXCLUDED.material_ratio,
+                item_type = EXCLUDED.item_type,
+                updated_at = EXCLUDED.updated_at"
+          )
+          .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price)
+          .bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.item_type).bind(p.updated_at)
+          .execute(&mut *tx).await.map_err(|e| format!("Restore products failed: {}", e))?;
         processed += 1;
     }
 
@@ -5039,14 +5292,36 @@ async fn restore_database(
     // Insert Customers
     for c in backup.customers {
         sqlx::query(
-            "INSERT INTO customers (customer_id, customer_name, mobile_number, membership_level, phone_number, email, zip_code, address_primary, address_detail, anniversary_date, anniversary_type, marketing_consent, acquisition_channel, pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle, memo, join_date, created_at) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)"
+            "INSERT INTO customers (customer_id, customer_name, mobile_number, membership_level, phone_number, email, zip_code, address_primary, address_detail, anniversary_date, anniversary_type, marketing_consent, acquisition_channel, pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle, memo, current_balance, join_date, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+             ON CONFLICT (customer_id) DO UPDATE SET 
+                customer_name = EXCLUDED.customer_name,
+                mobile_number = EXCLUDED.mobile_number,
+                membership_level = EXCLUDED.membership_level,
+                phone_number = EXCLUDED.phone_number,
+                email = EXCLUDED.email,
+                zip_code = EXCLUDED.zip_code,
+                address_primary = EXCLUDED.address_primary,
+                address_detail = EXCLUDED.address_detail,
+                anniversary_date = EXCLUDED.anniversary_date,
+                anniversary_type = EXCLUDED.anniversary_type,
+                marketing_consent = EXCLUDED.marketing_consent,
+                acquisition_channel = EXCLUDED.acquisition_channel,
+                pref_product_type = EXCLUDED.pref_product_type,
+                pref_package_type = EXCLUDED.pref_package_type,
+                family_type = EXCLUDED.family_type,
+                health_concern = EXCLUDED.health_concern,
+                sub_interest = EXCLUDED.sub_interest,
+                purchase_cycle = EXCLUDED.purchase_cycle,
+                memo = EXCLUDED.memo,
+                current_balance = EXCLUDED.current_balance,
+                updated_at = EXCLUDED.updated_at"
         )
         .bind(c.customer_id).bind(c.customer_name).bind(c.mobile_number).bind(c.membership_level)
         .bind(c.phone_number).bind(c.email).bind(c.zip_code).bind(c.address_primary).bind(c.address_detail)
         .bind(c.anniversary_date).bind(c.anniversary_type).bind(c.marketing_consent).bind(c.acquisition_channel)
         .bind(c.pref_product_type).bind(c.pref_package_type).bind(c.family_type).bind(c.health_concern).bind(c.sub_interest).bind(c.purchase_cycle)
-        .bind(c.memo).bind(c.join_date).bind(c.created_at)
+        .bind(c.memo).bind(c.current_balance).bind(c.join_date).bind(c.created_at).bind(c.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore customers failed: {}", e))?;
         processed += 1;
     }
@@ -5055,11 +5330,21 @@ async fn restore_database(
     // Insert Customer Addresses
     for ca in backup.customer_addresses {
         sqlx::query(
-            "INSERT INTO customer_addresses (customer_id, address_alias, recipient_name, mobile_number, zip_code, address_primary, address_detail, is_default, shipping_memo, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+            "INSERT INTO customer_addresses (address_id, customer_id, address_alias, recipient_name, mobile_number, zip_code, address_primary, address_detail, is_default, shipping_memo, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (address_id) DO UPDATE SET 
+                address_alias = EXCLUDED.address_alias,
+                recipient_name = EXCLUDED.recipient_name,
+                mobile_number = EXCLUDED.mobile_number,
+                zip_code = EXCLUDED.zip_code,
+                address_primary = EXCLUDED.address_primary,
+                address_detail = EXCLUDED.address_detail,
+                is_default = EXCLUDED.is_default,
+                shipping_memo = EXCLUDED.shipping_memo,
+                updated_at = EXCLUDED.updated_at"
         )
-        .bind(ca.customer_id).bind(ca.address_alias).bind(ca.recipient_name).bind(ca.mobile_number)
-        .bind(ca.zip_code).bind(ca.address_primary).bind(ca.address_detail).bind(ca.is_default).bind(ca.shipping_memo).bind(ca.created_at)
+        .bind(ca.address_id).bind(ca.customer_id).bind(ca.address_alias).bind(ca.recipient_name).bind(ca.mobile_number)
+        .bind(ca.zip_code).bind(ca.address_primary).bind(ca.address_detail).bind(ca.is_default).bind(ca.shipping_memo).bind(ca.created_at).bind(ca.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore customer_addresses failed: {}", e))?;
         processed += 1;
     }
@@ -5068,11 +5353,22 @@ async fn restore_database(
     // Insert Events
     for e in backup.events {
         sqlx::query(
-            "INSERT INTO event (event_id, event_name, organizer, manager_name, manager_contact, location_address, location_detail, start_date, end_date, memo)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+            "INSERT INTO event (event_id, event_name, organizer, manager_name, manager_contact, location_address, location_detail, start_date, end_date, memo, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (event_id) DO UPDATE SET 
+                event_name = EXCLUDED.event_name,
+                organizer = EXCLUDED.organizer,
+                manager_name = EXCLUDED.manager_name,
+                manager_contact = EXCLUDED.manager_contact,
+                location_address = EXCLUDED.location_address,
+                location_detail = EXCLUDED.location_detail,
+                start_date = EXCLUDED.start_date,
+                end_date = EXCLUDED.end_date,
+                memo = EXCLUDED.memo,
+                updated_at = EXCLUDED.updated_at"
         )
         .bind(e.event_id).bind(e.event_name).bind(e.organizer).bind(e.manager_name).bind(e.manager_contact)
-        .bind(e.location_address).bind(e.location_detail).bind(e.start_date).bind(e.end_date).bind(e.memo)
+        .bind(e.location_address).bind(e.location_detail).bind(e.start_date).bind(e.end_date).bind(e.memo).bind(e.created_at).bind(e.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore events failed: {}", e))?;
         processed += 1;
     }
@@ -5081,12 +5377,35 @@ async fn restore_database(
     // Insert Sales
     for s in backup.sales {
         sqlx::query(
-            "INSERT INTO sales (sales_id, customer_id, product_name, specification, unit_price, quantity, total_amount, status, order_date, memo, shipping_name, shipping_zip_code, shipping_address_primary, shipping_address_detail, shipping_mobile_number, shipping_date, courier_name, tracking_number)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)"
+            "INSERT INTO sales (sales_id, customer_id, product_name, specification, unit_price, quantity, total_amount, status, order_date, memo, shipping_name, shipping_zip_code, shipping_address_primary, shipping_address_detail, shipping_mobile_number, shipping_date, courier_name, tracking_number, discount_rate, paid_amount, payment_status, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+             ON CONFLICT (sales_id) DO UPDATE SET 
+                customer_id = EXCLUDED.customer_id,
+                product_name = EXCLUDED.product_name,
+                specification = EXCLUDED.specification,
+                unit_price = EXCLUDED.unit_price,
+                quantity = EXCLUDED.quantity,
+                total_amount = EXCLUDED.total_amount,
+                status = EXCLUDED.status,
+                order_date = EXCLUDED.order_date,
+                memo = EXCLUDED.memo,
+                shipping_name = EXCLUDED.shipping_name,
+                shipping_zip_code = EXCLUDED.shipping_zip_code,
+                shipping_address_primary = EXCLUDED.shipping_address_primary,
+                shipping_address_detail = EXCLUDED.shipping_address_detail,
+                shipping_mobile_number = EXCLUDED.shipping_mobile_number,
+                shipping_date = EXCLUDED.shipping_date,
+                courier_name = EXCLUDED.courier_name,
+                tracking_number = EXCLUDED.tracking_number,
+                discount_rate = EXCLUDED.discount_rate,
+                paid_amount = EXCLUDED.paid_amount,
+                payment_status = EXCLUDED.payment_status,
+                updated_at = EXCLUDED.updated_at"
         )
         .bind(s.sales_id).bind(s.customer_id).bind(s.product_name).bind(s.specification).bind(s.unit_price)
         .bind(s.quantity).bind(s.total_amount).bind(s.status).bind(s.order_date).bind(s.memo)
         .bind(s.shipping_name).bind(s.shipping_zip_code).bind(s.shipping_address_primary).bind(s.shipping_address_detail).bind(s.shipping_mobile_number).bind(s.shipping_date).bind(s.courier_name).bind(s.tracking_number)
+        .bind(s.discount_rate).bind(s.paid_amount).bind(s.payment_status).bind(s.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore sales failed: {}", e))?;
         processed += 1;
     }
@@ -5095,9 +5414,19 @@ async fn restore_database(
     // Insert Schedules
     for s in backup.schedules {
         sqlx::query(
-            "INSERT INTO schedules (title, start_time, end_time, description) VALUES ($1, $2, $3, $4)"
+            "INSERT INTO schedules (schedule_id, title, start_time, end_time, description, status, related_type, related_id, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (schedule_id) DO UPDATE SET 
+                title = EXCLUDED.title,
+                start_time = EXCLUDED.start_time,
+                end_time = EXCLUDED.end_time,
+                description = EXCLUDED.description,
+                status = EXCLUDED.status,
+                related_type = EXCLUDED.related_type,
+                related_id = EXCLUDED.related_id,
+                updated_at = EXCLUDED.updated_at"
         )
-        .bind(s.title).bind(s.start_time).bind(s.end_time).bind(s.description)
+        .bind(s.schedule_id).bind(s.title).bind(s.start_time).bind(s.end_time).bind(s.description).bind(s.status).bind(s.related_type).bind(s.related_id).bind(s.created_at).bind(s.updated_at)
         .execute(&mut *tx).await.map_err(|e| format!("Restore schedules failed: {}", e))?;
         processed += 1;
     }
@@ -5106,9 +5435,17 @@ async fn restore_database(
     // Insert Expenses
     for e in backup.expenses {
         sqlx::query(
-            "INSERT INTO expenses (expense_date, category, memo, amount, payment_method) VALUES ($1, $2, $3, $4, $5)"
+            "INSERT INTO expenses (expense_id, expense_date, category, memo, amount, payment_method, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (expense_id) DO UPDATE SET 
+                expense_date = EXCLUDED.expense_date,
+                category = EXCLUDED.category,
+                memo = EXCLUDED.memo,
+                amount = EXCLUDED.amount,
+                payment_method = EXCLUDED.payment_method,
+                updated_at = EXCLUDED.updated_at"
          )
-         .bind(e.expense_date).bind(e.category).bind(e.memo).bind(e.amount).bind(e.payment_method)
+         .bind(e.expense_id).bind(e.expense_date).bind(e.category).bind(e.memo).bind(e.amount).bind(e.payment_method).bind(e.created_at).bind(e.updated_at)
          .execute(&mut *tx).await.map_err(|e| format!("Restore expenses failed: {}", e))?;
         processed += 1;
     }
@@ -5117,10 +5454,75 @@ async fn restore_database(
     // Insert Purchases
     for p in backup.purchases {
         sqlx::query(
-            "INSERT INTO purchases (purchase_date, vendor_id, item_name, quantity, unit_price, total_amount, memo, inventory_synced, material_item_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+            "INSERT INTO purchases (purchase_id, purchase_date, vendor_id, item_name, specification, quantity, unit_price, total_amount, payment_status, memo, inventory_synced, material_item_id, created_at, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             ON CONFLICT (purchase_id) DO UPDATE SET 
+                purchase_date = EXCLUDED.purchase_date,
+                vendor_id = EXCLUDED.vendor_id,
+                item_name = EXCLUDED.item_name,
+                specification = EXCLUDED.specification,
+                quantity = EXCLUDED.quantity,
+                unit_price = EXCLUDED.unit_price,
+                total_amount = EXCLUDED.total_amount,
+                payment_status = EXCLUDED.payment_status,
+                memo = EXCLUDED.memo,
+                inventory_synced = EXCLUDED.inventory_synced,
+                material_item_id = EXCLUDED.material_item_id,
+                updated_at = EXCLUDED.updated_at"
          )
-         .bind(p.purchase_date).bind(p.vendor_id).bind(p.item_name).bind(p.quantity).bind(p.unit_price).bind(p.total_amount).bind(p.memo).bind(p.inventory_synced).bind(p.material_item_id)
+         .bind(p.purchase_id).bind(p.purchase_date).bind(p.vendor_id).bind(p.item_name).bind(p.specification).bind(p.quantity).bind(p.unit_price).bind(p.total_amount).bind(p.payment_status).bind(p.memo).bind(p.inventory_synced).bind(p.material_item_id).bind(p.created_at).bind(p.updated_at)
          .execute(&mut *tx).await.map_err(|e| format!("Restore purchases failed: {}", e))?;
+        processed += 1;
+    }
+
+    emit_progress(processed, total_records, "상담 내역 복구 중...");
+    // Insert Consultations
+    for c in backup.consultations {
+        sqlx::query(
+            "INSERT INTO consultations (consult_id, customer_id, guest_name, contact, channel, counselor_name, category, title, content, answer, status, priority, consult_date, follow_up_date, created_at, updated_at, sentiment)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+             ON CONFLICT (consult_id) DO UPDATE SET 
+                customer_id = EXCLUDED.customer_id,
+                guest_name = EXCLUDED.guest_name,
+                contact = EXCLUDED.contact,
+                channel = EXCLUDED.channel,
+                counselor_name = EXCLUDED.counselor_name,
+                category = EXCLUDED.category,
+                title = EXCLUDED.title,
+                content = EXCLUDED.content,
+                answer = EXCLUDED.answer,
+                status = EXCLUDED.status,
+                priority = EXCLUDED.priority,
+                consult_date = EXCLUDED.consult_date,
+                follow_up_date = EXCLUDED.follow_up_date,
+                updated_at = EXCLUDED.updated_at,
+                sentiment = EXCLUDED.sentiment"
+        )
+        .bind(c.consult_id).bind(c.customer_id).bind(c.guest_name).bind(c.contact).bind(c.channel).bind(c.counselor_name).bind(c.category).bind(c.title).bind(c.content).bind(c.answer).bind(c.status).bind(c.priority).bind(c.consult_date).bind(c.follow_up_date).bind(c.created_at).bind(c.updated_at).bind(c.sentiment)
+        .execute(&mut *tx).await.map_err(|e| format!("Restore consultations failed: {}", e))?;
+        processed += 1;
+    }
+
+    emit_progress(processed, total_records, "판매 클레임 복구 중...");
+    // Insert Sales Claims
+    for sc in backup.sales_claims {
+        sqlx::query(
+            "INSERT INTO sales_claims (claim_id, sales_id, customer_id, claim_type, claim_status, reason_category, quantity, refund_amount, is_inventory_recovered, memo, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (claim_id) DO UPDATE SET 
+                sales_id = EXCLUDED.sales_id,
+                customer_id = EXCLUDED.customer_id,
+                claim_type = EXCLUDED.claim_type,
+                claim_status = EXCLUDED.claim_status,
+                reason_category = EXCLUDED.reason_category,
+                quantity = EXCLUDED.quantity,
+                refund_amount = EXCLUDED.refund_amount,
+                is_inventory_recovered = EXCLUDED.is_inventory_recovered,
+                memo = EXCLUDED.memo,
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(sc.claim_id).bind(sc.sales_id).bind(sc.customer_id).bind(sc.claim_type).bind(sc.claim_status).bind(sc.reason_category).bind(sc.quantity).bind(sc.refund_amount).bind(sc.is_inventory_recovered).bind(sc.memo).bind(sc.created_at).bind(sc.updated_at)
+        .execute(&mut *tx).await.map_err(|e| format!("Restore sales_claims failed: {}", e))?;
         processed += 1;
     }
 
@@ -5128,12 +5530,64 @@ async fn restore_database(
     // Insert Inventory Logs
     for l in backup.inventory_logs {
         sqlx::query(
-            "INSERT INTO inventory_logs (product_name, specification, change_type, change_quantity, current_stock, reference_id, memo, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+            "INSERT INTO inventory_logs (log_id, product_name, specification, change_type, change_quantity, current_stock, reference_id, memo, created_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (log_id) DO UPDATE SET 
+                product_name = EXCLUDED.product_name,
+                specification = EXCLUDED.specification,
+                change_type = EXCLUDED.change_type,
+                change_quantity = EXCLUDED.change_quantity,
+                current_stock = EXCLUDED.current_stock,
+                reference_id = EXCLUDED.reference_id,
+                memo = EXCLUDED.memo"
          )
-         .bind(l.product_name).bind(l.specification).bind(l.change_type).bind(l.change_quantity).bind(l.current_stock).bind(l.reference_id).bind(l.memo).bind(l.created_at)
+         .bind(l.log_id).bind(l.product_name).bind(l.specification).bind(l.change_type).bind(l.change_quantity).bind(l.current_stock).bind(l.reference_id).bind(l.memo).bind(l.created_at)
          .execute(&mut *tx).await.map_err(|e| format!("Restore inventory_logs failed: {}", e))?;
         processed += 1;
     }
+
+    emit_progress(processed, total_records, "삭제된 데이터 반영 중...");
+    // Handle Deletions
+    for del in backup.deletions {
+        let pk_col = match del.table_name.as_str() {
+            "users" | "company_info" => "id",
+            "products" => "product_id",
+            "customers" => "customer_id",
+            "customer_addresses" => "address_id",
+            "sales" => "sales_id",
+            "event" => "event_id",
+            "schedules" => "schedule_id",
+            "experience_programs" => "program_id",
+            "experience_reservations" => "reservation_id",
+            "consultations" => "consult_id",
+            "vendors" => "vendor_id",
+            "purchases" => "purchase_id",
+            "expenses" => "expense_id",
+            "customer_ledger" => "ledger_id",
+            "sales_claims" => "claim_id",
+            "inventory_logs" => "log_id",
+            _ => "id",
+        };
+
+        let q = format!("DELETE FROM {} WHERE {} = $1", del.table_name, pk_col);
+        sqlx::query(&q)
+            .bind(&del.record_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                format!(
+                    "Deletion sync failed for {} {}: {}",
+                    del.table_name, del.record_id, e
+                )
+            })?;
+        processed += 1;
+    }
+
+    // Clean up local deletion_log after syncing
+    sqlx::query("DELETE FROM deletion_log")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
 
     emit_progress(processed, total_records, "시퀀스 재설정 중...");
     // Fix Sequence IDs
@@ -6791,7 +7245,7 @@ async fn get_ai_repurchase_analysis(
         let next_date = *last_date + chrono::Duration::days(avg_interval as i64);
         let days_remaining = (next_date - today).num_days() as i32;
 
-        if days_remaining >= -30 && days_remaining <= 90 {
+        if (-30..=90).contains(&days_remaining) {
             candidates.push(db::RepurchaseCandidate {
                 customer_id: cid,
                 customer_name: cname,
@@ -8240,7 +8694,7 @@ pub struct LoginResponse {
 #[tauri::command]
 async fn verify_admin_password(state: State<'_, DbPool>, password: String) -> Result<bool, String> {
     let user_result = sqlx::query_as::<_, User>(
-        "SELECT id, username, password_hash, role, created_at FROM users WHERE username = 'admin'",
+        "SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE username = 'admin'",
     )
     .fetch_optional(&*state)
     .await
@@ -8280,7 +8734,7 @@ async fn login(
 
     // Query user from database
     let user_result = sqlx::query_as::<_, User>(
-        "SELECT id, username, password_hash, role, created_at FROM users WHERE username = $1",
+        "SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE username = $1",
     )
     .bind(&username)
     .fetch_optional(&*state)
@@ -8405,7 +8859,7 @@ async fn change_password(
 #[tauri::command]
 async fn get_all_users(state: State<'_, DbPool>) -> Result<Vec<User>, String> {
     let users = sqlx::query_as::<_, User>(
-        "SELECT id, username, password_hash, role, created_at FROM users ORDER BY created_at DESC",
+        "SELECT id, username, password_hash, role, created_at, updated_at FROM users ORDER BY created_at DESC",
     )
     .fetch_all(&*state)
     .await

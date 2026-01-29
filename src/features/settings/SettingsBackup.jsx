@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useBlocker } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { save, open } from '@tauri-apps/plugin-dialog';
@@ -16,10 +16,12 @@ const SettingsBackup = () => {
     const [backups, setBackups] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [extPath, setExtPath] = useState('');
+    const [internalPath, setInternalPath] = useState('');
     const [backupProgress, setBackupProgress] = useState({ progress: 0, message: '' });
     const [showProgress, setShowProgress] = useState(false);
     const [operationType, setOperationType] = useState('backup'); // 'backup' or 'restore'
-    const [dbLocationInfo, setDbLocationInfo] = useState(null);
+    const [isIncremental, setIsIncremental] = useState(true);
+    const [backupStatus, setBackupStatus] = useState(null);
 
     // --- Admin Guard Check ---
     const checkRunComp = React.useRef(false);
@@ -38,16 +40,23 @@ const SettingsBackup = () => {
     const loadBackups = useCallback(async () => {
         setIsLoading(true);
         try {
-            // Check DB location
-            const dbInfo = await invoke('check_db_location');
-            console.log('[DB Location Info]', dbInfo);
-            setDbLocationInfo(dbInfo);
-
-            const list = await invoke('get_auto_backups');
+            const [list, path, internal, status] = await Promise.all([
+                invoke('get_auto_backups'),
+                invoke('get_external_backup_path'),
+                invoke('get_internal_backup_path'),
+                invoke('get_backup_status')
+            ]);
             setBackups(list || []);
-
-            const path = await invoke('get_external_backup_path');
             setExtPath(path || '');
+            setInternalPath(internal || '');
+            setBackupStatus(status);
+
+            // Default to Full if Friday, else Incremental
+            if (status?.is_friday) {
+                setIsIncremental(false);
+            } else {
+                setIsIncremental(true);
+            }
         } catch (err) {
             console.error("Failed to load backups:", err);
         } finally {
@@ -61,49 +70,82 @@ const SettingsBackup = () => {
         }
     }, [isAuthorized, loadBackups]);
 
+    const handleCancel = async () => {
+        try {
+            await invoke('cancel_backup_restore');
+            setBackupProgress(prev => ({ ...prev, message: '중단 요청 중...' }));
+        } catch (err) {
+            console.error("Cancel failed:", err);
+        }
+    };
+
+    // --- Navigation Guard ---
+    // Prevent internal navigation (clicking menu, etc)
+    const blocker = useBlocker(
+        ({ currentLocation, nextLocation }) =>
+            showProgress && currentLocation.pathname !== nextLocation.pathname
+    );
+
+    useEffect(() => {
+        if (blocker.state === "blocked") {
+            (async () => {
+                const confirmed = await showConfirm(
+                    "📍 작업 진행 중 이동 알림",
+                    "현재 데이터 작업(백업/복구)이 진행 중입니다. 페이지를 벗어나면 실시간 진행 상태 정보를 더 이상 확인할 수 없습니다. 그래도 이동하시겠습니까?"
+                );
+                if (confirmed) {
+                    blocker.proceed();
+                } else {
+                    blocker.reset();
+                }
+            })();
+        }
+    }, [blocker, showConfirm]);
+
+    // Prevent window close/refresh
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (showProgress) {
+                e.preventDefault();
+                e.returnValue = "";
+            }
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [showProgress]);
+
     // --- Handlers ---
 
-    // 1. Database Backup
-    const handleDbBackup = async () => {
+    // 1. Unified Managed Backup (Manual + Closing)
+    const runManagedBackup = async () => {
+        const typeStr = isIncremental ? '증분(변동분)' : '전체(스냅샷)';
+        const ok = await showConfirm(
+            '즉시 백업 및 마감',
+            `현재 데이터를 즉시 백업하시겠습니까? (방식: ${typeStr})\n\n※ 로컬 비상 금고와 지정된 외부 저장소에 동시 저장됩니다.`
+        );
+        if (!ok) return;
+
         try {
-            const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-            const defaultName = `backup-${today}.json`;
-
-            console.log('[Backup] Starting backup process...');
-            const savePath = await save({
-                filters: [{ name: 'Backup File', extensions: ['json'] }],
-                defaultPath: defaultName
-            });
-
-            if (!savePath) {
-                console.log('[Backup] User cancelled file selection');
-                return;
-            }
-
-            console.log('[Backup] Selected path:', savePath);
             setIsLoading(true);
             setShowProgress(true);
             setOperationType('backup');
-            setBackupProgress({ progress: 0, message: '백업 준비 중...' });
+            setBackupProgress({ progress: 0, message: '백업 엔진 가동 중...' });
 
-            // Listen for progress events
             const unlisten = await listen('backup-progress', (event) => {
-                console.log('[Backup] Progress:', event.payload);
                 setBackupProgress(event.payload);
             });
 
             try {
-                const msg = await invoke('backup_database', { path: savePath });
-                console.log('[Backup] Success:', msg);
-                await showAlert('백업 완료', msg);
+                const msg = await invoke('run_daily_custom_backup', {
+                    isIncremental: isIncremental
+                });
+                await showAlert('백업 완료', `성공적으로 백업 및 마감이 완료되었습니다.\n${msg}`);
                 loadBackups();
             } finally {
                 unlisten();
             }
         } catch (err) {
-            console.error('[Backup] Error:', err);
-            const errorMsg = typeof err === 'string' ? err : (err.message || JSON.stringify(err));
-            showAlert('백업 실패', errorMsg);
+            showAlert('백업 실패', typeof err === 'string' ? err : err.message);
         } finally {
             setIsLoading(false);
             setShowProgress(false);
@@ -115,13 +157,13 @@ const SettingsBackup = () => {
     const handleDbRestore = async () => {
         const ok = await showConfirm(
             '데이터베이스 복구',
-            '데이터베이스를 복구하시겠습니까?\n\n[주의] 현재 데이터가 모두 덮어씌워질 수 있습니다.\n진행하시겠습니까?'
+            '데이터베이스를 복구하시겠습니까?\n\n[주의] 전체 복구 시 현재 데이터가 모두 덮어씌워지며, 증분 복구 시 기존 데이터와 병합됩니다.\n진행하시겠습니까?'
         );
         if (!ok) return;
 
         try {
             const selected = await open({
-                filters: [{ name: 'Backup File', extensions: ['json'] }],
+                filters: [{ name: 'Backup File', extensions: ['json', 'gz'] }],
                 multiple: false
             });
 
@@ -132,9 +174,7 @@ const SettingsBackup = () => {
             setOperationType('restore');
             setBackupProgress({ progress: 0, message: '복구 준비 중...' });
 
-            // Listen for restore progress events
             const unlisten = await listen('restore-progress', (event) => {
-                console.log('[Restore] Progress:', event.payload);
                 setBackupProgress(event.payload);
             });
 
@@ -146,7 +186,7 @@ const SettingsBackup = () => {
                 unlisten();
             }
         } catch (err) {
-            showAlert('복구 실패', err);
+            showAlert('복구 실패', typeof err === 'string' ? err : err.message);
         } finally {
             setIsLoading(false);
             setShowProgress(false);
@@ -271,7 +311,7 @@ const SettingsBackup = () => {
                         </div>
 
                         {/* Percentage */}
-                        <div className="text-center">
+                        <div className="text-center mb-8">
                             <span className={`text-2xl font-bold ${operationType === 'backup' ? 'text-indigo-600' : 'text-purple-600'
                                 }`}>
                                 {backupProgress.progress}%
@@ -282,218 +322,228 @@ const SettingsBackup = () => {
                                 </p>
                             )}
                         </div>
+
+                        {/* Abort Button */}
+                        <div className="flex justify-center">
+                            <button
+                                onClick={handleCancel}
+                                className="px-8 py-2.5 bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-xl text-[13px] font-black transition-all border border-slate-200 hover:border-red-100 flex items-center gap-2 group"
+                            >
+                                <span className="material-symbols-rounded text-lg group-hover:rotate-90 transition-transform">stop_circle</span>
+                                {operationType === 'backup' ? '백업 중단' : '복구 중단'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
 
             {/* Main Content */}
             <div className="flex-1 px-6 lg:px-8 min-[2000px]:px-12 pb-8 overflow-y-auto custom-scrollbar">
-                <div className="w-full space-y-8">
-
-                    {/* DB Location Info Banner */}
-                    {dbLocationInfo && (
-                        <div className={`p-6 rounded-xl border-2 ${dbLocationInfo.is_db_server
-                            ? 'bg-green-50 border-green-200'
-                            : 'bg-blue-50 border-blue-200'
-                            }`}>
-                            <div className="flex items-start gap-4">
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${dbLocationInfo.is_db_server
-                                    ? 'bg-green-100'
-                                    : 'bg-blue-100'
-                                    }`}>
-                                    <span className={`material-symbols-rounded text-2xl ${dbLocationInfo.is_db_server
-                                        ? 'text-green-600'
-                                        : 'text-blue-600'
-                                        }`}>
-                                        {dbLocationInfo.is_db_server ? 'dns' : 'cloud'}
-                                    </span>
+                <div className="w-full space-y-8 pt-4">
+                    {/* 1. Integrated Backup & Closing Section */}
+                    <div className="bg-gradient-to-br from-slate-900 to-indigo-950 rounded-3xl p-1 shadow-2xl overflow-hidden mb-8">
+                        <div className="bg-white/5 backdrop-blur-sm rounded-[22px] p-8 flex flex-col lg:flex-row items-center justify-between gap-10">
+                            <div className="flex-1 text-left">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                                        <span className="material-symbols-rounded text-white">bolt</span>
+                                    </div>
+                                    <h3 className="text-2xl font-black text-white tracking-tight">DB 백업 및 마감</h3>
                                 </div>
-                                <div className="flex-1">
-                                    <h3 className={`text-lg font-bold mb-1 ${dbLocationInfo.is_db_server
-                                        ? 'text-green-800'
-                                        : 'text-blue-800'
-                                        }`}>
-                                        {dbLocationInfo.is_db_server ? '✅ DB 서버 PC' : 'ℹ️ 클라이언트 PC'}
-                                    </h3>
-                                    <p className={`text-sm mb-2 ${dbLocationInfo.is_db_server
-                                        ? 'text-green-700'
-                                        : 'text-blue-700'
-                                        }`}>
-                                        {dbLocationInfo.message}
-                                    </p>
-                                    <div className="flex gap-4 text-xs">
-                                        <span className={`${dbLocationInfo.is_db_server
-                                            ? 'text-green-600'
-                                            : 'text-blue-600'
-                                            }`}>
-                                            DB 호스트: <strong>{dbLocationInfo.db_host}</strong>
-                                        </span>
-                                        {dbLocationInfo.has_pg_service && (
-                                            <span className="text-green-600">
-                                                PostgreSQL 서비스: <strong>실행 중</strong>
-                                            </span>
-                                        )}
+                                <p className="text-indigo-200 text-sm font-medium leading-relaxed max-w-lg mb-8 opacity-80">
+                                    수기로 저장 위치를 선택할 필요가 없습니다. <br />
+                                    클릭 한 번으로 <strong>로컬 고속 저장소</strong>와 <strong>지정된 외부 저장소</strong>에 데이터를 즉시 동기화합니다.
+                                </p>
+
+                                <div className="flex flex-col gap-6">
+                                    {/* Badges */}
+                                    <div className="flex gap-3">
+                                        <div className="px-3 py-1.5 bg-white/10 rounded-full flex items-center gap-2 border border-white/10">
+                                            <span className="material-symbols-rounded text-emerald-400 text-[16px]">verified</span>
+                                            <span className="text-white text-[10px] font-black uppercase tracking-wider">Safety Vault</span>
+                                        </div>
+                                        <div className="px-3 py-1.5 bg-white/10 rounded-full flex items-center gap-2 border border-white/10">
+                                            <span className="material-symbols-rounded text-emerald-400 text-[16px]">verified</span>
+                                            <span className="text-white text-[10px] font-black uppercase tracking-wider">Cloud Sync</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Path Info Cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="material-symbols-rounded text-indigo-300 text-sm">database</span>
+                                                <span className="text-white/40 text-[10px] font-black uppercase tracking-widest leading-none">로컬 비상 금고</span>
+                                            </div>
+                                            <div className="text-indigo-100/70 text-[12px] font-mono break-all line-clamp-1">
+                                                {internalPath || '경로 로딩 중...'}
+                                            </div>
+                                        </div>
+                                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="material-symbols-rounded text-emerald-300 text-sm">cloud_sync</span>
+                                                <span className="text-white/40 text-[10px] font-black uppercase tracking-widest leading-none">외부 동기화 클라우드</span>
+                                            </div>
+                                            <div className="text-emerald-50/70 text-[12px] font-mono break-all line-clamp-1">
+                                                {extPath || '외부 경로 미설정'}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
 
-                    {/* Top Tier: Ported mushroomfarm cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mt-2">
-                        {/* Backup Card */}
-                        <div className="premium-card bg-gradient-to-br from-white to-[#f8fafc] border-l-[5px] border-[#3b82f6] p-8 rounded-2xl shadow-lg hover:-translate-y-1 transition-all flex flex-col">
-                            <div className="card-header-icon w-[60px] h-[60px] bg-[#eff6ff] text-[#3b82f6] rounded-xl flex items-center justify-center mb-5">
-                                <span className="material-symbols-rounded text-[32px]">save</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">데이터베이스 백업</h3>
-                            <p className="text-[13px] text-slate-500 leading-relaxed mb-8 flex-1">
-                                현재 운영 중인 모든 데이터(고객, 판매, 상품 등)를 안전하게 <strong>백업 파일</strong>로 내보냅니다.
-                            </p>
-                            <button
-                                onClick={handleDbBackup}
-                                disabled={!dbLocationInfo?.can_backup}
-                                className={`w-full h-[52px] rounded-xl text-white font-bold flex items-center justify-center gap-2 shadow-[0_4px_6px_-1px_rgba(59,130,246,0.5)] transition-transform ${dbLocationInfo?.can_backup
-                                    ? 'bg-gradient-to-r from-[#3b82f6] to-[#2563eb] active:scale-95'
-                                    : 'bg-gray-300 cursor-not-allowed'
-                                    }`}
-                            >
-                                <span className="material-symbols-rounded text-lg">download</span>
-                                {dbLocationInfo?.can_backup ? '백업 파일 다운로드' : 'DB 서버에서만 가능'}
-                            </button>
-                        </div>
+                            <div className="flex flex-col gap-6 w-full lg:w-[380px]">
+                                <div className="bg-white/10 p-5 rounded-2xl border border-white/10 shadow-inner">
+                                    <div className="flex justify-between items-center mb-4 px-1">
+                                        <span className="text-white font-bold text-sm tracking-tight opacity-90">백업 방식 선택</span>
+                                        <span className="text-indigo-300 text-[10px] font-black uppercase tracking-widest">Strategy</span>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <label className="flex-1 cursor-pointer group">
+                                            <input type="radio" name="backupTypeManual" className="hidden peer" checked={!isIncremental} onChange={() => setIsIncremental(false)} />
+                                            <div className="text-center p-3 rounded-xl border border-white/10 bg-white/5 peer-checked:bg-white peer-checked:text-indigo-950 peer-checked:border-white transition-all shadow-sm">
+                                                <div className="text-[10px] font-black uppercase mb-1 opacity-50 tracking-tighter leading-tight">Full Snapshot</div>
+                                                <div className="text-sm font-black text-inherit">전체 백업</div>
+                                            </div>
+                                        </label>
+                                        <label className="flex-1 cursor-pointer group">
+                                            <input type="radio" name="backupTypeManual" className="hidden peer" checked={isIncremental} onChange={() => setIsIncremental(true)} />
+                                            <div className="text-center p-3 rounded-xl border border-white/10 bg-white/5 peer-checked:bg-white peer-checked:text-indigo-950 peer-checked:border-white transition-all shadow-sm">
+                                                <div className="text-[10px] font-black uppercase mb-1 opacity-50 tracking-tighter leading-tight">Incremental Change</div>
+                                                <div className="text-sm font-black text-inherit">증분 백업</div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
 
-                        {/* Restore Card */}
-                        <div className="premium-card bg-gradient-to-br from-white to-[#f8fafc] border-l-[5px] border-[#8b5cf6] p-8 rounded-2xl shadow-lg hover:-translate-y-1 transition-all flex flex-col">
-                            <div className="card-header-icon w-[60px] h-[60px] bg-[#f5f3ff] text-[#8b5cf6] rounded-xl flex items-center justify-center mb-5">
-                                <span className="material-symbols-rounded text-[32px]">restore</span>
+                                <button
+                                    onClick={runManagedBackup}
+                                    disabled={isLoading}
+                                    className="h-20 bg-white text-indigo-950 font-black text-xl rounded-2xl shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)] hover:shadow-indigo-500/20 hover:-translate-y-1 active:scale-[0.98] transition-all flex items-center justify-center gap-4 group disabled:opacity-50 disabled:translate-y-0"
+                                >
+                                    <span className="material-symbols-rounded text-3xl group-hover:rotate-12 transition-transform">cloud_upload</span>
+                                    DB 백업 및 마감
+                                </button>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">데이터베이스 복구</h3>
-                            <p className="text-[13px] text-slate-500 leading-relaxed mb-8 flex-1">
-                                이전에 저장된 <strong>백업 파일</strong>을 불러와 시스템 상태를 해당 시점으로 되돌립니다.
-                            </p>
-                            <button onClick={handleDbRestore} className="w-full h-[52px] rounded-xl text-white font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#8b5cf6] to-[#7c3aed] shadow-[0_4px_6px_-1px_rgba(139,92,246,0.5)] active:scale-95 transition-transform">
-                                <span className="material-symbols-rounded text-lg">upload</span>
-                                백업 파일 불러오기
-                            </button>
-                        </div>
-
-                        {/* Maintenance Card */}
-                        <div className="premium-card bg-gradient-to-br from-white to-[#f8fafc] border-l-[5px] border-[#10b981] p-8 rounded-2xl shadow-lg hover:-translate-y-1 transition-all flex flex-col">
-                            <div className="card-header-icon w-[60px] h-[60px] bg-[#ecfdf5] text-[#10b981] rounded-xl flex items-center justify-center mb-5">
-                                <span className="material-symbols-rounded text-[32px]">cleaning_services</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">DB 건강검진 (최적화)</h3>
-                            <p className="text-[13px] text-slate-500 leading-relaxed mb-8 flex-1">
-                                데이터베이스의 불필요한 공간을 정리하고 통계 정보를 갱신하여 검색 속도를 향상시킵니다.
-                            </p>
-                            <button onClick={handleDbMaintenance} className="w-full h-[52px] rounded-xl text-white font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#10b981] to-[#059669] shadow-[0_4px_6px_-1px_rgba(16,185,129,0.5)] active:scale-95 transition-transform">
-                                <span className="material-symbols-rounded text-lg">medical_services</span>
-                                건강검진 실행
-                            </button>
                         </div>
                     </div>
 
-                    {/* Second Tier: Settings & History with Aligned Heights */}
-                    <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-stretch">
+                    {/* 2. Utility Grid: Restore & Maintenance */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="premium-card bg-white p-7 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-indigo-200 transition-colors">
+                            <div className="flex items-center gap-5">
+                                <div className="w-14 h-14 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                                    <span className="material-symbols-rounded text-[32px]">settings_backup_restore</span>
+                                </div>
+                                <div className="text-left">
+                                    <h4 className="text-lg font-bold text-slate-800 tracking-tight">다른 데이터 복구</h4>
+                                    <p className="text-[13px] text-slate-500 leading-tight">파일 선택을 통해 외부 백업을 불러옵니다.</p>
+                                </div>
+                            </div>
+                            <button onClick={handleDbRestore} className="px-7 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-black transition-all">파일 선택</button>
+                        </div>
 
-                        {/* Left Column: Cloud Config & Tips */}
-                        <div className="xl:col-span-2 flex flex-col gap-6">
-                            <div className="premium-card bg-white border-l-[5px] border-[#0ea5e9] p-8 rounded-2xl shadow-lg flex-1">
-                                <div className="flex items-center gap-4 mb-5">
-                                    <div className="w-12 h-12 bg-[#f0f9ff] text-[#0ea5e9] rounded-xl flex items-center justify-center">
-                                        <span className="material-symbols-rounded text-[28px]">cloud_sync</span>
+                        <div className="premium-card bg-white p-7 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-emerald-200 transition-colors">
+                            <div className="flex items-center gap-5">
+                                <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                                    <span className="material-symbols-rounded text-[32px]">architecture</span>
+                                </div>
+                                <div className="text-left">
+                                    <h4 className="text-lg font-bold text-slate-800 tracking-tight">데이터베이스 최적화</h4>
+                                    <p className="text-[13px] text-slate-500 leading-tight">시스템 속도 향상 및 불필요 공간 제거</p>
+                                </div>
+                            </div>
+                            <button onClick={handleDbMaintenance} className="px-7 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-black transition-all">실행하기</button>
+                        </div>
+                    </div>
+
+                    {/* 3. Settings & History Grid */}
+                    <div className="grid grid-cols-1 xl:grid-cols-5 gap-8 items-stretch pt-4">
+                        <div className="xl:col-span-2 flex flex-col gap-8">
+                            {/* Path Config */}
+                            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col h-full">
+                                <div className="flex items-center gap-4 mb-6">
+                                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                                        <span className="material-symbols-rounded text-[28px]">folder_managed</span>
                                     </div>
                                     <div className="text-left">
-                                        <h3 className="text-lg font-bold text-slate-800">클라우드 자동 백업 설정</h3>
-                                        <p className="text-[13px] text-slate-500">OneDrive, Google Drive 등을 이용한 자동 복사</p>
+                                        <h3 className="text-lg font-bold text-slate-800">외부 저장 경로 설정</h3>
+                                        <p className="text-[13px] text-slate-500 italic">OneDrive, USB 등을 지정하세요.</p>
                                     </div>
                                 </div>
-
-                                <div className="bg-[#f8fafc] p-6 rounded-xl border border-[#e2e8f0]">
-                                    <label className="block mb-2 font-bold text-[#334155] text-sm tracking-tight text-left">추가 백업 저장소 경로 (클라우드 동기화 폴더)</label>
-                                    <div className="flex gap-3">
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            className="flex-1 h-12 px-4 rounded-lg bg-white border border-[#cbd5e1] text-sm text-slate-600 font-medium"
-                                            placeholder="경로를 선택해주세요"
-                                            value={extPath}
-                                        />
-                                        <button onClick={handleSelectExternalPath} className="px-6 h-12 bg-white border border-[#cbd5e1] hover:border-[#3b82f6] hover:text-[#3b82f6] font-bold rounded-lg text-sm flex items-center gap-1.5 transition-all text-slate-600 whitespace-nowrap">
-                                            <span className="material-symbols-rounded text-xl">folder_open</span> 폴더 선택
-                                        </button>
+                                <div className="flex flex-col gap-4 mt-auto">
+                                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 font-mono text-xs text-slate-500 break-all text-left min-h-[50px] flex items-center">
+                                        {extPath || '설정된 외부 경로가 없습니다.'}
                                     </div>
-                                    <p className="mt-3 text-xs text-slate-400 font-medium text-left">※ 설정 시 앱 종료 시점의 자동 백업 파일이 이 폴더에도 복사됩니다.</p>
+                                    <button onClick={handleSelectExternalPath} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-100">
+                                        <span className="material-symbols-rounded text-lg">drive_file_move</span>
+                                        저장 위치 변경
+                                    </button>
                                 </div>
                             </div>
 
-                            {/* Help Box */}
-                            <div className="bg-slate-800 rounded-2xl p-7 text-white text-left relative overflow-hidden shadow-lg border-l-[5px] border-indigo-400">
-                                <div className="flex gap-4">
-                                    <span className="material-symbols-rounded text-indigo-400 text-[24px]">info</span>
-                                    <div>
-                                        <h4 className="font-bold text-slate-100 mb-2">백업 도움말</h4>
-                                        <ul className="text-xs text-slate-400 space-y-2 list-disc pl-4 font-medium">
-                                            <li>백업 파일은 .json 형식으로 저장됩니다.</li>
-                                            <li>복구 시 현재 데이터가 모두 사라지니 주의하세요.</li>
-                                            <li>최근 30개의 목록이 내부에 자동 유지됩니다.</li>
-                                        </ul>
+                            {/* Info Box */}
+                            <div className="bg-slate-900 rounded-3xl p-8 text-white relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-indigo-500/20 transition-all"></div>
+                                <div className="relative flex gap-5">
+                                    <span className="material-symbols-rounded text-indigo-400 text-3xl">verified_user</span>
+                                    <div className="text-left">
+                                        <h4 className="font-black text-indigo-100 text-lg mb-2 tracking-tight">최고 단계 보안 백업</h4>
+                                        <p className="text-[12px] text-slate-400 font-medium leading-relaxed mb-4">
+                                            저희 시스템은 단순 복사가 아닌, 전체 데이터 정합성을 검사한 후 고압축 .gz 스냅샷을 생성합니다.
+                                        </p>
+                                        <div className="flex gap-4">
+                                            <div className="text-[10px] text-indigo-300 font-black uppercase opacity-60">Gzip-JSON</div>
+                                            <div className="text-[10px] text-indigo-300 font-black uppercase opacity-60">AES-Compatible</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Right Column: History Table Card */}
-                        <div className="xl:col-span-3 bg-white border-l-[5px] border-[#f59e0b] rounded-2xl shadow-lg flex flex-col overflow-hidden">
-                            <div className="p-8 pb-4 flex items-center justify-between">
+                        {/* History Table */}
+                        <div className="xl:col-span-3 bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col min-h-[500px]">
+                            <div className="flex items-center justify-between mb-8">
                                 <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-[#fffbeb] text-[#f59e0b] rounded-xl flex items-center justify-center">
-                                        <span className="material-symbols-rounded text-[28px]">history</span>
+                                    <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+                                        <span className="material-symbols-rounded text-[28px]">order_approve</span>
                                     </div>
                                     <div className="text-left">
-                                        <h3 className="text-lg font-bold text-slate-800">최근 자동 백업 목록 (재해 복구용)</h3>
-                                        <p className="text-[13px] text-slate-500">
-                                            사고 발생 시 가장 최근 시점으로 복구하세요.
-                                            <button onClick={loadBackups} className="ml-1.5 align-middle" title="목록 새로고침">
-                                                <span className={`material-symbols-rounded text-[18px] text-[#3b82f6] ${isLoading ? 'animate-spin' : ''}`}>refresh</span>
-                                            </button>
-                                        </p>
+                                        <h3 className="text-lg font-bold text-slate-800">최근 백업 이력</h3>
+                                        <p className="text-[13px] text-slate-500">최근 90일간의 마감 기록이 보관됩니다.</p>
                                     </div>
                                 </div>
+                                <button onClick={loadBackups} className="w-10 h-10 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors">
+                                    <span className={`material-symbols-rounded text-2xl ${isLoading ? 'animate-spin' : ''}`}>refresh</span>
+                                </button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto custom-scrollbar mx-8 mb-8 border border-[#e2e8f0] rounded-xl">
+                            <div className="flex-1 overflow-y-auto custom-scrollbar border border-slate-100 rounded-2xl">
                                 <table className="w-full border-collapse">
-                                    <thead className="sticky top-0 bg-[#f8fafc] z-[1]">
-                                        <tr className="border-b border-[#e2e8f0]">
-                                            <th className="p-4 text-left font-bold text-[#64748b] text-sm">백업 시간</th>
-                                            <th className="p-4 text-left font-bold text-[#64748b] text-sm">파일명</th>
-                                            <th className="p-4 text-right font-bold text-[#64748b] text-sm">작업</th>
+                                    <thead className="sticky top-0 bg-slate-50/80 backdrop-blur-md z-[1]">
+                                        <tr className="border-b border-slate-100">
+                                            <th className="p-4 text-left font-black text-slate-500 text-[11px] uppercase tracking-widest">Type</th>
+                                            <th className="p-4 text-left font-black text-slate-500 text-[11px] uppercase tracking-widest">Time</th>
+                                            <th className="p-4 text-right font-black text-slate-500 text-[11px] uppercase tracking-widest">Action</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-[#e2e8f0]">
+                                    <tbody className="divide-y divide-slate-50">
                                         {backups.length === 0 ? (
                                             <tr>
-                                                <td colSpan="3" className="p-10 text-center text-slate-400 font-bold italic">
-                                                    {isLoading ? '불러오는 중...' : '생성된 자동 백업이 없습니다.'}
-                                                </td>
+                                                <td colSpan="3" className="p-20 text-center text-slate-300 font-bold italic">백업 기록이 아직 없습니다.</td>
                                             </tr>
                                         ) : (
                                             backups.map((item) => (
-                                                <tr key={item.path} className="hover:bg-slate-50 transition-colors">
-                                                    <td className="p-4 text-left text-[#334155] font-semibold text-sm">
-                                                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${item.backup_type === '일일' ? 'bg-[#ccfbf1] text-[#0f766e]' : 'bg-[#fef3c7] text-[#d97706]'
+                                                <tr key={item.path} className="hover:bg-slate-50/50 transition-colors">
+                                                    <td className="p-4 text-left">
+                                                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-black tracking-tight ${item.backup_type === '일일' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
                                                             }`}>
                                                             {item.backup_type || '자동'}
                                                         </span>
-                                                        <span className="ml-2 whitespace-nowrap">{item.created_at}</span>
                                                     </td>
-                                                    <td className="p-4 text-left text-[#64748b] text-[13px] break-all">{item.name}</td>
+                                                    <td className="p-4 text-left font-bold text-slate-600 text-sm">{item.created_at}</td>
                                                     <td className="p-4 text-right">
-                                                        <button onClick={() => restoreAutoBackup(item)} className="px-4 py-1.5 bg-[#f59e0b] hover:bg-[#d97706] text-white rounded-lg text-[13px] font-bold flex items-center gap-1 ml-auto shadow-sm whitespace-nowrap transition-colors">
-                                                            <span className="material-symbols-rounded text-base">restore</span>복구
-                                                        </button>
+                                                        <button onClick={() => restoreAutoBackup(item)} className="px-5 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-600 hover:text-white rounded-lg text-xs font-black transition-all">복구</button>
                                                     </td>
                                                 </tr>
                                             ))
@@ -504,14 +554,14 @@ const SettingsBackup = () => {
                         </div>
                     </div>
                 </div>
+                <style dangerouslySetInnerHTML={{
+                    __html: `
+                    .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+                    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+                `}} />
             </div>
-
-            <style>{`
-                .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
-            `}</style>
         </div>
     );
 };
