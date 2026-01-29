@@ -5144,6 +5144,20 @@ async fn restore_database(
     };
 
     BACKUP_CANCELLED.store(false, Ordering::Relaxed);
+    emit_progress(0, 1, "백업 파일 확인 중...");
+
+    // Check file size to prevent memory overflow
+    let metadata =
+        std::fs::metadata(&path).map_err(|e| format!("파일 정보를 읽을 수 없습니다: {}", e))?;
+    let file_size_mb = metadata.len() / (1024 * 1024);
+
+    if file_size_mb > 100 {
+        return Err(format!(
+            "백업 파일이 너무 큽니다 ({}MB).\n\n대용량 데이터 복구는 PostgreSQL의 pg_restore를 사용하거나,\n관리자에게 문의하세요.\n\n권장: 100MB 이하의 백업 파일만 사용",
+            file_size_mb
+        ));
+    }
+
     emit_progress(0, 1, "백업 파일 읽는 중...");
     let file = std::fs::File::open(&path).map_err(|e| format!("파일을 열 수 없습니다: {}", e))?;
 
