@@ -365,12 +365,15 @@ pub async fn get_sales_by_region_analysis(
     state: State<'_, DbPool>,
     year: i32,
 ) -> Result<serde_json::Value, String> {
-    // 1. Fetch Data
+    // 1. Fetch Data (Filtered by product type)
     let rows: Vec<(Option<String>, i32, i32)> = sqlx::query_as(
         "SELECT c.address_primary, s.quantity, s.total_amount 
          FROM sales s 
          JOIN customers c ON s.customer_id = c.customer_id
-         WHERE EXTRACT(YEAR FROM s.order_date)::integer = $1 AND s.status != '취소'",
+         JOIN products p ON s.product_id = p.product_id
+         WHERE EXTRACT(YEAR FROM s.order_date)::integer = $1 
+           AND s.status != '취소'
+           AND p.item_type = 'product'",
     )
     .bind(year)
     .fetch_all(&*state)

@@ -333,7 +333,7 @@ const SalesShipping = () => {
             {/* Print Only Header */}
             <div className="print-only hidden mb-6 text-center pt-8 pb-4 border-b-2 border-black max-w-[90%] mx-auto">
                 <h1 className="text-3xl font-black mb-2 tracking-tight text-black">배송 현황 보고서</h1>
-                <p className="text-sm text-black font-bold">출력일자: {new Date().toLocaleDateString()} | CSI Logistics Manager</p>
+                <p className="text-sm text-black font-bold">출력일자: {new Date().toLocaleDateString()} | Mycelium Logistics Manager</p>
             </div>
 
             {/* Header Area (Screen Only) */}

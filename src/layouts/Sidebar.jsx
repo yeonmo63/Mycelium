@@ -90,7 +90,7 @@ const Sidebar = () => {
                         <span className="material-symbols-rounded text-white text-2xl">agriculture</span>
                     </div>
                     <h2 className="text-xl font-black tracking-tight text-white">
-                        CSI <span className="text-indigo-400">Manager</span>
+                        Mycelium
                     </h2>
                 </div>
             </div>

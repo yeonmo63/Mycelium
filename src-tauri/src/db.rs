@@ -140,6 +140,17 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS idx_deletion_log_at ON deletion_log(deleted_at);
 
+        -- Product Price History Table (Added dynamically for existing users)
+        CREATE TABLE IF NOT EXISTS product_price_history (
+            history_id SERIAL PRIMARY KEY,
+            product_id INTEGER NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+            old_price INTEGER NOT NULL,
+            new_price INTEGER NOT NULL,
+            reason TEXT,
+            changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_product_id ON product_price_history(product_id);
+
         -- Log deletion trigger function
         CREATE OR REPLACE FUNCTION log_deletion() RETURNS TRIGGER AS $$
         DECLARE
@@ -881,4 +892,14 @@ pub struct ProfitAnalysisResult {
     pub total_cost: i64,
     pub net_profit: i64,
     pub margin_rate: f64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct ProductPriceHistory {
+    pub history_id: i32,
+    pub product_id: i32,
+    pub old_price: i32,
+    pub new_price: i32,
+    pub reason: Option<String>,
+    pub changed_at: chrono::NaiveDateTime,
 }

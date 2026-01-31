@@ -173,6 +173,7 @@ const ProductSales = () => {
                     label: '판매액',
                     data: sorted.map(d => d.total_amount),
                     backgroundColor: 'rgba(99, 102, 241, 0.7)',
+                    hoverBackgroundColor: 'rgba(99, 102, 241, 0.9)',
                     borderColor: 'rgba(99, 102, 241, 1)',
                     borderWidth: 1,
                     borderRadius: 4
@@ -182,13 +183,37 @@ const ProductSales = () => {
                 indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } }, // tooltip default is fine
+                layout: {
+                    padding: { left: 10, right: 40, top: 10, bottom: 10 }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => `판매액: ${formatCurrency(context.raw)}`
+                        }
+                    }
+                },
                 scales: {
                     x: {
                         beginAtZero: true,
-                        grid: { display: false }
+                        grid: { color: '#f1f5f9' },
+                        ticks: {
+                            font: { size: 10 },
+                            callback: v => {
+                                if (v >= 100000000) return (v / 100000000).toFixed(1) + '억';
+                                if (v >= 10000) return (v / 10000).toLocaleString() + '만';
+                                return v.toLocaleString();
+                            }
+                        }
                     },
-                    y: { grid: { display: false } }
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            font: { weight: 'bold', size: 11 },
+                            autoSkip: false
+                        }
+                    }
                 }
             }
         });
@@ -219,10 +244,27 @@ const ProductSales = () => {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    layout: { padding: { right: 30, top: 10, bottom: 10 } },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => `판매액: ${formatCurrency(context.raw)}`
+                            }
+                        }
+                    },
                     scales: {
                         x: { grid: { display: false } },
-                        y: { beginAtZero: true }
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: v => {
+                                    if (v >= 100000000) return (v / 100000000).toFixed(1) + '억';
+                                    if (v >= 10000) return (v / 10000).toLocaleString() + '만';
+                                    return v.toLocaleString();
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -297,9 +339,12 @@ const ProductSales = () => {
                 {/* Top Section: Chart & Table */}
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row min-h-[500px]">
                     {/* Left: Chart */}
-                    <div className="lg:w-1/3 p-6 border-b lg:border-b-0 lg:border-r border-slate-100 flex flex-col">
-                        <h3 className="text-slate-700 font-bold mb-4 text-sm">판매 상위 품목 (Top 10)</h3>
-                        <div className="flex-1 relative">
+                    <div className="lg:w-[35%] p-6 border-b lg:border-b-0 lg:border-r border-slate-100 flex flex-col min-h-[400px] lg:min-h-0">
+                        <h3 className="text-slate-700 font-bold mb-4 text-sm flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-violet-500"></span>
+                            판매 상위 품목 (Top 10)
+                        </h3>
+                        <div className="flex-1 relative min-h-0">
                             <canvas ref={chartRef}></canvas>
                         </div>
                     </div>

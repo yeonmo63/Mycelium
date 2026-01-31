@@ -147,7 +147,7 @@ const UserManual = () => {
                             <BookOpen size={24} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-800 tracking-tighter">CSI Guide</h2>
+                            <h2 className="text-xl font-black text-slate-800 tracking-tighter">Mycelium Guide</h2>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Master Platform v2.0</p>
                         </div>
                     </div>
@@ -218,14 +218,14 @@ const UserManual = () => {
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
                             </span>
-                            CSI Manager Enterprise Platform Guidance
+                            Mycelium Enterprise Platform Guidance
                         </div>
                         <h1 className="text-6xl font-black text-slate-900 tracking-tighter mb-8 leading-[1.05]" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
-                            스마트 농장 운영의 모든 것,<br />
+                            Mycelium 운영의 모든 것,<br />
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-600">완벽 가이드북</span>
                         </h1>
                         <p className="text-xl text-slate-500 font-medium leading-relaxed max-w-3xl mx-auto">
-                            CSI Manager는 단순한 기록을 넘어 데이터 인텔리전스와 AI의 힘으로 여러분의 농장을 스마트한 기업으로 변화시킵니다. 시스템의 모든 기능을 정복해 보세요.
+                            Mycelium는 단순한 기록을 넘어 데이터 인텔리전스와 AI의 힘으로 여러분의 농장을 스마트한 기업으로 변화시킵니다. 시스템의 모든 기능을 정복해 보세요.
                         </p>
                     </div>
 
@@ -238,7 +238,7 @@ const UserManual = () => {
                                 <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-800 mb-6 group-hover:rotate-12 transition-transform duration-500">
                                     <BookOpen size={32} />
                                 </div>
-                                <h2 className="text-3xl font-black text-slate-800 tracking-tighter">스마트 농장 운영 프로세스 흐름도</h2>
+                                <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Mycelium 운영 프로세스 흐름도</h2>
                                 <p className="text-slate-400 font-bold mt-2">Smart Farm Integrated Workflow</p>
                             </div>
 
@@ -615,7 +615,7 @@ const UserManual = () => {
                             <Star size={32} />
                         </div>
                         <h3 className="text-2xl font-black text-slate-800 mb-4">당신의 성공 파트너, 제니가 항상 곁에 있습니다</h3>
-                        <p className="text-slate-400 font-bold text-sm mb-20">© 2026 CSI Manager Enterprise Platform - User Instruction System v2.0</p>
+                        <p className="text-slate-400 font-bold text-sm mb-20">© 2026 Mycelium Enterprise Platform - User Instruction System v2.0</p>
 
                         <div className="flex justify-center gap-4">
                             <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="px-6 py-3 bg-slate-800 text-white rounded-2xl font-black text-sm hover:bg-slate-700 transition-colors shadow-lg">맨 위로 이동</button>

@@ -14,8 +14,8 @@ use db::{
     ConsultationAiAdvice, Customer, CustomerAddress, CustomerLifecycle, DashboardStats, DbPool,
     Event, Expense, ExperienceProgram, ExperienceReservation, InventoryAlert, InventorySyncItem,
     KeywordItem, LtvCustomer, MonthlyCohortStats, OnlineMentionInput, Product, ProductAssociation,
-    ProductSalesStats, ProfitAnalysisResult, Purchase, RawRfmData, Sales, SalesClaim,
-    SentimentAnalysisResult, StrategyItem, TenYearSalesStats, User, Vendor,
+    ProductPriceHistory, ProductSalesStats, ProfitAnalysisResult, Purchase, RawRfmData, Sales,
+    SalesClaim, SentimentAnalysisResult, StrategyItem, TenYearSalesStats, User, Vendor,
 };
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
@@ -210,29 +210,29 @@ async fn save_naver_keys(
 fn get_default_templates() -> serde_json::Value {
     serde_json::json!({
         "default": [
-            "안녕하세요, ${name}님! 스마트 농장 제니입니다~ 🍄\n항상 저희 농장을 아껴주셔서 감사 인사를 드립니다. 이번에 정말 품질 좋은 버섯이 수확되어 ${name}님이 생각나서 연락드렸어요. 필요하실 때 말씀해 주시면 정성을 다해 챙겨드리겠습니다! 🎁",
-            "[스마트 농장] ${name}님, 오늘 하루도 행복하신가요? 😊\n평소 우수 고객으로 저희 농장과 함께해 주셔서 특별히 감사의 마음을 담아 문자 드립니다. 늘 건강하시고, 조만간 다시 뵐 수 있기를 기대하겠습니다! 💙",
-            "${name}님, 버섯 요리 생각날 때 되지 않으셨나요? 😉\n스마트 농장 제니가 제안드리는 제철 버섯 한 바구니! 지금이 딱 맛과 향이 절정일 때입니다. ${name}님과 같은 우수 고객님께는 더욱 신경 써서 보내드릴게요! 🍄🌱",
-            "띵동~ ${name}님, 스마트 농장 제니입니다! ✨\n저희 농장을 잊고 지내신 건 아니시죠? 오늘 수확한 버섯들이 역대급으로 향이 좋습니다. 건강하고 즐거운 주말 보내세요! 🌻"
+            "안녕하세요, ${name}님! Mycelium 제니입니다~ 🍄\n항상 저희 농장을 아껴주셔서 감사 인사를 드립니다. 이번에 정말 품질 좋은 버섯이 수확되어 ${name}님이 생각나서 연락드렸어요. 필요하실 때 말씀해 주시면 정성을 다해 챙겨드리겠습니다! 🎁",
+            "[Mycelium] ${name}님, 오늘 하루도 행복하신가요? 😊\n평소 우수 고객으로 저희 농장과 함께해 주셔서 특별히 감사의 마음을 담아 문자 드립니다. 늘 건강하시고, 조만간 다시 뵐 수 있기를 기대하겠습니다! 💙",
+            "${name}님, 버섯 요리 생각날 때 되지 않으셨나요? 😉\nMycelium 제니가 제안드리는 제철 버섯 한 바구니! 지금이 딱 맛과 향이 절정일 때입니다. ${name}님과 같은 우수 고객님께는 더욱 신경 써서 보내드릴게요! 🍄🌱",
+            "띵동~ ${name}님, Mycelium 제니입니다! ✨\n저희 농장을 잊고 지내신 건 아니시죠? 오늘 수확한 버섯들이 역대급으로 향이 좋습니다. 건강하고 즐거운 주말 보내세요! 🌻"
         ],
         "repurchase": [
-            "[스마트 농장] ${name}님, 버섯 떨어질 때 되지 않으셨나요? 😉\n제니가 AI로 분석해보니 지금쯤 향긋한 버섯 한 번 더 드시면 딱 좋을 시기더라구요! 오늘 주문하시면 최고 품질로 엄선해 보내드리겠습니다. 🍄",
-            "안녕하세요 ${name}님, 스마트 농장 제니입니다! 🌱\n지난번에 드신 버섯은 만족스러우셨나요? 재구매를 고민 중이시라면 지금이 기회입니다! 오늘 수확한 싱싱한 버섯들이 주인을 기다리고 있어요. ✨",
-            "[스마트 농장] ${name}님만을 위한 특별한 제안! 🎁\n주기적으로 저희 농장을 찾아주셔서 감사합니다. 이번에 준비한 버섯 구성이 정말 알차니, 놓치지 마시고 꼭 다시 한 번 맛보셨으면 좋겠어요! 🍄✨"
+            "[Mycelium] ${name}님, 버섯 떨어질 때 되지 않으셨나요? 😉\n제니가 AI로 분석해보니 지금쯤 향긋한 버섯 한 번 더 드시면 딱 좋을 시기더라구요! 오늘 주문하시면 최고 품질로 엄선해 보내드리겠습니다. 🍄",
+            "안녕하세요 ${name}님, Mycelium 제니입니다! 🌱\n지난번에 드신 버섯은 만족스러우셨나요? 재구매를 고민 중이시라면 지금이 기회입니다! 오늘 수확한 싱싱한 버섯들이 주인을 기다리고 있어요. ✨",
+            "[Mycelium] ${name}님만을 위한 특별한 제안! 🎁\n주기적으로 저희 농장을 찾아주셔서 감사합니다. 이번에 준비한 버섯 구성이 정말 알차니, 놓치지 마시고 꼭 다시 한 번 맛보셨으면 좋겠어요! 🍄✨"
         ],
         "churn": [
-            "[스마트 농장] ${name}님, 오랜만이에요! 제니가 많이 기다렸답니다. 🍄\n저희 농장을 잊으신 건 아니시죠? ${name}님을 위해 정성껏 준비한 특별 혜택이 있으니, 오랜만에 향긋한 버섯 내음 맡으러 오세요! 💙",
-            "안녕하세요 ${name}님, 스마트 농장 제니입니다~ 🌱\n한동안 소식이 없으셔서 걱정했어요. 다시 뵙고 싶은 마음에 작은 성의를 준비했습니다. 궁금하신 점 있으시면 언제든 제니를 찾아주세요! 😊",
-            "[스마트 농장] 띵동! ${name}님을 위한 깜짝 선물이 도착했어요 🎁\n오랜만에 저희 버섯으로 풍성한 식탁을 만들어보시는 건 어떨까요? 항상 최상의 맛과 신선함으로 보답하겠습니다! ✨"
+            "[Mycelium] ${name}님, 오랜만이에요! 제니가 많이 기다렸답니다. 🍄\n저희 농장을 잊으신 건 아니시죠? ${name}님을 위해 정성껏 준비한 특별 혜택이 있으니, 오랜만에 향긋한 버섯 내음 맡으러 오세요! 💙",
+            "안녕하세요 ${name}님, Mycelium 제니입니다~ 🌱\n한동안 소식이 없으셔서 걱정했어요. 다시 뵙고 싶은 마음에 작은 성의를 준비했습니다. 궁금하신 점 있으시면 언제든 제니를 찾아주세요! 😊",
+            "[Mycelium] 띵동! ${name}님을 위한 깜짝 선물이 도착했어요 🎁\n오랜만에 저희 버섯으로 풍성한 식탁을 만들어보시는 건 어떨까요? 항상 최상의 맛과 신선함으로 보답하겠습니다! ✨"
         ],
         "shipping_receipt": [
-            "[스마트 농장] 안녕하세요 ${name}님! 🍄\n주문하신 상품의 입금 확인이 늦어지고 있어 안내드립니다. 입금 확인 후 정성껏 포장하여 최대한 빠르게 발송해 드리겠습니다. 감사합니다. 😊"
+            "[Mycelium] 안녕하세요 ${name}님! 🍄\n주문하신 상품의 입금 확인이 늦어지고 있어 안내드립니다. 입금 확인 후 정성껏 포장하여 최대한 빠르게 발송해 드리겠습니다. 감사합니다. 😊"
         ],
         "shipping_paid": [
-            "[스마트 농장] 입금 확인 완료! 🍄\n${name}님, 주문하신 상품의 입금이 확인되었습니다. 오늘 중으로 가장 신선한 상품을 골라 정성스럽게 발송해 드릴 예정입니다. 조금만 기다려 주세요! ✨"
+            "[Mycelium] 입금 확인 완료! 🍄\n${name}님, 주문하신 상품의 입금이 확인되었습니다. 오늘 중으로 가장 신선한 상품을 골라 정성스럽게 발송해 드릴 예정입니다. 조금만 기다려 주세요! ✨"
         ],
         "shipping_done": [
-            "[스마트 농장] 배송 시작 안내! 🚚\n${name}님, 주문하신 상품이 오늘 발송되었습니다. 신선함을 가득 담아 안전하게 전달해 드릴게요! 맛있게 드시고 늘 건강하세요. 🍄💙"
+            "[Mycelium] 배송 시작 안내! 🚚\n${name}님, 주문하신 상품이 오늘 발송되었습니다. 신선함을 가득 담아 안전하게 전달해 드릴게요! 맛있게 드시고 늘 건강하세요. 🍄💙"
         ]
     })
 }
@@ -2879,27 +2879,39 @@ async fn update_product(
     let mut changes = Vec::new();
     if old.product_name != product_name {
         changes.push(format!(
-            "이름변경: '{}' -> '{}'",
+            "상품명: '{}' -> '{}'",
             old.product_name, product_name
         ));
     }
     if old.specification != specification {
         changes.push(format!(
-            "규격변경: '{:?}' -> '{:?}'",
-            old.specification, specification
+            "규격: '{}' -> '{}'",
+            old.specification.as_deref().unwrap_or(""),
+            specification.as_deref().unwrap_or("")
         ));
     }
     if old.unit_price != unit_price {
-        changes.push(format!(
-            "가격변경: {}원 -> {}원",
-            old.unit_price, unit_price
-        ));
+        // We do NOT add simple string here because triggers handle price history table.
+        // But for 'General History' view, we might want to log it in inventory_logs too??
+        // No, let's keep price history separate for the detailed table, but maybe mention it here?
+        // Actually, the user wants a Unified History.
+        // If we rely on get_product_history merging them, we don't need to duplicate here.
     }
     if old.status.as_deref().unwrap_or("판매중") != status_val {
         changes.push(format!(
-            "상태변경: '{}' -> '{}'",
+            "상태: '{}' -> '{}'",
             old.status.as_deref().unwrap_or("판매중"),
             status_val
+        ));
+    }
+    if old.cost_price.unwrap_or(0) != cost {
+        changes.push(format!("원가: {} -> {}", old.cost_price.unwrap_or(0), cost));
+    }
+    if old.safety_stock.unwrap_or(10) != safety_stock.unwrap_or(10) {
+        changes.push(format!(
+            "안전재고: {} -> {}",
+            old.safety_stock.unwrap_or(10),
+            safety_stock.unwrap_or(10)
         ));
     }
 
@@ -2950,7 +2962,7 @@ async fn update_product(
 }
 
 #[tauri::command]
-async fn delete_product(state: State<'_, DbPool>, product_id: i32) -> Result<(), String> {
+async fn discontinue_product(state: State<'_, DbPool>, product_id: i32) -> Result<(), String> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let mut tx = state.begin().await.map_err(|e| e.to_string())?;
 
@@ -2987,6 +2999,66 @@ async fn delete_product(state: State<'_, DbPool>, product_id: i32) -> Result<(),
 }
 
 #[tauri::command]
+async fn delete_product(state: State<'_, DbPool>, product_id: i32) -> Result<(), String> {
+    // Check for dependencies
+    let sales_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sales WHERE product_id = $1")
+        .bind(product_id)
+        .fetch_one(&*state)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // We also check inventory_logs but EXCLUDE the initial creation log if any, or just check if there are any meaningful logs.
+    // Actually, any log implies existence. But we might have just created it.
+    // If we just created it, it might have one log '입고' or '초기재고'.
+    // The user said "If no sales occurred".
+    // Let's strictly check sales count first.
+    // If sales_count > 0, absolutely cannot delete.
+
+    if sales_count.0 > 0 {
+        return Err("HAS_HISTORY".to_string());
+    }
+
+    // Also check inventory logs for significant movements (not just creation?)
+    // Actually, if we delete the product, we delete the logs associated with it usually?
+    // No, if we hard delete, we must ensure integrity.
+    // If there are logs, it means history exists.
+
+    let log_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM inventory_logs WHERE product_id = $1 AND change_type != '상태변경'",
+    )
+    .bind(product_id)
+    .fetch_one(&*state)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if log_count.0 > 0 {
+        return Err("HAS_HISTORY".to_string());
+    }
+
+    DB_MODIFIED.store(true, Ordering::Relaxed);
+
+    // Proceed to hard delete since it's safe (no sales, no material logs)
+    // We still need to delete any potential 'init' logs if we are cleaning up.
+    // Use transaction.
+    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+
+    sqlx::query("DELETE FROM inventory_logs WHERE product_id = $1")
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query("DELETE FROM products WHERE product_id = $1")
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn hard_delete_product(state: State<'_, DbPool>, product_id: i32) -> Result<(), String> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
@@ -3006,6 +3078,13 @@ async fn hard_delete_product(state: State<'_, DbPool>, product_id: i32) -> Resul
         .await
         .map_err(|e| format!("Inventory logs deletion failed: {}", e))?;
 
+    // 2.5 Delete price history logs
+    sqlx::query("DELETE FROM product_price_history WHERE product_id = $1")
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Price history deletion failed: {}", e))?;
+
     // 3. Finally delete the product from master
     sqlx::query("DELETE FROM products WHERE product_id = $1")
         .bind(product_id)
@@ -3016,6 +3095,98 @@ async fn hard_delete_product(state: State<'_, DbPool>, product_id: i32) -> Resul
     tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn get_product_price_history(
+    state: State<'_, DbPool>,
+    product_id: i32,
+) -> Result<Vec<ProductPriceHistory>, String> {
+    sqlx::query_as::<_, ProductPriceHistory>(
+        "SELECT * FROM product_price_history WHERE product_id = $1 ORDER BY changed_at DESC",
+    )
+    .bind(product_id)
+    .fetch_all(&*state)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ProductHistoryItem {
+    pub history_type: String, // 'Price', 'Stock', 'Info', 'Creation'
+    pub date: String,
+    pub title: String,
+    pub description: String,
+    pub old_value: Option<String>,
+    pub new_value: Option<String>,
+    pub change_amount: i32,
+}
+
+#[tauri::command]
+async fn get_product_history(
+    state: State<'_, DbPool>,
+    product_id: i32,
+) -> Result<Vec<ProductHistoryItem>, String> {
+    let mut history = Vec::new();
+
+    // 1. Fetch Price History
+    let prices: Vec<ProductPriceHistory> =
+        sqlx::query_as("SELECT * FROM product_price_history WHERE product_id = $1")
+            .bind(product_id)
+            .fetch_all(&*state)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    for p in prices {
+        history.push(ProductHistoryItem {
+            history_type: "가격변경".to_string(),
+            date: p.changed_at.format("%Y-%m-%d %H:%M").to_string(),
+            title: "판매가 변경".to_string(),
+            description: p.reason.unwrap_or_else(|| "가격 수정".to_string()),
+            old_value: Some(p.old_price.to_string()),
+            new_value: Some(p.new_price.to_string()),
+            change_amount: p.new_price - p.old_price,
+        });
+    }
+
+    // 2. Fetch Inventory/Info Logs
+    // We filter for relevant types: '상품등록', '정보변경', '상태변경', '입고', '출고', '조정', '취소반품'
+    // But maybe for "Product Management History", purely stock movements (sales) might be too much noise?
+    // The user said "Creation, Modification, Price Change".
+    // Let's include '상품등록', '정보변경', '상태변경'.
+    // Maybe also '입고/조정' (Stock Corrections) but exclude '출고' (Sales)?
+    // User asked "Creation, Modification, Price Change etc". "etc" usually implies lifecycle events.
+
+    let logs: Vec<(NaiveDateTime, String, i32, String)> = sqlx::query_as(
+        r#"
+        SELECT created_at, change_type, change_quantity, memo 
+        FROM inventory_logs 
+        WHERE product_id = $1 
+        AND change_type IN ('상품등록', '정보변경', '상태변경', '재고조정', '초기재고')
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(product_id)
+    .fetch_all(&*state)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    for (date, c_type, qty, memo) in logs {
+        history.push(ProductHistoryItem {
+            history_type: c_type.clone(),
+            date: date.format("%Y-%m-%d %H:%M").to_string(),
+            title: c_type,
+            description: memo,
+            old_value: None,
+            new_value: None,
+            change_amount: qty,
+        });
+    }
+
+    // Sort by date descending
+    history.sort_by(|a, b| b.date.cmp(&a.date));
+
+    Ok(history)
 }
 
 #[tauri::command]
@@ -4242,10 +4413,15 @@ async fn cancel_backup_restore() {
 
 #[tauri::command]
 async fn confirm_exit(app: tauri::AppHandle) -> Result<(), String> {
+    // Prevent re-entry
+    if IS_EXITING.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    IS_EXITING.store(true, Ordering::Relaxed);
+
     // 0. Check if DB was modified
     if !DB_MODIFIED.load(Ordering::Relaxed) {
         // println!("No changes detected. Skipping auto-backup.");
-        IS_EXITING.store(true, Ordering::Relaxed);
         std::process::exit(0);
     }
 
@@ -4294,7 +4470,6 @@ async fn confirm_exit(app: tauri::AppHandle) -> Result<(), String> {
         }
     }
 
-    IS_EXITING.store(true, Ordering::Relaxed);
     // Forcefully kill the process at OS level
     std::process::exit(0);
 }
@@ -4422,7 +4597,11 @@ pub fn run() {
             create_product,
             update_product,
             delete_product,
+            discontinue_product,
+            discontinue_product,
             hard_delete_product,
+            get_product_price_history,
+            get_product_history, // Added
             get_last_event,
             debug_db_schema,
             create_event,
@@ -6497,9 +6676,7 @@ async fn get_product_10yr_sales_stats(
         FROM years y
         LEFT JOIN sales s ON 
             s.product_name = $1
-            AND s.customer_id IS NOT NULL 
-            AND LENGTH(s.customer_id) >= 4 
-            AND SUBSTRING(s.customer_id, 1, 4) = y.year::TEXT
+            AND EXTRACT(YEAR FROM s.order_date)::integer = y.year
             AND s.status != '취소'
         GROUP BY y.year
         ORDER BY y.year ASC
@@ -6567,18 +6744,16 @@ async fn get_product_sales_stats(
         "".to_string()
     };
 
+    // Filter to 'product' type only for sales intelligence
     let sql = format!(
         r#"
         SELECT 
-            CASE 
-                WHEN p.product_name IS NOT NULL THEN p.product_name 
-                ELSE s.product_name || ' (단종상품)' 
-            END as product_name,
+            p.product_name,
             COALESCE(s.record_count, 0) as record_count,
             COALESCE(s.total_quantity, 0) as total_quantity,
             COALESCE(s.total_amount, 0) as total_amount
-        FROM (SELECT * FROM products WHERE item_type IS NULL OR item_type = 'product') p
-        FULL OUTER JOIN (
+        FROM (SELECT * FROM products WHERE item_type = 'product') p
+        INNER JOIN (
             SELECT 
                 product_name,
                 COUNT(*) as record_count,
@@ -7370,7 +7545,7 @@ async fn get_ai_demand_forecast(
     }
 
     let prompt = format!(
-        "Role: Expert Supply Chain Analyst for a Mushroom Farm.\n\
+        "Role: Expert Supply Chain Analyst for a Mycelium Farm.\n\
          Product: {}\n\
          Date: {}\n\
          Historical Sales (Date,Quantity):\n\
@@ -7509,7 +7684,7 @@ async fn get_ai_repurchase_analysis(
             }
 
             let prompt = format!(
-                "{}\nBased on these customers, write a very short (2 sentences) professional marketing strategy advice in Korean for the mushroom farm owner. \
+                "{}\nBased on these customers, write a very short (2 sentences) professional marketing strategy advice in Korean for the mycelium farm owner. \
                 Focus on high-value repeat customers and timely outreach. Keep it sophisticated and insightful.", 
                 context
              );
@@ -7623,7 +7798,7 @@ async fn get_weather_marketing_advice(
 
     // 3. AI Prompt
     let prompt = format!(
-        "Role: Smart Marketing Consultant for a Mushroom Farm in Gangneung.\n\
+        "Role: Smart Marketing Consultant for a Mycelium Farm in Gangneung.\n\
          Current Weather: {} ({}°C)\n\
          Tomorrow Forecast: Min {}°C / Max {}°C\n\
          Available Products: {}\n\n\
@@ -8156,7 +8331,7 @@ async fn get_consultation_ai_advisor(
 
     // 2. Prepare AI Prompt
     let prompt = format!(
-        "Role: Professional Customer Excellence Advisor for a Premium Mushroom Farm.\n\
+        "Role: Professional Customer Excellence Advisor for a Premium Mycelium Farm.\n\
          Context:\n{}\n\
          Task: Provide professional guidance for this inquiry.\n\
          Output JSON exactly (no other text):\n\
@@ -8217,8 +8392,10 @@ async fn get_profit_margin_analysis(
                 ELSE 0.0
             END as margin_rate
         FROM sales s
-        LEFT JOIN products p ON s.product_name = p.product_name
-        WHERE EXTRACT(YEAR FROM s.order_date) = $1 AND s.status != '취소'
+        JOIN products p ON s.product_name = p.product_name
+        WHERE EXTRACT(YEAR FROM s.order_date) = $1 
+          AND s.status != '취소'
+          AND p.item_type = 'product'
         GROUP BY s.product_name, p.cost_price
         ORDER BY net_profit DESC
     "#;

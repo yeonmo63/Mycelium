@@ -304,7 +304,7 @@ const Dashboard = () => {
                         <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-900 rounded-full"></div>
                     </div>
                     <div className="flex flex-col mr-6">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] leading-none mb-1">CSI-MANAGER</span>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] leading-none mb-1">MYCELIUM</span>
                         <span className="text-sm font-black text-slate-800 tracking-tight">{sessionStorage.getItem('username') || '관리자'}님</span>
                     </div>
                     <button

@@ -125,7 +125,7 @@ const Login = ({ onLoginSuccess }) => {
                             color: '#fff',
                             marginBottom: '12px',
                             letterSpacing: '-0.02em',
-                        }}>CSI Manager</h1>
+                        }}>Mycelium</h1>
                         <p style={{ color: '#94a3b8', fontSize: '15px', fontWeight: '500' }}>Intelligence Center Login</p>
                     </div>
 
@@ -258,7 +258,7 @@ const Login = ({ onLoginSuccess }) => {
                         fontWeight: '500'
                     }}>
                         <p style={{ opacity: 0.8 }}>Authorized Personnel Only</p>
-                        <p style={{ marginTop: '12px', opacity: 0.5, fontSize: '12px', letterSpacing: '0.05em' }}>© 2024 CSI MANAGER CORP.</p>
+                        <p style={{ marginTop: '12px', opacity: 0.5, fontSize: '12px', letterSpacing: '0.05em' }}>© 2024 MYCELIUM CORP.</p>
                     </div>
                 </div>
             </div>

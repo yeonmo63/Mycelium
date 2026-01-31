@@ -43,3 +43,6 @@ backup/
 .env
 .env.*
 .secrets
+
+# Temporary files
+src-tauri/*.txt

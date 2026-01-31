@@ -206,7 +206,7 @@ const RegionAnalysis = () => {
 
             const topRegions = data.slice(0, 8).map(d => `${d.region}: ${formatCurrency(d.total_amount)} (${d.total_quantity}건)`).join(', ');
             const prompt = `
-                당신은 스마트 농장 전문 경영 컨설턴트 '제니'입니다.
+                당신은 Mycelium 전문 경영 컨설턴트 '제니'입니다.
                 ${year}년도 지역별 매출 데이터를 분석하고 있습니다: [${topRegions}].
                 
                 다음 형식으로 인사이트를 작성해주세요:

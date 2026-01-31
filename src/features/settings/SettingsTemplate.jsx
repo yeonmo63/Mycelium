@@ -77,7 +77,7 @@ const SettingsTemplate = () => {
             console.error("Failed to load templates:", err);
             // Fallback templates
             const fallback = {
-                default: ["안녕하세요, ${name}님! 스마트 농장입니다. ✨"],
+                default: ["안녕하세요, ${name}님! Mycelium입니다. ✨"],
                 repurchase: ["${name}님, 버섯 떨어질 때 되지 않으셨나요? 😉"],
                 churn: ["${name}님, 오랜만이에요! 많이 기다렸답니다. 🍄"],
                 shipping_receipt: ["배송 접수가 완료되었습니다. 입금 확인 후 발송해 드릴게요! 🚚"],
@@ -124,7 +124,7 @@ const SettingsTemplate = () => {
         if (!newTemplates[activeScenario]) {
             newTemplates[activeScenario] = [];
         }
-        newTemplates[activeScenario].push("${name}님, 안녕하세요! 스마트 농장입니다.");
+        newTemplates[activeScenario].push("${name}님, 안녕하세요! Mycelium입니다.");
         setTemplates(newTemplates);
     };
 

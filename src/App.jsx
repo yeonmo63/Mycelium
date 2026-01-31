@@ -188,7 +188,7 @@ function AppContent() {
           </div>
           <h2 className="text-4xl font-black text-white tracking-tight mb-4">
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-100 to-slate-400">
-              CSI Manager
+              Mycelium
             </span>
           </h2>
           <div className="flex flex-col items-center gap-3">

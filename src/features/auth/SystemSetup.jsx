@@ -9,7 +9,7 @@ const SystemSetup = ({ onComplete }) => {
     const [dbPass, setDbPass] = useState('');
     const [dbHost, setDbHost] = useState('localhost');
     const [dbPort, setDbPort] = useState('5432');
-    const [dbName, setDbName] = useState('gn_mushroom');
+    const [dbName, setDbName] = useState('mycelium');
     const [geminiKey, setGeminiKey] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
@@ -98,7 +98,7 @@ const SystemSetup = ({ onComplete }) => {
                                         <input type="text" value={dbName} onChange={e => setDbName(e.target.value)}
                                             className="w-full rounded-2xl px-5 py-3.5 outline-none focus:border-indigo-500 transition-all"
                                             style={{ backgroundColor: '#020617', color: '#ffffff', border: '1px solid #334155' }}
-                                            placeholder="기본값: gn_mushroom" />
+                                            placeholder="기본값: mycelium" />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-slate-500 ml-1">사용자 ID</label>
@@ -167,7 +167,7 @@ const SystemSetup = ({ onComplete }) => {
                 </form>
 
                 <div className="mt-12 pt-8 border-t border-slate-800/50 text-center relative z-10">
-                    <p className="text-[11px] text-slate-600 font-bold uppercase tracking-widest">© 2024 CSI Manager • Enterprise Edition</p>
+                    <p className="text-[11px] text-slate-600 font-bold uppercase tracking-widest">© 2024 Mycelium • Enterprise Edition</p>
                 </div>
             </div>
         </div>

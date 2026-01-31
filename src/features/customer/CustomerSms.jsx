@@ -47,7 +47,7 @@ const CustomerSms = () => {
     const [message, setMessage] = useState('');
     const [byteCount, setByteCount] = useState(0);
     const [msgType, setMsgType] = useState('SMS'); // SMS or LMS
-    const [companyName, setCompanyName] = useState('스마트 농장');
+    const [companyName, setCompanyName] = useState('Mycelium');
 
     // Stats
     const [estimatedCount, setEstimatedCount] = useState(0);

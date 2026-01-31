@@ -13,7 +13,10 @@ import {
     Layers,
     X,
     CheckCircle2,
-    Lock
+    Lock,
+    History,
+    TrendingUp,
+    ArrowRight
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/common';
 
@@ -26,7 +29,13 @@ const SettingsProduct = () => {
     const [allProducts, setAllProducts] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [tabMode, setTabMode] = useState('product'); // 'product' | 'material'
+    const [showDiscontinued, setShowDiscontinued] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+
+    // Price History State
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [priceHistory, setPriceHistory] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -159,7 +168,38 @@ const SettingsProduct = () => {
             loadProducts();
             window.dispatchEvent(new Event('product-data-changed'));
         } catch (err) {
-            showAlert('삭제 실패', '오류가 발생했습니다: ' + err);
+            if (err.toString().includes('HAS_HISTORY')) {
+                const confirmed = await showConfirm(
+                    '삭제 불가',
+                    `[${p.product_name}] 항목은 거래 이력이 있어 삭제할 수 없습니다.\n대신 '단종(숨김)' 처리하시겠습니까?`
+                );
+
+                if (confirmed) {
+                    try {
+                        await invoke('discontinue_product', { productId: p.product_id });
+                        showAlert('처리 완료', '해당 상품이 단종 처리되었습니다.');
+                        loadProducts();
+                        window.dispatchEvent(new Event('product-data-changed'));
+                    } catch (dErr) {
+                        showAlert('단종 처리 실패', '오류가 발생했습니다: ' + dErr);
+                    }
+                }
+            } else {
+                showAlert('삭제 실패', '오류가 발생했습니다: ' + err);
+            }
+        }
+    };
+
+    const loadPriceHistory = async (productId) => {
+        setHistoryLoading(true);
+        try {
+            const data = await invoke('get_product_history', { productId });
+            setPriceHistory(data || []);
+            setShowHistoryModal(true);
+        } catch (err) {
+            showAlert('이력 조회 실패', '오류가 발생했습니다: ' + err);
+        } finally {
+            setHistoryLoading(false);
         }
     };
 
@@ -174,6 +214,11 @@ const SettingsProduct = () => {
             filtered = filtered.filter(p => !p.item_type || p.item_type === 'product');
         }
 
+        // Status filter (Discontinued)
+        if (!showDiscontinued) {
+            filtered = filtered.filter(p => p.status !== '단종상품');
+        }
+
         // Search filter
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
@@ -181,7 +226,7 @@ const SettingsProduct = () => {
         }
 
         return filtered;
-    }, [allProducts, tabMode, searchQuery]);
+    }, [allProducts, tabMode, searchQuery, showDiscontinued]);
 
     const materials = useMemo(() => allProducts.filter(p => p.item_type === 'material'), [allProducts]);
 
@@ -251,6 +296,18 @@ const SettingsProduct = () => {
 
                             {/* Search & Add */}
                             <div className="flex items-center gap-3 w-full md:w-auto">
+                                <label className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-xl hover:bg-slate-100 transition-colors">
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${showDiscontinued ? 'bg-slate-600 border-slate-600' : 'bg-white border-slate-300'}`}>
+                                        {showDiscontinued && <CheckCircle2 size={12} className="text-white" />}
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={showDiscontinued}
+                                        onChange={e => setShowDiscontinued(e.target.checked)}
+                                        className="hidden"
+                                    />
+                                    <span className="text-xs font-bold text-slate-500">단종포함</span>
+                                </label>
                                 <div className="relative flex-1 md:w-80 group text-left">
                                     <input
                                         type="text"
@@ -285,7 +342,8 @@ const SettingsProduct = () => {
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[15%] min-w-[120px]">판매가격</th>
                                         <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[10%] min-w-[80px]">안전재고</th>
                                         <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[10%] min-w-[80px]">현재재고</th>
-                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%] min-w-[100px]">관리</th>
+                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[8%] min-w-[70px]">상태</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%] min-w-[160px]">관리</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
@@ -316,26 +374,40 @@ const SettingsProduct = () => {
                                                     <td className="px-6 py-4 font-black text-sm text-slate-700">{p.product_name}</td>
                                                     <td className="px-6 py-4 text-center text-xs font-bold text-slate-400 bg-slate-50/30">{p.specification || '-'}</td>
                                                     <td className="px-6 py-4 text-right font-black text-sm text-slate-800 tabular-nums">{formatCurrency(p.unit_price)}</td>
-                                                    <td className="px-6 py-4 text-right text-xs font-bold text-slate-400">{p.safety_stock || 10}</td>
+                                                    <td className="px-6 py-4 text-right text-xs font-bold text-slate-400">{p.safety_stock ? p.safety_stock.toLocaleString() : 10}</td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="flex items-center justify-end gap-1.5">
                                                             {isLow && <AlertTriangle size={14} className="text-rose-500" />}
                                                             <span className={`font-black text-sm tabular-nums ${isLow ? 'text-rose-600 underline underline-offset-4 decoration-rose-200' : 'text-slate-600'}`}>
-                                                                {p.stock_quantity || 0}
+                                                                {(p.stock_quantity || 0).toLocaleString()}
                                                             </span>
                                                         </div>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-center">
+                                                        <span className={`px-2 py-1 rounded text-[10px] font-black ${p.status === '단종상품' ? 'bg-slate-100 text-slate-400' : 'bg-green-50 text-green-600'}`}>
+                                                            {p.status || '판매중'}
+                                                        </span>
                                                     </td>
                                                     <td className="px-8 py-4">
                                                         <div className="flex items-center justify-center gap-2">
                                                             <button
                                                                 onClick={() => openModal(p)}
                                                                 className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm flex items-center justify-center"
+                                                                title="수정"
                                                             >
                                                                 <span className="material-symbols-rounded text-[20px]">edit</span>
                                                             </button>
                                                             <button
+                                                                onClick={() => loadPriceHistory(p.product_id)}
+                                                                className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 text-indigo-600 font-bold transition-all shadow-sm flex items-center justify-center border border-transparent hover:border-slate-300"
+                                                                title="관리 이력"
+                                                            >
+                                                                <span className="material-symbols-rounded text-[20px]">history</span>
+                                                            </button>
+                                                            <button
                                                                 onClick={() => handleDelete(p)}
                                                                 className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-all shadow-sm flex items-center justify-center"
+                                                                title="삭제"
                                                             >
                                                                 <span className="material-symbols-rounded text-[20px]">delete</span>
                                                             </button>
@@ -414,20 +486,28 @@ const SettingsProduct = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-2">판매 가격</label>
+                                    <div className="flex justify-between items-center mb-1.5 ml-2">
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">판매 가격</label>
+                                    </div>
                                     <input
-                                        type="number"
-                                        value={formData.price}
-                                        onChange={(e) => setFormData({ ...formData, price: parseInt(e.target.value) })}
+                                        type="text"
+                                        value={formData.price.toLocaleString()}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value.replace(/,/g, '')) || 0;
+                                            setFormData({ ...formData, price: val });
+                                        }}
                                         className="w-full h-12 px-5 bg-slate-50 border-none rounded-xl font-bold font-mono text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200 text-right"
                                     />
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-2">원가 (Cost Price)</label>
                                     <input
-                                        type="number"
-                                        value={formData.cost}
-                                        onChange={(e) => setFormData({ ...formData, cost: parseInt(e.target.value) })}
+                                        type="text"
+                                        value={formData.cost.toLocaleString()}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value.replace(/,/g, '')) || 0;
+                                            setFormData({ ...formData, cost: val });
+                                        }}
                                         className="w-full h-12 px-5 bg-slate-50 border-none rounded-xl font-bold font-mono text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200 text-right"
                                     />
                                 </div>
@@ -486,6 +566,78 @@ const SettingsProduct = () => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Product History Modal (Unified) */}
+            {showHistoryModal && (
+                <div className="absolute inset-0 z-[110] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setShowHistoryModal(false)}></div>
+                    <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 ring-1 ring-slate-900/10">
+                        <div className="px-8 py-6 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between">
+                            <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                                <History size={20} className="text-indigo-600" /> 상품 관리 이력
+                            </h3>
+                            <button onClick={() => setShowHistoryModal(false)} className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:bg-slate-100 hover:text-slate-600 transition-all shadow-sm">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="p-0 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                            {priceHistory.length === 0 ? (
+                                <div className="p-10 text-center">
+                                    <p className="text-slate-400 font-bold text-sm">기록된 관리 이력이 없습니다.</p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-slate-100">
+                                    {priceHistory.map((h, idx) => {
+                                        // h: { history_type, date, title, description, old_value, new_value, change_amount }
+                                        const isPrice = h.history_type === '가격변경';
+
+                                        return (
+                                            <div key={idx} className="p-6 hover:bg-slate-50 transition-colors">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <span className="text-[10px] font-black text-slate-400 tracking-wider uppercase">{h.date}</span>
+                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isPrice ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
+                                                        h.history_type === '상품등록' ? 'bg-green-50 text-green-600 border-green-100' :
+                                                            'bg-slate-100 text-slate-500 border-slate-200'
+                                                        }`}>
+                                                        {h.title}
+                                                    </span>
+                                                </div>
+
+                                                {/* Content based on type */}
+                                                {isPrice ? (
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-sm font-bold text-slate-400 decoration-slate-300 line-through tabular-nums decoration-2">
+                                                            {parseInt(h.old_value || '0').toLocaleString()}
+                                                        </span>
+                                                        <ArrowRight size={14} className="text-slate-300" />
+                                                        <span className="text-lg font-black text-slate-700 tabular-nums">
+                                                            {parseInt(h.new_value || '0').toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-sm font-bold text-slate-700">
+                                                        {h.description}
+                                                    </div>
+                                                )}
+
+                                                {/* Extra context for non-price items if needed */}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex justify-center">
+                            <button
+                                onClick={() => setShowHistoryModal(false)}
+                                className="w-full py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors shadow-sm"
+                            >
+                                확인 (닫기)
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

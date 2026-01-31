@@ -24,7 +24,7 @@ const Header = () => {
     return (
         <header>
             <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0 }}>CSI Manager</h1>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0 }}>Mycelium</h1>
                 {/* Global Search / Voice Search Bar */}
                 <div className="voice-search-container" id="voice-search-bar"
                     style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: '12px', padding: '4px 12px', minWidth: '400px', border: '1px solid #e2e8f0', transition: 'all 0.3s ease' }}>

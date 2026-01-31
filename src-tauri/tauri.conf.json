@@ -6,7 +6,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/yeonmo63/mushroomFarm/releases/latest/download/latest.json"
+        "https://github.com/yeonmo63/Mycelium/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5QTk5MkQ3ODI2NTcyQTYKUldTbWNtV0MxNUtwR2VYdHpnUWJLcGdVeERTejhjblorSi8vY0YyeWZWTWV3YnpHeEgzbjdocUoK"
     }

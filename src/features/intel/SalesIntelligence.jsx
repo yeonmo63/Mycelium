@@ -186,7 +186,7 @@ const TabAdvice = ({ sharedData, isVisible, showAlert }) => {
             ]);
             const yearData = trendData.find(d => Number(d.year) === new Date().getFullYear()) || { total_amount: 0 };
 
-            const prompt = `당신은 '스마트 농장' 전문 경영 컨설턴트 '제니'입니다. 
+            const prompt = `당신은 'Mycelium' 전문 경영 컨설턴트 '제니'입니다. 
 다음 데이터와 [${themeLabels[selectedTheme]}] 테마를 중심으로 경영 전략 리포트를 작성해주세요.
 
 [데이터]
@@ -529,6 +529,7 @@ const TabProductRegion = ({ isVisible }) => {
     const [products, setProducts] = useState([]);
     const [regions, setRegions] = useState([]);
     const [hasLoaded, setHasLoaded] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const pieRef = useRef(null);
     const barRef = useRef(null);
     const pieInstance = useRef(null);
@@ -544,6 +545,7 @@ const TabProductRegion = ({ isVisible }) => {
 
     const loadData = async () => {
         if (!window.__TAURI__) return;
+        setIsLoading(true);
         try {
             const year = new Date().getFullYear();
             const [pData, rData] = await Promise.all([
@@ -554,7 +556,11 @@ const TabProductRegion = ({ isVisible }) => {
             setRegions(rData || []);
             renderCharts(pData, rData);
             setHasLoaded(true);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const renderCharts = (pData, rData) => {
@@ -574,7 +580,21 @@ const TabProductRegion = ({ isVisible }) => {
                         borderWidth: 0
                     }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: 10 },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 10,
+                                font: { size: 10, weight: 'bold' },
+                                padding: 15
+                            }
+                        }
+                    }
+                }
             });
         }
 
@@ -596,31 +616,66 @@ const TabProductRegion = ({ isVisible }) => {
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: { padding: { right: 20, top: 10, bottom: 20 } },
                     plugins: { legend: { display: false } },
-                    scales: { x: { ticks: { callback: v => formatCurrency(v) } } }
+                    scales: {
+                        x: {
+                            ticks: {
+                                font: { size: 10 },
+                                callback: v => {
+                                    if (v >= 1000000) return (v / 1000000).toFixed(1) + '백만';
+                                    if (v >= 10000) return (v / 10000).toLocaleString() + '만';
+                                    return v.toLocaleString();
+                                }
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                font: { weight: 'bold', size: 11 }
+                            }
+                        }
+                    }
                 }
             });
         }
     };
 
     return (
-        <div className="flex flex-col gap-6 h-full">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[320px] shrink-0">
-                <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col">
-                    <h3 className="font-bold text-lg text-slate-700 mb-2">상품별 매출 비중 (Top 5)</h3>
+        <div className="flex flex-col gap-6 h-full relative">
+            {isLoading && (
+                <div className="absolute inset-0 z-10 bg-white/60 backdrop-blur-[1px] flex items-center justify-center rounded-2xl">
+                    <div className="flex flex-col items-center gap-2">
+                        <span className="material-symbols-rounded text-3xl text-indigo-600 animate-spin">progress_activity</span>
+                        <span className="text-sm font-bold text-slate-500">데이터를 분석 중입니다...</span>
+                    </div>
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px] shrink-0">
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col shadow-sm">
+                    <h3 className="font-bold text-lg text-slate-700 mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                        상품별 매출 비중 (Top 5)
+                    </h3>
                     <div className="flex-1 relative min-h-0"><canvas ref={pieRef}></canvas></div>
                 </div>
-                <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col">
-                    <h3 className="font-bold text-lg text-slate-700 mb-2">지역별 매출 상위</h3>
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col shadow-sm">
+                    <h3 className="font-bold text-lg text-slate-700 mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        지역별 매출 상위
+                    </h3>
                     <div className="flex-1 relative min-h-0"><canvas ref={barRef}></canvas></div>
                 </div>
             </div>
 
-            <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-0">
-                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 font-bold text-slate-700">상세 분석 리스트</div>
+            <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-0 shadow-sm">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 font-bold text-slate-700 flex items-center gap-2">
+                    <span className="material-symbols-rounded text-indigo-500">analytics</span>
+                    상세 분석 리스트 (완제품 기준)
+                </div>
                 <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 flex flex-col border-r border-slate-100">
-                        <div className="p-3 bg-slate-50/50 text-xs font-bold text-slate-500 uppercase text-center border-b border-slate-100">품목별</div>
+                        <div className="p-3 bg-slate-50/50 text-xs font-bold text-slate-500 uppercase text-center border-b border-slate-100 italic">By Product</div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 bg-white shadow-sm">
@@ -628,7 +683,7 @@ const TabProductRegion = ({ isVisible }) => {
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
                                     {products.map(p => (
-                                        <tr key={p.product_id} className="hover:bg-slate-50">
+                                        <tr key={p.product_id} className="hover:bg-indigo-50/30 transition-colors">
                                             <td className="py-2 px-4 text-slate-700 font-bold">{p.product_name}</td>
                                             <td className="py-2 px-4 text-right font-mono text-slate-900 font-bold">{formatCurrency(p.total_amount)}</td>
                                         </tr>
@@ -638,7 +693,7 @@ const TabProductRegion = ({ isVisible }) => {
                         </div>
                     </div>
                     <div className="flex-1 flex flex-col">
-                        <div className="p-3 bg-slate-50/50 text-xs font-bold text-slate-500 uppercase text-center border-b border-slate-100">지역별</div>
+                        <div className="p-3 bg-slate-50/50 text-xs font-bold text-slate-500 uppercase text-center border-b border-slate-100 italic">By Region</div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 bg-white shadow-sm">
@@ -646,7 +701,7 @@ const TabProductRegion = ({ isVisible }) => {
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
                                     {regions.map((r, i) => (
-                                        <tr key={i} className="hover:bg-slate-50">
+                                        <tr key={i} className="hover:bg-emerald-50/30 transition-colors">
                                             <td className="py-2 px-4 text-slate-700 font-bold">{r.region}</td>
                                             <td className="py-2 px-4 text-right font-mono text-slate-900 font-bold">{formatCurrency(r.total_amount)}</td>
                                         </tr>
