@@ -219,18 +219,19 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
     let schema = include_str!("schema.sql");
     let _ = sqlx::raw_sql(schema).execute(pool).await;
 
-    // 2. Initial Seeds
-    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+    // 2. Initial Seeds: Ensure at least the primary admin exists
+    let admin_username = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
+    let admin_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE username = $1")
+        .bind(&admin_username)
         .fetch_one(pool)
         .await
-        .map_err(|e: sqlx::Error| format!("Failed to check users count: {}", e))?;
+        .unwrap_or((0,));
 
-    if user_count.0 == 0 {
-        let admin_username = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
+    if admin_exists.0 == 0 {
         let admin_password = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
         let password_hash =
             bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).map_err(|e| e.to_string())?;
-        sqlx::query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)")
+        sqlx::query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING")
             .bind(admin_username)
             .bind(password_hash)
             .bind("admin")

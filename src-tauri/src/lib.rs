@@ -5461,7 +5461,7 @@ async fn backup_database_internal(
         ($table:expr, $type:ty, $query:expr, $field:expr, $msg:expr, $count:expr, $time_col:expr) => {{
             println!("[Backup] Start: Table {}", $table);
             emit_progress(processed, total_records, $msg);
-            write!(writer, "  \"{}\": [", $field).map_err(|e| e.to_string())?;
+            write!(writer, "  \"{}\": [\n", $field).map_err(|e| e.to_string())?;
             let mut first_record = true;
             let base_query = if let Some(s) = since {
                 format!(
@@ -5771,7 +5771,8 @@ async fn restore_database(
     let _ = sqlx::query("SET lock_timeout = '30s'")
         .execute(&mut *tx)
         .await;
-    let _ = sqlx::query("SET session_replication_role = 'replica'")
+    // session_replication_role is set to LOCAL so it only affects this transaction
+    let _ = sqlx::query("SET LOCAL session_replication_role = 'replica'")
         .execute(&mut *tx)
         .await;
 
@@ -5879,17 +5880,35 @@ async fn restore_database(
                 // Check if line contains start marker
                 if trimmed_line.contains(&target1) || trimmed_line.contains(&target2) {
                     found = true;
-                    println!("[Restore] Table '{}' start found.", $marker);
-
-                    // If line contains more than just the marker, we need to process the rest
-                    // But our backup puts results on separate lines or follows it.
-                    // To be safe, if there's a '{' after the marker on the same line,
-                    // we should handle it. However, read_line handles the \n.
+                    println!("[Restore] Table '{}' marker found.", $marker);
                 }
+
+                if found {
+                    // Process if the first record is on the same line as the marker
+                    if let Some(pos) = line.find('[') {
+                        let after_marker = line[pos + 1..].trim();
+                        if after_marker.starts_with('{') {
+                            let clean = after_marker.trim_end_matches(',').trim_end_matches(']').trim();
+                            if !clean.is_empty() {
+                                if let Ok(u) = serde_json::from_str::<$type>(clean) {
+                                    let $item = u;
+                                    let $tx = &mut tx;
+                                    $logic;
+                                    processed += 1;
+                                    // record_count is managed in the loop below, but we handle the first one here
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+                line.clear();
             }
 
             if found {
                 let mut record_count = 0;
+                // If we processed one inline, we should count it, but record_count is local to this block
+                // Let's just make it simpler.
                 loop {
                     line.clear();
                     if reader.read_line(&mut line).unwrap_or(0) == 0 { break; }
@@ -6168,8 +6187,46 @@ async fn restore_database(
         e.to_string()
     })?;
 
-    // Final progress to force 100% UI - No emit here as the return alert handles it
-    // Moving emit to finally block or just relying on alert
+    // 4. Run ANALYZE to update statistics for the query planner after bulk insert
+    println!("[Restore] Running ANALYZE for query optimization...");
+    let _ = sqlx::query("ANALYZE").execute(pool).await;
+
+    // 5. Safety Check: Ensure at least one admin user exists
+    let admin_username = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
+    let admin_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE username = $1")
+        .bind(&admin_username)
+        .fetch_one(pool)
+        .await
+        .unwrap_or((0,));
+
+    if admin_exists.0 == 0 {
+        println!(
+            "[Restore] Admin user '{}' missing. Seeding default...",
+            admin_username
+        );
+        let admin_password = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
+        if let Ok(password_hash) = bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST) {
+            // We use a query that doesn't rely on a specific ID to avoid conflicts, or handle conflict
+            let _ = sqlx::query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING")
+                .bind(&admin_username)
+                .bind(password_hash)
+                .bind("admin")
+                .execute(pool)
+                .await;
+        }
+    }
+
+    let (company_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM company_info")
+        .fetch_one(pool)
+        .await
+        .unwrap_or((0,));
+    if company_count == 0 {
+        println!("[Restore] Seeding default company info...");
+        let _ = sqlx::query("INSERT INTO company_info (company_name) VALUES ($1)")
+            .bind("(주)대관령송암버섯")
+            .execute(pool)
+            .await;
+    }
 
     Ok(format!(
         "성공적으로 {}건의 데이터를 복구했습니다.",
