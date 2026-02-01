@@ -114,7 +114,7 @@ const Sidebar = () => {
 
                     <MenuGroup id="customer" icon="group" label="고객 관리" expanded={isExpanded('customer')} onToggle={toggleMenu} currentPath={location.pathname}>
                         <SubMenuItem to="/customer/register" icon="person_add" label="고객 등록" />
-                        <SubMenuItem to="/customer/edit" icon="manage_accounts" label="고객 조회/수정" />
+                        <SubMenuItem to="/customer/edit" icon="manage_accounts" label="조회/수정/휴면 관리" />
                         <SubMenuItem to="/sales/ledger" icon="account_balance_wallet" label="고객 미수금 관리" />
                         <SubMenuItem to="/customer/batch" icon="domain" label="고객 일괄 조회" />
                         <SubMenuItem to="/customer/consultation" icon="support_agent" label="상담 관리(CRM)" />

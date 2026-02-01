@@ -33,6 +33,9 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
 
         -- Column Migrations with DO blocks for safety
         DO $$ 
+        DECLARE
+            t text;
+            tables_to_update text[] := ARRAY['users', 'products', 'customers', 'customer_addresses', 'sales', 'event', 'schedules', 'experience_programs', 'experience_reservations', 'consultations', 'vendors', 'purchases', 'expenses', 'customer_ledger', 'sales_claims', 'inventory_logs', 'company_info'];
         BEGIN 
             -- rename 'name' to 'customer_name' if exists
             IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='name') THEN
@@ -76,18 +79,14 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchases' AND column_name='material_item_id') THEN ALTER TABLE purchases ADD COLUMN material_item_id INTEGER; END IF;
 
             -- UPDATED_AT Columns for all major tables
-            DECLARE
-                t text;
-                tables_to_update text[] := ARRAY['users', 'products', 'customers', 'customer_addresses', 'sales', 'event', 'schedules', 'experience_programs', 'experience_reservations', 'consultations', 'vendors', 'purchases', 'expenses', 'customer_ledger', 'sales_claims', 'inventory_logs', 'company_info'];
-            BEGIN
-                FOREACH t IN ARRAY tables_to_update
-                LOOP
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = t AND column_name = 'updated_at') THEN
-                        EXECUTE format('ALTER TABLE %I ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP', t);
-                    END IF;
-                END LOOP;
-            END;
-            $$;
+            FOREACH t IN ARRAY tables_to_update
+            LOOP
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = t AND column_name = 'updated_at') THEN
+                    EXECUTE format('ALTER TABLE %I ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP', t);
+                END IF;
+            END LOOP;
+        END $$;
+
 
             -- Product Code and Status Migration
             DO $$
@@ -137,8 +136,19 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             log_id SERIAL PRIMARY KEY,
             table_name VARCHAR(100) NOT NULL,
             record_id VARCHAR(100) NOT NULL,
+            deleted_info TEXT,  -- Trace info (Name, Masked Contact etc)
+            deleted_by VARCHAR(100),
             deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        -- Migration for existing users
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='deletion_log' AND column_name='deleted_info') THEN
+                ALTER TABLE deletion_log ADD COLUMN deleted_info TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='deletion_log' AND column_name='deleted_by') THEN
+                ALTER TABLE deletion_log ADD COLUMN deleted_by VARCHAR(100);
+            END IF;
+        END $$;
         CREATE INDEX IF NOT EXISTS idx_deletion_log_at ON deletion_log(deleted_at);
 
         -- Product Price History Table (Added dynamically for existing users)
@@ -156,13 +166,27 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
         CREATE OR REPLACE FUNCTION log_deletion() RETURNS TRIGGER AS $$
         DECLARE
             v_record_id VARCHAR(100);
+            v_deleted_info TEXT := NULL;
+            v_deleted_by VARCHAR(100) := NULL;
         BEGIN
-            -- Dynamically pick ID column based on table
+            -- Pick Up Current Session User if set (Optionally)
+            BEGIN v_deleted_by := current_setting('mycelium.current_user', true); EXCEPTION WHEN OTHERS THEN v_deleted_by := NULL; END;
+
+            -- Dynamically pick ID column and capture basic trace for important tables
             CASE TG_TABLE_NAME
-                WHEN 'users' THEN v_record_id := OLD.id::VARCHAR;
-                WHEN 'products' THEN v_record_id := OLD.product_id::VARCHAR;
-                WHEN 'customers' THEN v_record_id := OLD.customer_id::VARCHAR;
-                WHEN 'customer_addresses' THEN v_record_id := OLD.address_id::VARCHAR;
+                WHEN 'users' THEN 
+                    v_record_id := OLD.id::VARCHAR;
+                    v_deleted_info := '사용자: ' || OLD.username;
+                WHEN 'products' THEN 
+                    v_record_id := OLD.product_id::VARCHAR;
+                    v_deleted_info := '상품: ' || OLD.product_name || ' (' || COALESCE(OLD.specification, '-') || ')';
+                WHEN 'customers' THEN 
+                    v_record_id := OLD.customer_id::VARCHAR;
+                    -- Mask mobile: 010-1234-5678 -> 010-****-5678
+                    v_deleted_info := '고객: ' || OLD.customer_name || ' (' || 
+                        CASE WHEN length(OLD.mobile_number) >= 8 
+                             THEN left(OLD.mobile_number, 4) || '****' || right(OLD.mobile_number, 4)
+                             ELSE '정체불명' END || ')';
                 WHEN 'sales' THEN v_record_id := OLD.sales_id::VARCHAR;
                 WHEN 'event' THEN v_record_id := OLD.event_id::VARCHAR;
                 WHEN 'schedules' THEN v_record_id := OLD.schedule_id::VARCHAR;
@@ -179,7 +203,8 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
                 ELSE v_record_id := 'unknown';
             END CASE;
 
-            INSERT INTO deletion_log (table_name, record_id) VALUES (TG_TABLE_NAME, v_record_id);
+            INSERT INTO deletion_log (table_name, record_id, deleted_info, deleted_by) 
+            VALUES (TG_TABLE_NAME, v_record_id, v_deleted_info, v_deleted_by);
             RETURN OLD;
         END;
         $$ LANGUAGE plpgsql;
@@ -213,12 +238,18 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
         END $$;
     "#;
 
-    // Execute setup block
-    let _ = sqlx::raw_sql(base_setup).execute(pool).await;
-
     // 1. Ensure all tables exist (Idempotent Schema Init)
     let schema = include_str!("schema.sql");
-    let _ = sqlx::raw_sql(schema).execute(pool).await;
+    sqlx::raw_sql(schema)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Schema init failed: {}", e))?;
+
+    // 2. Execute migration/setup block (Add columns, indices, triggers)
+    sqlx::raw_sql(base_setup)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Migration failed: {}", e))?;
 
     // 2. Initial Seeds: Ensure at least the primary admin exists
     let admin_username = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
@@ -513,6 +544,8 @@ pub struct DashboardStats {
     pub total_orders: Option<i64>,
     pub total_customers: Option<i64>,
     pub total_customers_all_time: Option<i64>,
+    pub normal_customers_count: Option<i64>,  // Added
+    pub dormant_customers_count: Option<i64>, // Added
     pub pending_orders: Option<i64>,
     pub today_schedule_count: Option<i64>,
     pub experience_reservation_count: Option<i64>, // Renamed for "Reservation Status"

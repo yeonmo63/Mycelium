@@ -5,7 +5,7 @@ import { invokeAI } from '../../utils/aiErrorHandler';
 
 /**
  * CustomerList.jsx
- * "고객 조회/수정/말소" - 프리미엄 UI 및 강화된 CRM 기능
+ * "고객 조회/수정/휴면" - 프리미엄 UI 및 강화된 CRM 기능
  */
 const CustomerList = () => {
     const { showAlert, showConfirm } = useModal();
@@ -194,16 +194,28 @@ const CustomerList = () => {
 
     const handleDelete = async () => {
         if (!customer) {
-            await showAlert("알림", "말소할 고객이 조회되지 않았습니다.");
+            await showAlert("알림", "휴면 처리할 고객이 조회되지 않았습니다.");
             return;
         }
-        if (!await showConfirm("말소", "정말로 이 고객을 말소 처리하시겠습니까?\n고객 정보는 보관되지만, '정상' 고객 검색 결과에서 제외됩니다.")) return;
+        if (!await showConfirm("휴면 전환", "정말로 이 고객을 휴면 고객으로 전환하시겠습니까?\n고객 정보는 보관되지만, '정상' 고객 검색 결과에서 제외됩니다.")) return;
         setIsProcessing(true);
         try {
             await window.__TAURI__.core.invoke('delete_customer', { id: customer.customer_id });
-            await showAlert("성공", "말소되었습니다.");
+            await showAlert("성공", "휴면 고객으로 전환되었습니다.");
             handleReset();
-        } catch (err) { await showAlert("오류", "말소 실패: " + err); } finally { setIsProcessing(false); }
+        } catch (err) { await showAlert("오류", "휴면 전환 실패: " + err); } finally { setIsProcessing(false); }
+    };
+
+    const handleReactivate = async () => {
+        if (!customer) return;
+        if (!await showConfirm("정상 전환", "이 고객을 다시 '정상' 고객으로 전환하시겠습니까?")) return;
+        setIsProcessing(true);
+        try {
+            await window.__TAURI__.core.invoke('reactivate_customer', { id: customer.customer_id });
+            await showAlert("성공", "정상 고객으로 전환되었습니다.");
+            const fresh = await window.__TAURI__.core.invoke('get_customer', { id: customer.customer_id });
+            if (fresh) loadCustomer(fresh);
+        } catch (err) { await showAlert("오류", "전환 실패: " + err); } finally { setIsProcessing(false); }
     };
 
     const handleReset = () => {
@@ -259,7 +271,7 @@ const CustomerList = () => {
                     <span className="text-xs font-black tracking-[0.2em] text-indigo-600 uppercase">Customer Relationship Management</span>
                 </div>
                 <h1 className="text-3xl font-black text-slate-600 tracking-tighter mb-4" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
-                    고객 조회/수정/말소 <span className="text-slate-400 font-light ml-2 text-xl">Inquiry & Management</span>
+                    조회/수정/휴면 관리 <span className="text-slate-400 font-light ml-2 text-xl">Inquiry & Management</span>
                 </h1>
 
                 <div className="flex justify-between items-center">
@@ -294,7 +306,7 @@ const CustomerList = () => {
                             <span className="w-1.5 h-3.5 bg-indigo-600 rounded-full"></span>
                             기본 인적 사항
                             {mode === 'edit' && <span className="text-amber-500 text-[10px] uppercase ml-2 px-1.5 py-0.5 bg-amber-50 rounded-full font-black">Edit</span>}
-                            {formData.status === '말소' && <span className="text-rose-600 text-[10px] uppercase ml-2 px-2 py-0.5 bg-rose-50 rounded-full font-black flex items-center gap-1 border border-rose-100 animate-pulse"><span className="material-symbols-rounded text-xs">block</span> 말소 고객</span>}
+                            {formData.status === '말소' && <span className="text-rose-600 text-[10px] uppercase ml-2 px-2 py-0.5 bg-rose-50 rounded-full font-black flex items-center gap-1 border border-rose-100 animate-pulse"><span className="material-symbols-rounded text-xs">block</span> 휴면 고객</span>}
                         </h3>
                         <div className="grid grid-cols-12 gap-2.5">
                             <div className="col-span-2 space-y-0.5">
@@ -516,9 +528,21 @@ const CustomerList = () => {
                         <span className="material-symbols-rounded text-lg">{mode === 'view' ? 'edit' : (isProcessing ? 'sync' : 'save')}</span>
                         {mode === 'view' ? '고객 수정 모드' : '고객 정보 저장'}
                     </button>
-                    <button type="button" onClick={handleDelete} disabled={!customer} className={`h-10 px-6 rounded-xl font-black transition-all flex items-center gap-2 shadow-sm text-sm ${!customer ? 'bg-slate-50 border-slate-100 text-slate-200 cursor-not-allowed' : 'bg-white border-rose-200 text-rose-500 hover:bg-rose-50'}`}>
-                        <span className="material-symbols-rounded text-lg">delete_forever</span> 고객 말소
+                    <button type="button"
+                        onClick={handleDelete}
+                        disabled={!customer || mode !== 'edit' || isProcessing || formData.status === '말소'}
+                        className={`h-10 px-6 rounded-xl font-black transition-all flex items-center gap-2 shadow-sm text-sm ${(!customer || mode !== 'edit' || formData.status === '말소') ? 'bg-slate-50 border-slate-100 text-slate-200 cursor-not-allowed shadow-none' : 'bg-white border-rose-200 text-rose-500 hover:bg-rose-50'}`}>
+                        <span className="material-symbols-rounded text-lg">person_off</span> 휴면 고객 전환
                     </button>
+
+                    {formData.status === '말소' && (
+                        <button type="button"
+                            onClick={handleReactivate}
+                            disabled={isProcessing}
+                            className="h-10 px-6 rounded-xl font-black transition-all flex items-center gap-2 shadow-lg bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-200 text-sm animate-bounce">
+                            <span className="material-symbols-rounded text-lg">person_check</span> 정상 고객 복구
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -673,7 +697,7 @@ const CustomerList = () => {
                                                 <td className="px-6 py-4 text-slate-500 text-xs break-all">{c.address_primary}</td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-black ${(c.status || '정상') === '정상' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                                        {c.status || '정상'}
+                                                        {(c.status || '정상') === '정상' ? '정상' : '휴면'}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-center">

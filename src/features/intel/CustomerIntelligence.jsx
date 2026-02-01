@@ -35,6 +35,7 @@ const CustomerIntelligence = () => {
     const tabs = [
         { id: 'rfm', label: '생애주기(RFM) 분석', icon: 'group_work', color: 'text-indigo-500' },
         { id: 'repurchase', label: 'AI 재구매 제안', icon: 'notifications_active', color: 'text-rose-500' },
+        { id: 'behavior', label: '로그 심층 분석', icon: 'history_edu', color: 'text-teal-500' },
         { id: 'membership', label: '멤버십 가치 분석', icon: 'loyalty', color: 'text-amber-500' },
     ];
 
@@ -179,6 +180,9 @@ const CustomerIntelligence = () => {
                         </div>
                         <div style={{ display: activeTab === 'repurchase' ? 'block' : 'none' }}>
                             <TabRepurchase isVisible={activeTab === 'repurchase'} showAlert={showAlert} toggleProcessing={toggleProcessing} />
+                        </div>
+                        <div style={{ display: activeTab === 'behavior' ? 'block' : 'none' }}>
+                            <TabBehavior isVisible={activeTab === 'behavior'} showAlert={showAlert} toggleProcessing={toggleProcessing} />
                         </div>
                         <div style={{ display: activeTab === 'membership' ? 'block' : 'none' }}>
                             <TabMembership data={membershipData} isVisible={activeTab === 'membership'} />
@@ -445,6 +449,121 @@ const TabRepurchase = ({ isVisible, showAlert, toggleProcessing }) => {
                                 }
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const TabBehavior = ({ isVisible, showAlert, toggleProcessing }) => {
+    const [result, setResult] = useState(null);
+    const [hasRun, setHasRun] = useState(false);
+
+    const runAnalysis = async () => {
+        if (!window.__TAURI__) return;
+        toggleProcessing(true, 'AI가 최근 발생한 모든 로그를 대조하여 패턴을 읽고 있습니다...');
+        try {
+            await new Promise(r => setTimeout(r, 1200));
+            const res = await window.__TAURI__.core.invoke('get_ai_behavior_strategy', {});
+            setResult(res);
+            setHasRun(true);
+        } catch (e) {
+            console.error(e);
+            showAlert('분석 실패', e.toString());
+        } finally {
+            toggleProcessing(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-white rounded-2xl p-6 border-l-[6px] border-teal-500 shadow-sm flex flex-col md:flex-row gap-6">
+                <div className="shrink-0">
+                    <div className="w-16 h-16 rounded-full bg-teal-50 border-2 border-teal-100 flex items-center justify-center">
+                        <span className="material-symbols-rounded text-4xl text-teal-600 animate-pulse">analytics</span>
+                    </div>
+                </div>
+                <div className="flex-1">
+                    <h2 className="text-xl font-black text-slate-800 mb-1">로그 기반 AI 정밀 진단 (Enterprise)</h2>
+                    <p className="text-sm text-slate-500 mb-4 leading-relaxed">
+                        최근 발생한 고객 상태 변경, 등급 변동, 재고 조정 및 데이터 삭제 이력을 종합 분석합니다.<br />
+                        단순한 통계를 넘어 시스템 전반의 핵심적인 변화와 리스크를 조기에 발견할 수 있습니다.
+                    </p>
+                    <button onClick={runAnalysis} className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700 transition-colors shadow-lg shadow-teal-200 flex items-center gap-2">
+                        <span className="material-symbols-rounded">psychology_alt</span> AI 정밀 로그 분석 시작
+                    </button>
+                </div>
+            </div>
+
+            {hasRun && result && (
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    {/* Summary & Health */}
+                    <div className="xl:col-span-2 space-y-6">
+                        <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-8">
+                                <div className="text-right">
+                                    <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Business Health</div>
+                                    <div className={`text-5xl font-black ${result.overall_health_score > 70 ? 'text-emerald-500' : result.overall_health_score > 40 ? 'text-amber-500' : 'text-rose-500'}`}>
+                                        {result.overall_health_score}<span className="text-xl ml-1 text-slate-300">/ 100</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h3 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                                <span className="w-2 h-8 bg-teal-500 rounded-full"></span>
+                                종합 진단 결과
+                            </h3>
+                            <p className="text-lg text-slate-600 leading-relaxed font-medium mb-8 pr-32">
+                                {result.summary}
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-teal-200 transition-colors">
+                                    <div className="flex items-center gap-2 mb-3 text-teal-600">
+                                        <span className="material-symbols-rounded">trending_up</span>
+                                        <span className="font-black text-sm uppercase">Behavioral Trends</span>
+                                    </div>
+                                    <ul className="space-y-2">
+                                        {result.behavioral_trends.map((t, i) => (
+                                            <li key={i} className="text-sm text-slate-600 flex gap-2">
+                                                <span className="text-teal-400">•</span> {t}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                <div className="p-5 bg-rose-50/30 rounded-2xl border border-rose-100 hover:border-rose-200 transition-colors">
+                                    <div className="flex items-center gap-2 mb-3 text-rose-600">
+                                        <span className="material-symbols-rounded">warning</span>
+                                        <span className="font-black text-sm uppercase">Critical Signals</span>
+                                    </div>
+                                    <ul className="space-y-2">
+                                        {result.warning_signals.map((s, i) => (
+                                            <li key={i} className="text-sm text-slate-600 flex gap-2">
+                                                <span className="text-rose-400">•</span> {s}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Marketing Strategy */}
+                    <div className="xl:col-span-1">
+                        <div className="bg-slate-900 rounded-3xl p-8 text-white shadow-2xl shadow-slate-200 h-full flex flex-col">
+                            <div className="w-14 h-14 bg-indigo-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/30">
+                                <span className="material-symbols-rounded text-white text-3xl">lightbulb</span>
+                            </div>
+                            <h3 className="text-xl font-black mb-4">AI 마케팅 전략 제안</h3>
+                            <div className="flex-1 text-slate-300 leading-relaxed font-medium text-base whitespace-pre-wrap italic">
+                                "{result.strategic_advice}"
+                            </div>
+                            <div className="mt-8 pt-6 border-t border-white/10 text-xs text-slate-500 font-bold flex items-center justify-between">
+                                <span>Powered by Gemini 1.5 Pro</span>
+                                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Real-time Analysis</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

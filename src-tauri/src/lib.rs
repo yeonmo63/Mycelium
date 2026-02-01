@@ -1275,6 +1275,115 @@ struct AiCustomerInsight {
     sales_tip: String,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct BehaviorIntelligence {
+    pub summary: String,
+    pub behavioral_trends: Vec<String>,
+    pub warning_signals: Vec<String>,
+    pub strategic_advice: String,
+    pub overall_health_score: i32,
+}
+
+#[tauri::command]
+async fn get_ai_behavior_strategy(
+    app: tauri::AppHandle,
+    state: State<'_, DbPool>,
+) -> Result<BehaviorIntelligence, String> {
+    let api_key = get_gemini_api_key(&app).ok_or("Gemini API 키가 설정되지 않았습니다.")?;
+
+    // 1. Fetch recent customer level/status changes
+    let log_rows: Vec<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        NaiveDateTime,
+    )> = sqlx::query_as(
+        "SELECT c.customer_name, cl.field_name, cl.old_value, cl.new_value, cl.changed_at 
+         FROM customer_logs cl
+         JOIN customers c ON cl.customer_id = c.customer_id
+         WHERE cl.field_name IN ('상태', '등급', 'membership_level', 'status')
+         ORDER BY cl.changed_at DESC LIMIT 50",
+    )
+    .fetch_all(&*state)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 2. Fetch recent inventory adjustments
+    let inv_rows: Vec<(String, String, i32, Option<String>, NaiveDateTime)> = sqlx::query_as(
+        "SELECT product_name, change_type, change_quantity, memo, created_at 
+         FROM inventory_logs 
+         WHERE change_type IN ('조정', '폐기', '반품')
+         ORDER BY created_at DESC LIMIT 20",
+    )
+    .fetch_all(&*state)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 3. Fetch recent deletions
+    let del_rows: Vec<(String, Option<String>, Option<NaiveDateTime>)> = sqlx::query_as(
+        "SELECT table_name, deleted_info, deleted_at FROM deletion_log ORDER BY deleted_at DESC LIMIT 20"
+    )
+    .fetch_all(&*state)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 4. Construct Prompt
+    let mut context = String::from("고객 행동 및 데이터 변동 로그:\n");
+    for (name, field, old, new, at) in log_rows {
+        context.push_str(&format!(
+            "- {}: {}이 {:?}에서 {:?}로 변경됨 ({})\n",
+            name,
+            field,
+            old.unwrap_or_default(),
+            new.unwrap_or_default(),
+            at
+        ));
+    }
+    context.push_str("\n재고 수동 조정 및 폐기 이력:\n");
+    for (pname, ctype, qty, memo, at) in inv_rows {
+        context.push_str(&format!(
+            "- {}: {} {}개 ({}) - {}\n",
+            pname,
+            ctype,
+            qty,
+            memo.unwrap_or_default(),
+            at
+        ));
+    }
+    context.push_str("\n최근 데이터 영구 삭제 이력:\n");
+    for (tbl, info, at) in del_rows {
+        context.push_str(&format!(
+            "- [{}] {} 삭제됨 ({:?})\n",
+            tbl,
+            info.unwrap_or_default(),
+            at
+        ));
+    }
+
+    let prompt = format!(
+        "{}\n위의 데이터 변동 로그를 분석하여 균사체(Mycelium) 농장 비즈니스의 운영 상태를 정밀 진단해 주세요.\n\
+        1. 전체적인 요약 (summary)\n\
+        2. 주목해야 할 행동 패턴 변화들 (behavioral_trends - array)\n\
+        3. 잠재적 위험 신호 또는 주의사항 (warning_signals - array)\n\
+        4. 향후 마케팅 및 운영 전략 제안 (strategic_advice)\n\
+        5. 현재 비즈니스 건강도 점수 (overall_health_score: 0~100)\n\n\
+        반드시 JSON 형식으로 응답하세요. 키 이름: summary, behavioral_trends, warning_signals, strategic_advice, overall_health_score. 한국어를 사용하세요.",
+        context
+    );
+
+    // 5. Call AI
+    let ai_res = call_gemini_ai_internal(&api_key, &prompt).await?;
+    let json_str = ai_res
+        .trim_start_matches("```json")
+        .trim_end_matches("```")
+        .trim();
+    let result: BehaviorIntelligence =
+        serde_json::from_str(json_str).map_err(|e| format!("AI 응답 분석 실패: {}", e))?;
+
+    Ok(result)
+}
+
 #[tauri::command]
 async fn get_customer_ai_insight(
     app: tauri::AppHandle,
@@ -1429,6 +1538,7 @@ async fn create_customer(
     initial_balance: Option<i32>,
 ) -> Result<String, String> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
+    let today = Local::now().naive_local().date();
 
     // Sanitize optional strings: treat empty strings as None
     let phone = phone.filter(|s| !s.trim().is_empty());
@@ -1446,6 +1556,18 @@ async fn create_customer(
     let health_concern = health_concern.filter(|s| !s.trim().is_empty());
     let purchase_cycle = purchase_cycle.filter(|s| !s.trim().is_empty());
 
+    // Parse dates for use in ID generation and storage
+    let join_date_parsed = match join_date.as_deref() {
+        Some(s) if !s.trim().is_empty() => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .ok()
+            .unwrap_or(today),
+        _ => today,
+    };
+    let anniversary_date_parsed = anniversary_date
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+
     // 0. Check for existing (including '말소') customers with same name and mobile
     let existing: Option<Customer> =
         sqlx::query_as("SELECT * FROM customers WHERE customer_name = $1 AND mobile_number = $2")
@@ -1458,11 +1580,12 @@ async fn create_customer(
     if let Some(c) = existing {
         if c.status.as_deref() == Some("말소") {
             // Reactivate existing customer
+            let mut tx = state.begin().await.map_err(|e| e.to_string())?;
             sqlx::query(
                 "UPDATE customers SET 
                 status = '정상', membership_level = $1, phone_number = $2, email = $3, 
                 zip_code = $4, address_primary = $5, address_detail = $6, memo = $7,
-                anniversary_date = $8::date, anniversary_type = $9, marketing_consent = $10,
+                anniversary_date = $8, anniversary_type = $9, marketing_consent = $10,
                 acquisition_channel = $11, pref_product_type = $12, pref_package_type = $13,
                 family_type = $14, health_concern = $15, sub_interest = $16, purchase_cycle = $17
                 WHERE customer_id = $18",
@@ -1474,7 +1597,7 @@ async fn create_customer(
             .bind(addr1)
             .bind(addr2)
             .bind(memo)
-            .bind(anniversary_date)
+            .bind(anniversary_date_parsed)
             .bind(anniversary_type)
             .bind(marketing_consent)
             .bind(acquisition_channel)
@@ -1485,9 +1608,17 @@ async fn create_customer(
             .bind(sub_interest)
             .bind(purchase_cycle)
             .bind(&c.customer_id)
-            .execute(&*state)
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
+
+            sqlx::query("INSERT INTO customer_logs (customer_id, field_name, old_value, new_value) VALUES ($1, '상태', '말소', '정상')")
+                .bind(&c.customer_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            tx.commit().await.map_err(|e| e.to_string())?;
 
             return Ok(c.customer_id);
         } else {
@@ -1496,13 +1627,7 @@ async fn create_customer(
     }
 
     // 1. Generate Custom Sequence ID: YYYYMMDD-XXXX (Global Sequence)
-    // Default to today if join_date is missing OR empty
-    let date_str_standard = match join_date.as_deref() {
-        Some(s) if !s.trim().is_empty() => s.to_string(),
-        _ => Utc::now().format("%Y-%m-%d").to_string(),
-    };
-    // Convert YYYY-MM-DD to YYYYMMDD
-    let date_prefix = date_str_standard.replace("-", "");
+    let date_prefix = join_date_parsed.format("%Y%m%d").to_string();
 
     // Find the last ID for THIS date to reset daily
     let last_record: Option<(String,)> =
@@ -1536,7 +1661,7 @@ async fn create_customer(
             anniversary_date, anniversary_type, marketing_consent, acquisition_channel,
             pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle,
             current_balance, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12::date, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, '정상')",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, '정상')",
     )
     .bind(&customer_id)
     .bind(&name)
@@ -1548,8 +1673,8 @@ async fn create_customer(
     .bind(&addr1)
     .bind(&addr2)
     .bind(&memo)
-    .bind(&date_str_standard)
-    .bind(&anniversary_date)
+    .bind(join_date_parsed)
+    .bind(anniversary_date_parsed)
     .bind(&anniversary_type)
     .bind(marketing_consent)
     .bind(&acquisition_channel)
@@ -1646,8 +1771,13 @@ async fn update_customer(
     let health_concern = health_concern.filter(|s| !s.trim().is_empty());
     let purchase_cycle = purchase_cycle.filter(|s| !s.trim().is_empty());
 
-    // Sanitize join_date
-    let join_date_parsed = join_date.filter(|s| !s.trim().is_empty());
+    // Sanitize and parse dates
+    let join_date_parsed = join_date
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok());
+    let anniversary_date_parsed = anniversary_date
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok());
 
     let mut tx = state.begin().await.map_err(|e| e.to_string())?;
 
@@ -1670,8 +1800,8 @@ async fn update_customer(
         address_primary = $7, 
         address_detail = $8, 
         memo = $9, 
-        join_date = COALESCE($10::date, join_date),
-        anniversary_date = $11::date,
+        join_date = COALESCE($10, join_date),
+        anniversary_date = $11,
         anniversary_type = $12,
         marketing_consent = $13,
         acquisition_channel = $14,
@@ -1692,8 +1822,8 @@ async fn update_customer(
     .bind(&addr1)
     .bind(&addr2)
     .bind(&memo)
-    .bind(&join_date_parsed)
-    .bind(&anniversary_date)
+    .bind(join_date_parsed)
+    .bind(anniversary_date_parsed)
     .bind(&anniversary_type)
     .bind(&marketing_consent)
     .bind(&acquisition_channel)
@@ -1735,6 +1865,66 @@ async fn update_customer(
     }
     if old.address_detail.as_deref().unwrap_or("") != addr2.as_deref().unwrap_or("") {
         logs.push(("상세주소", old.address_detail, addr2.clone()));
+    }
+    if old.memo.as_deref().unwrap_or("") != memo.as_deref().unwrap_or("") {
+        logs.push(("메모", old.memo, memo.clone()));
+    }
+    if old.join_date != join_date_parsed {
+        logs.push((
+            "가입일",
+            old.join_date.map(|d| d.to_string()),
+            join_date_parsed.map(|d| d.to_string()),
+        ));
+    }
+    if old.anniversary_date != anniversary_date_parsed {
+        logs.push((
+            "기념일",
+            old.anniversary_date.map(|d| d.to_string()),
+            anniversary_date_parsed.map(|d| d.to_string()),
+        ));
+    }
+    if old.anniversary_type.as_deref().unwrap_or("") != anniversary_type.as_deref().unwrap_or("") {
+        logs.push(("기념종류", old.anniversary_type, anniversary_type.clone()));
+    }
+    if old.marketing_consent.unwrap_or(false) != marketing_consent.unwrap_or(false) {
+        logs.push((
+            "수신동의",
+            Some(old.marketing_consent.unwrap_or(false).to_string()),
+            Some(marketing_consent.unwrap_or(false).to_string()),
+        ));
+    }
+    if old.acquisition_channel.as_deref().unwrap_or("")
+        != acquisition_channel.as_deref().unwrap_or("")
+    {
+        logs.push((
+            "유입경로",
+            old.acquisition_channel,
+            acquisition_channel.clone(),
+        ));
+    }
+    if old.pref_product_type.as_deref().unwrap_or("") != pref_product_type.as_deref().unwrap_or("")
+    {
+        logs.push(("선호상품", old.pref_product_type, pref_product_type.clone()));
+    }
+    if old.pref_package_type.as_deref().unwrap_or("") != pref_package_type.as_deref().unwrap_or("")
+    {
+        logs.push(("선호포장", old.pref_package_type, pref_package_type.clone()));
+    }
+    if old.family_type.as_deref().unwrap_or("") != family_type.as_deref().unwrap_or("") {
+        logs.push(("가족관계", old.family_type, family_type.clone()));
+    }
+    if old.health_concern.as_deref().unwrap_or("") != health_concern.as_deref().unwrap_or("") {
+        logs.push(("건강관심", old.health_concern, health_concern.clone()));
+    }
+    if old.sub_interest.unwrap_or(false) != sub_interest.unwrap_or(false) {
+        logs.push((
+            "정기서비스관심",
+            Some(old.sub_interest.unwrap_or(false).to_string()),
+            Some(sub_interest.unwrap_or(false).to_string()),
+        ));
+    }
+    if old.purchase_cycle.as_deref().unwrap_or("") != purchase_cycle.as_deref().unwrap_or("") {
+        logs.push(("구매주기", old.purchase_cycle, purchase_cycle.clone()));
     }
 
     for (field, old_v, new_v) in logs {
@@ -1920,20 +2110,55 @@ async fn set_default_customer_address(
 
 #[tauri::command]
 async fn delete_customer(state: State<'_, DbPool>, id: String) -> Result<(), String> {
-    DB_MODIFIED.store(true, Ordering::Relaxed);
-    let result = sqlx::query("UPDATE customers SET status = '말소' WHERE customer_id = $1")
-        .bind(&id)
-        .execute(&*state)
+    let mut tx = state
+        .begin()
         .await
         .map_err(|e: sqlx::Error| e.to_string())?;
 
-    if result.rows_affected() == 0 {
-        return Err(format!(
-            "말소할 고객을 찾을 수 없습니다. (ID: {}, 이미 말소되었거나 유효하지 않습니다)",
-            id
-        ));
+    let result = sqlx::query(
+        "UPDATE customers SET status = '말소' WHERE customer_id = $1 AND status = '정상'",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e: sqlx::Error| e.to_string())?;
+
+    if result.rows_affected() > 0 {
+        sqlx::query("INSERT INTO customer_logs (customer_id, field_name, old_value, new_value) VALUES ($1, '상태', '정상', '말소')")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e: sqlx::Error| e.to_string())?;
     }
 
+    tx.commit().await.map_err(|e: sqlx::Error| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn reactivate_customer(state: State<'_, DbPool>, id: String) -> Result<(), String> {
+    let mut tx = state
+        .begin()
+        .await
+        .map_err(|e: sqlx::Error| e.to_string())?;
+
+    let result = sqlx::query(
+        "UPDATE customers SET status = '정상' WHERE customer_id = $1 AND status = '말소'",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e: sqlx::Error| e.to_string())?;
+
+    if result.rows_affected() > 0 {
+        sqlx::query("INSERT INTO customer_logs (customer_id, field_name, old_value, new_value) VALUES ($1, '상태', '말소', '정상')")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e: sqlx::Error| e.to_string())?;
+    }
+
+    tx.commit().await.map_err(|e: sqlx::Error| e.to_string())?;
     Ok(())
 }
 
@@ -1941,42 +2166,169 @@ async fn delete_customer(state: State<'_, DbPool>, id: String) -> Result<(), Str
 async fn delete_customers_batch(
     state: State<'_, DbPool>,
     ids: Vec<String>,
+    permanent: bool,
     also_delete_sales: bool,
 ) -> Result<(), String> {
     if ids.is_empty() {
         return Ok(());
     }
 
-    DB_MODIFIED.store(true, Ordering::Relaxed);
+    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
 
-    // 1. Optionally delete associated sales first (Physical delete for sales if requested)
-    if also_delete_sales {
-        let mut sales_builder: sqlx::QueryBuilder<sqlx::Postgres> =
-            sqlx::QueryBuilder::new("DELETE FROM sales WHERE customer_id IN (");
-        let mut sep = sales_builder.separated(", ");
+    if permanent {
+        // 1. Permanent physical deletion
+
+        // 1.1 Delete Sales if requested
+        if also_delete_sales {
+            let mut sales_builder: sqlx::QueryBuilder<sqlx::Postgres> =
+                sqlx::QueryBuilder::new("DELETE FROM sales WHERE customer_id IN (");
+            let mut sep = sales_builder.separated(", ");
+            for id in &ids {
+                sep.push_bind(id);
+            }
+            sep.push_unseparated(")");
+            sales_builder
+                .build()
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+
+        // 1.2 Delete other related data (Addresses, Ledger, Logs, etc.)
+        // Note: customer_addresses has ON DELETE CASCADE in some schemas, but let's be explicit if needed.
+        let mut addr_builder: sqlx::QueryBuilder<sqlx::Postgres> =
+            sqlx::QueryBuilder::new("DELETE FROM customer_addresses WHERE customer_id IN (");
+        let mut sep = addr_builder.separated(", ");
         for id in &ids {
             sep.push_bind(id);
         }
         sep.push_unseparated(")");
-        sales_builder
+        addr_builder
             .build()
-            .execute(&*state)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut ledger_builder: sqlx::QueryBuilder<sqlx::Postgres> =
+            sqlx::QueryBuilder::new("DELETE FROM customer_ledger WHERE customer_id IN (");
+        let mut sep = ledger_builder.separated(", ");
+        for id in &ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        ledger_builder
+            .build()
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut logs_builder: sqlx::QueryBuilder<sqlx::Postgres> =
+            sqlx::QueryBuilder::new("DELETE FROM customer_logs WHERE customer_id IN (");
+        let mut sep = logs_builder.separated(", ");
+        for id in &ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        logs_builder
+            .build()
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // 1.3 Finally delete the customers
+        let mut cust_builder: sqlx::QueryBuilder<sqlx::Postgres> =
+            sqlx::QueryBuilder::new("DELETE FROM customers WHERE customer_id IN (");
+        let mut sep = cust_builder.separated(", ");
+        for id in &ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        cust_builder
+            .build()
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        // 2. Soft delete (Mark as Dormant) - Optimized for Bulk
+        // 2.1 Write logs first for eligible customers
+        let mut log_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO customer_logs (customer_id, field_name, old_value, new_value) ",
+        );
+        log_builder.push("SELECT customer_id, '상태', '정상', '말소' FROM customers WHERE status = '정상' AND customer_id IN (");
+        let mut sep = log_builder.separated(", ");
+        for id in &ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        log_builder
+            .build()
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // 2.2 Update status
+        let mut update_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "UPDATE customers SET status = '말소' WHERE status = '정상' AND customer_id IN (",
+        );
+        let mut sep = update_builder.separated(", ");
+        for id in &ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        update_builder
+            .build()
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
     }
 
-    // 2. Soft delete the customers
-    let mut query_builder: sqlx::QueryBuilder<sqlx::Postgres> =
-        sqlx::QueryBuilder::new("UPDATE customers SET status = '말소' WHERE customer_id IN (");
+    tx.commit().await.map_err(|e| e.to_string())?;
 
-    let mut separated = query_builder.separated(", ");
-    for id in ids {
-        separated.push_bind(id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn reactivate_customers_batch(
+    state: State<'_, DbPool>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
     }
-    separated.push_unseparated(")");
 
-    let query = query_builder.build();
-    query.execute(&*state).await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+
+    // 1. Write logs first for eligible customers
+    let mut log_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+        "INSERT INTO customer_logs (customer_id, field_name, old_value, new_value) ",
+    );
+    log_builder.push("SELECT customer_id, '상태', '말소', '정상' FROM customers WHERE status = '말소' AND customer_id IN (");
+    let mut sep = log_builder.separated(", ");
+    for id in &ids {
+        sep.push_bind(id);
+    }
+    sep.push_unseparated(")");
+    log_builder
+        .build()
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 2. Update status
+    let mut update_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+        "UPDATE customers SET status = '정상' WHERE status = '말소' AND customer_id IN (",
+    );
+    let mut sep = update_builder.separated(", ");
+    for id in &ids {
+        sep.push_bind(id);
+    }
+    sep.push_unseparated(")");
+    update_builder
+        .build()
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1994,6 +2346,8 @@ async fn get_dashboard_stats(state: State<'_, DbPool>) -> Result<DashboardStats,
             (SELECT COUNT(*) FROM sales WHERE order_date = $1 AND status != '취소') as total_orders,
             (SELECT COUNT(*) FROM customers WHERE join_date = $1) as total_customers,
             (SELECT COUNT(*) FROM customers) as total_customers_all_time,
+            (SELECT COUNT(*) FROM customers WHERE status = '정상') as normal_customers_count,
+            (SELECT COUNT(*) FROM customers WHERE status = '말소') as dormant_customers_count,
             (SELECT COUNT(*) FROM sales WHERE status NOT IN ('배송완료', '취소')) as pending_orders,
             (SELECT COUNT(*) FROM schedules 
              WHERE start_time < ($1 + 1)::timestamp 
@@ -4662,7 +5016,9 @@ pub fn run() {
             update_customer,
             get_customer_logs,
             delete_customer,
+            reactivate_customer,
             delete_customers_batch,
+            reactivate_customers_batch,
             create_customer_address,
             update_customer_address,
             get_customer_addresses,
@@ -4780,6 +5136,8 @@ pub fn run() {
             restart_app,
             get_shipping_base_date,
             run_db_maintenance,
+            cleanup_old_logs,
+            get_ai_behavior_strategy,
             analyze_online_sentiment,
             get_morning_briefing,
             get_ai_repurchase_analysis,
@@ -5164,8 +5522,11 @@ async fn run_backup_logic(
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 struct DeletionLog {
+    pub log_id: i32,
     pub table_name: String,
     pub record_id: String,
+    pub deleted_info: Option<String>,
+    pub deleted_by: Option<String>,
     pub deleted_at: Option<NaiveDateTime>,
 }
 
@@ -5485,6 +5846,17 @@ async fn backup_database_internal(
         .fetch_one(pool)
         .await
         .map_err(|e| e.to_string())?;
+    let count_customer_logs: (i64,) = sqlx::query_as(&if let Some(s) = since {
+        format!(
+            "SELECT COUNT(*) FROM customer_logs WHERE changed_at > '{}'",
+            s.format("%Y-%m-%d %H:%M:%S")
+        )
+    } else {
+        "SELECT COUNT(*) FROM customer_logs".to_string()
+    })
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     let count_vendors: (i64,) = sqlx::query_as(&count_query("vendors"))
         .fetch_one(pool)
         .await
@@ -5506,7 +5878,10 @@ async fn backup_database_internal(
         .await
         .map_err(|e| e.to_string())?
     } else {
-        (0,) // Full backup doesn't need deletion logs as it truncates everything
+        sqlx::query_as("SELECT COUNT(*) FROM deletion_log")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| e.to_string())?
     };
 
     let total_records = count_users.0
@@ -5523,6 +5898,7 @@ async fn backup_database_internal(
         + count_claims.0
         + count_inventory.0
         + count_ledger.0
+        + count_customer_logs.0
         + count_vendors.0
         + count_exp_programs.0
         + count_exp_reservations.0
@@ -5739,6 +6115,15 @@ async fn backup_database_internal(
         "updated_at"
     );
     batch_table_internal!(
+        "customer_logs",
+        CustomerLog,
+        "SELECT * FROM customer_logs",
+        "customer_logs",
+        "고객 변경 이력 백업 중",
+        count_customer_logs.0,
+        "changed_at"
+    );
+    batch_table_internal!(
         "vendors",
         Vendor,
         "SELECT * FROM vendors",
@@ -5766,20 +6151,16 @@ async fn backup_database_internal(
         "updated_at"
     );
 
-    // Deletion Logs - Only for Incremental
-    if since.is_some() {
-        batch_table_internal!(
-            "deletion_log",
-            DeletionLog,
-            "SELECT table_name, record_id, deleted_at FROM deletion_log",
-            "deletions",
-            "삭제 이력 백업 중",
-            count_deletions.0,
-            "deleted_at"
-        );
-    } else {
-        write!(writer, "  \"deletions\": []").map_err(|e| e.to_string())?;
-    }
+    // Deletion Logs - Always included to maintain audit trail
+    batch_table_internal!(
+        "deletion_log",
+        DeletionLog,
+        "SELECT log_id, table_name, record_id, deleted_info, deleted_by, deleted_at FROM deletion_log",
+        "deletions",
+        "삭제 이력 백업 중",
+        count_deletions.0,
+        "deleted_at"
+    );
 
     writeln!(writer, "  \"backup_complete\": true").map_err(|e| e.to_string())?;
     writeln!(writer, "}}").map_err(|e| e.to_string())?;
@@ -5816,7 +6197,8 @@ async fn restore_database(
 
     let emit_progress = |processed: i64, total: i64, message: &str| {
         let progress = if total > 0 {
-            ((processed as f64 / total as f64) * 100.0).clamp(0.0, 99.0) as i32
+            let p = ((processed as f64 / total as f64) * 100.0) as i32;
+            p.clamp(0, 100)
         } else {
             0
         };
@@ -5898,7 +6280,7 @@ async fn restore_database(
 
         emit_progress(0, total_bytes as i64, "기존 데이터 삭제 중 (전체 복구)...");
         println!("[Restore] Truncating tables for full restore...");
-        sqlx::query("TRUNCATE TABLE users, products, customers, customer_addresses, sales, event, schedules, company_info, expenses, purchases, consultations, sales_claims, inventory_logs, customer_ledger, vendors, experience_programs, experience_reservations, deletion_log RESTART IDENTITY CASCADE")
+        sqlx::query("TRUNCATE TABLE users, products, customers, customer_addresses, sales, event, schedules, company_info, expenses, purchases, consultations, sales_claims, inventory_logs, customer_ledger, customer_logs, vendors, experience_programs, experience_reservations, deletion_log RESTART IDENTITY CASCADE")
             .execute(&mut *tx)
             .await
             .map_err(|e| {
@@ -6053,7 +6435,7 @@ async fn restore_database(
                         let _ = app.emit(
                             "restore-progress",
                             serde_json::json!({
-                                "progress": ((current_bytes as f64 / total_bytes as f64) * 100.0).clamp(0.0, 99.0) as i32,
+                                "progress": ((current_bytes as f64 / total_bytes as f64) * 100.0).clamp(0.0, 100.0) as i32,
                                 "message": format!("{} ({}건 복구 완료)", $msg, format_number(record_count)),
                                 "processed": current_bytes,
                                 "total": total_bytes,
@@ -6076,10 +6458,10 @@ async fn restore_database(
 
     // PRODUCTS
     restore_table!("products", Product, "상품 정보 복구 중", p, t, {
-        sqlx::query("INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, updated_at) 
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) 
-             ON CONFLICT (product_id) DO UPDATE SET product_name=EXCLUDED.product_name, updated_at=EXCLUDED.updated_at")
-            .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.item_type).bind(p.updated_at)
+        sqlx::query("INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, product_code, status, updated_at) 
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) 
+             ON CONFLICT (product_id) DO UPDATE SET product_name=EXCLUDED.product_name, status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
+            .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.item_type).bind(p.product_code).bind(p.status).bind(p.updated_at)
             .execute(&mut **t).await.map_err(|e| e.to_string())?;
     });
 
@@ -6126,8 +6508,8 @@ async fn restore_database(
 
     // SCHEDULES
     restore_table!("schedules", Schedule, "일정 정보 복구 중", s, t, {
-        sqlx::query("INSERT INTO schedules (schedule_id, title, description, start_time, end_time, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (schedule_id) DO UPDATE SET title=EXCLUDED.title, updated_at=EXCLUDED.updated_at")
-            .bind(s.schedule_id).bind(s.title).bind(s.description).bind(s.start_time).bind(s.end_time).bind(s.status).bind(s.created_at).bind(s.updated_at)
+        sqlx::query("INSERT INTO schedules (schedule_id, title, description, start_time, end_time, status, created_at, updated_at, related_type, related_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (schedule_id) DO UPDATE SET title=EXCLUDED.title, updated_at=EXCLUDED.updated_at")
+            .bind(s.schedule_id).bind(s.title).bind(s.description).bind(s.start_time).bind(s.end_time).bind(s.status).bind(s.created_at).bind(s.updated_at).bind(s.related_type).bind(s.related_id)
             .execute(&mut **t).await.map_err(|e| e.to_string())?;
     });
 
@@ -6139,8 +6521,8 @@ async fn restore_database(
         c,
         t,
         {
-            sqlx::query("INSERT INTO company_info (id, company_name, representative_name, phone_number, mobile_number, business_reg_number, registration_date, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET company_name=EXCLUDED.company_name, updated_at=EXCLUDED.updated_at")
-            .bind(c.id).bind(c.company_name).bind(c.representative_name).bind(c.phone_number).bind(c.mobile_number).bind(c.business_reg_number).bind(c.registration_date).bind(c.memo).bind(c.created_at).bind(c.updated_at)
+            sqlx::query("INSERT INTO company_info (id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET company_name=EXCLUDED.company_name, updated_at=EXCLUDED.updated_at")
+            .bind(c.id).bind(c.company_name).bind(c.representative_name).bind(c.address).bind(c.business_type).bind(c.item).bind(c.phone_number).bind(c.mobile_number).bind(c.business_reg_number).bind(c.registration_date).bind(c.memo).bind(c.created_at).bind(c.updated_at)
             .execute(&mut **t).await.map_err(|e| e.to_string())?;
         }
     );
@@ -6222,6 +6604,20 @@ async fn restore_database(
         }
     );
 
+    // CUSTOMER LOGS
+    restore_table!(
+        "customer_logs",
+        CustomerLog,
+        "고객 변경 이력 복구 중",
+        l,
+        t,
+        {
+            sqlx::query("INSERT INTO customer_logs (log_id, customer_id, field_name, old_value, new_value, changed_at, changed_by) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (log_id) DO NOTHING")
+            .bind(l.log_id).bind(l.customer_id).bind(l.field_name).bind(l.old_value).bind(l.new_value).bind(l.changed_at).bind(l.changed_by)
+            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+        }
+    );
+
     // VENDORS
     restore_table!("vendors", Vendor, "거래처 정보 복구 중", v, t, {
         sqlx::query("INSERT INTO vendors (vendor_id, vendor_name, business_number, representative, mobile_number, email, address, main_items, memo, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (vendor_id) DO UPDATE SET vendor_name=EXCLUDED.vendor_name, updated_at=EXCLUDED.updated_at")
@@ -6258,8 +6654,14 @@ async fn restore_database(
     );
 
     // DELETIONS
-    if is_incremental {
-        restore_table!("deletions", DeletionLog, "삭제 이력 반영 중", d, t, {
+    restore_table!("deletions", DeletionLog, "삭제 이력 반영 중", d, t, {
+        // 1. Restore the log entry itself (Audit Trail)
+        sqlx::query("INSERT INTO deletion_log (log_id, table_name, record_id, deleted_info, deleted_by, deleted_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (log_id) DO NOTHING")
+            .bind(d.log_id).bind(d.table_name.clone()).bind(d.record_id.clone()).bind(d.deleted_info).bind(d.deleted_by).bind(d.deleted_at)
+            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+
+        // 2. Perform actual deletion if incremental (In full restore, records are already correct)
+        if is_incremental {
             let id_col = match d.table_name.as_str() {
                 "sales" => "sales_id",
                 "products" => "product_id",
@@ -6274,8 +6676,8 @@ async fn restore_database(
             .execute(&mut **t)
             .await
             .ok();
-        });
-    }
+        }
+    });
 
     // Final Stage: Commit and Indexing
     println!("[Restore] All tables processed. Committing transaction and updating indexes...");
@@ -6362,15 +6764,53 @@ async fn reset_database(state: State<'_, DbPool>) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn cleanup_old_logs(state: State<'_, DbPool>, months: i32) -> Result<u64, String> {
+    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+
+    // 1. Delete old customer logs
+    let res1 = sqlx::query(
+        "DELETE FROM customer_logs WHERE changed_at < NOW() - ($1 || ' month')::interval",
+    )
+    .bind(months)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 2. Delete old inventory logs
+    let res2 = sqlx::query(
+        "DELETE FROM inventory_logs WHERE created_at < NOW() - ($1 || ' month')::interval",
+    )
+    .bind(months)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total = res1.rows_affected() + res2.rows_affected();
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    Ok(total)
+}
+
+#[tauri::command]
 async fn run_db_maintenance(state: State<'_, DbPool>) -> Result<String, String> {
-    // Postgres optimization: VACUUM (ANALYZE)
-    // Runs vacuum to reclaim storage and analyze to update statistics.
+    // 1. Run Log Cleanup (Default 12 months for safety)
+    let _ =
+        sqlx::query("DELETE FROM customer_logs WHERE changed_at < NOW() - INTERVAL '12 months'")
+            .execute(&*state)
+            .await;
+
+    let _ =
+        sqlx::query("DELETE FROM inventory_logs WHERE created_at < NOW() - INTERVAL '12 months'")
+            .execute(&*state)
+            .await;
+
+    // 2. Postgres optimization: VACUUM (ANALYZE)
     sqlx::query("VACUUM ANALYZE")
         .execute(&*state)
         .await
         .map_err(|e| format!("VACUUM failed: {}", e))?;
 
-    Ok("DB 건강검진 및 최적화가 완료되었습니다.\n(공간 정리 및 통계 갱신)".to_string())
+    Ok("DB 최적화가 완료되었습니다.\n(1년 이상 된 로그 정리 및 인덱스 재구성)".to_string())
 }
 
 #[tauri::command]

@@ -393,10 +393,21 @@ const Dashboard = () => {
                         <div className="text-[10px] min-[2000px]:text-[13px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-md">New CRM</div>
                     </div>
                     <div>
-                        <h3 className="text-slate-500 text-[0.8rem] font-bold uppercase tracking-wider mb-1">금일 새 고객</h3>
-                        <div className="text-[1.4rem] font-black text-slate-800 tracking-tighter leading-none">
-                            {isLoading ? <span className="text-slate-200 animate-pulse">...</span> : (`${formatCurrency(stats?.total_customers || 0)} / ${formatCurrency(stats?.total_customers_all_time || 0)}`)}
-                        </div>
+                        <h3 className="text-slate-500 text-[0.8rem] font-bold uppercase tracking-wider mb-1">금일 새 고객 / 전체</h3>
+                        {isLoading ? (
+                            <div className="text-slate-200 animate-pulse text-[1.4rem] font-black">...</div>
+                        ) : (
+                            <div className="flex flex-col">
+                                <div className="text-[1.4rem] font-black text-slate-800 tracking-tighter leading-none">
+                                    {formatCurrency(stats?.total_customers || 0)} / {formatCurrency(stats?.total_customers_all_time || 0)}
+                                </div>
+                                <div className="text-[10px] font-black text-slate-400 mt-1.5 flex items-center gap-2">
+                                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 정상 {formatCurrency(stats?.normal_customers_count || 0)}</span>
+                                    <span className="w-px h-2 bg-slate-200"></span>
+                                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span> 휴면 {formatCurrency(stats?.dormant_customers_count || 0)}</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 

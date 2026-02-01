@@ -242,7 +242,27 @@ const SettingsBackup = () => {
         }
     };
 
-    // 4. External Cloud Backup Path Selection
+    // 4. Log Cleanup
+    const handleCleanupLogs = async (months) => {
+        const monthsStr = months >= 12 ? `${Math.floor(months / 12)}년` : `${months}개월`;
+        const ok = await showConfirm(
+            '로그 데이터 정리',
+            `${monthsStr} 이상 경과된 오래된 이력 데이터를 삭제하여 DB 용량을 최적화하시겠습니까?\n\n※ 삭제된 로그(변경 이력)는 복구할 수 없습니다.`
+        );
+        if (!ok) return;
+
+        try {
+            setIsLoading(true);
+            const count = await invoke('cleanup_old_logs', { months });
+            await showAlert('정리 완료', `${count}건의 오래된 로그가 성공적으로 정리되었습니다.`);
+        } catch (err) {
+            showAlert('정리 실패', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // 5. External Cloud Backup Path Selection
     const handleSelectExternalPath = async () => {
         try {
             const selected = await open({
@@ -425,7 +445,8 @@ const SettingsBackup = () => {
                                 </div>
                                 <p className="text-indigo-200 text-sm font-medium leading-relaxed max-w-lg mb-8 opacity-80">
                                     수기로 저장 위치를 선택할 필요가 없습니다. <br />
-                                    클릭 한 번으로 <strong>로컬 고속 저장소</strong>와 <strong>지정된 외부 저장소</strong>에 데이터를 즉시 동기화합니다.
+                                    <strong>고객 변경 이력</strong> 및 <strong>최신 상품 스키마</strong>를 포함하여, <br />
+                                    로컬 고속 저장소와 지정된 외부 저장소에 데이터를 즉시 동기화합니다.
                                 </p>
 
                                 <div className="flex flex-col gap-6">
@@ -547,6 +568,22 @@ const SettingsBackup = () => {
                             </div>
                             <button onClick={handleDbMaintenance} className="px-7 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-black transition-all">실행하기</button>
                         </div>
+
+                        <div className="premium-card bg-white p-7 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between group hover:border-rose-200 transition-colors col-span-1 lg:col-span-2 xl:col-span-1">
+                            <div className="flex items-center gap-5">
+                                <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-colors">
+                                    <span className="material-symbols-rounded text-[32px]">history_toggle_off</span>
+                                </div>
+                                <div className="text-left">
+                                    <h4 className="text-lg font-bold text-slate-800 tracking-tight">오래된 로그 정리</h4>
+                                    <p className="text-[13px] text-slate-500 leading-tight">변경 이력 데이터(6개월 이상) 삭제</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => handleCleanupLogs(6)} className="px-4 py-3 bg-slate-50 hover:bg-rose-50 text-slate-600 rounded-xl text-[12px] font-black transition-all border border-slate-100">6개월</button>
+                                <button onClick={() => handleCleanupLogs(12)} className="px-4 py-3 bg-slate-50 hover:bg-rose-600 text-slate-600 hover:text-white rounded-xl text-[12px] font-black transition-all border border-slate-100">1년</button>
+                            </div>
+                        </div>
                     </div>
 
                     {/* 3. Settings & History Grid */}
@@ -582,7 +619,7 @@ const SettingsBackup = () => {
                                     <div className="text-left">
                                         <h4 className="font-black text-indigo-100 text-lg mb-2 tracking-tight">최고 단계 보안 백업</h4>
                                         <p className="text-[12px] text-slate-400 font-medium leading-relaxed mb-4">
-                                            저희 시스템은 단순 복사가 아닌, 전체 데이터 정합성을 검사한 후 고압축 .gz 스냅샷을 생성합니다.
+                                            저희 시스템은 단순 복사가 아닌, 전체 데이터 정합성을 검사한 후 <b>고객 로그 및 상품 전 정보를 포함</b>한 고압축 .gz 스냅샷을 생성합니다.
                                         </p>
                                         <div className="flex gap-4">
                                             <div className="text-[10px] text-indigo-300 font-black uppercase opacity-60">Gzip-JSON</div>

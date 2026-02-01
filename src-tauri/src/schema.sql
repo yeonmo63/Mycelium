@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS products (
     safety_stock INTEGER DEFAULT 10, -- 안전 재고 (권장 최소 보유량)
     material_id INTEGER REFERENCES products(product_id), -- 연결된 자재 품목 ID
     material_ratio FLOAT DEFAULT 1.0,  -- 전환 시 자재 소모 비율 (예: 1.0)
+    cost_price INTEGER DEFAULT 0,
+    item_type VARCHAR(20) DEFAULT 'product',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     product_code VARCHAR(50) UNIQUE,
     status VARCHAR(20) DEFAULT '판매중' -- '판매중', '단종상품'
@@ -67,7 +69,9 @@ CREATE TABLE IF NOT EXISTS customers (
     purchase_cycle      VARCHAR(100),   -- 구매 주기
     
     memo TEXT,
+    current_balance INTEGER DEFAULT 0,
     join_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(20) DEFAULT '정상', -- '정상', '말소'
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -112,7 +116,11 @@ CREATE TABLE IF NOT EXISTS sales (
     courier_name VARCHAR(50),
     tracking_number VARCHAR(50),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    product_code VARCHAR(50)
+    product_code VARCHAR(50),
+    product_id INTEGER,
+    discount_rate INTEGER DEFAULT 0,
+    paid_amount INTEGER DEFAULT 0,
+    payment_status VARCHAR(20) DEFAULT '입금완료'
 );
 
 -- 5. Events Table (Special Sales / Occasions)
@@ -139,6 +147,8 @@ CREATE TABLE IF NOT EXISTS schedules (
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP NOT NULL,
     status VARCHAR(20),
+    related_type VARCHAR(20),
+    related_id INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -153,6 +163,9 @@ CREATE TABLE IF NOT EXISTS company_info (
     business_reg_number VARCHAR(20),
     registration_date TIMESTAMP,
     memo TEXT,
+    address VARCHAR(255),
+    business_type VARCHAR(100),
+    item VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP
 );
@@ -213,6 +226,7 @@ CREATE TABLE IF NOT EXISTS consultations (
     answer TEXT,
     status VARCHAR(20) DEFAULT '접수', -- '접수', '처리중', '완료', '보류'
     priority VARCHAR(10) DEFAULT '보통', -- '낮음', '보통', '높음', '긴급'
+    sentiment VARCHAR(20),
     consult_date DATE DEFAULT CURRENT_DATE,
     follow_up_date DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
