@@ -23,6 +23,7 @@ const CustomerBatch = () => {
     // Checkboxes
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [deleteSalesChecked, setDeleteSalesChecked] = useState(false);
+    const [statusTab, setStatusTab] = useState('전체'); // '전체' | '정상' | '말소'
 
     // AI Insight
     const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -185,9 +186,14 @@ const CustomerBatch = () => {
     };
 
     // --- Pagination Logic ---
-    const totalPages = Math.ceil(customerList.length / ITEMS_PER_PAGE) || 1;
+    const filteredList = customerList.filter(c => {
+        if (statusTab === '전체') return true;
+        return (c.status || '정상') === statusTab;
+    });
+
+    const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE) || 1;
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const currentItems = customerList.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    const currentItems = filteredList.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
     const toggleSelectAll = (checked) => {
         if (checked) {
@@ -270,6 +276,18 @@ const CustomerBatch = () => {
                 </div>
             </div>
 
+            <div className="px-6 lg:px-8 min-[2000px]:px-12 flex gap-1 mb-4">
+                {['전체', '정상', '말소'].map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => { setStatusTab(tab); setCurrentPage(1); }}
+                        className={`px-6 py-2 rounded-xl font-black text-sm transition-all ${statusTab === tab ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
+                    >
+                        {tab} {statusTab === tab && <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{filteredList.length}</span>}
+                    </button>
+                ))}
+            </div>
+
             {/* Main Table Area */}
             <div className="px-6 lg:px-8 min-[2000px]:px-12 flex flex-col overflow-hidden flex-1 pb-4">
                 <div className="bg-white rounded-[1.5rem] border border-slate-200 shadow-sm flex flex-col overflow-hidden h-full">
@@ -306,6 +324,7 @@ const CustomerBatch = () => {
                                     <th className="px-4 py-3 text-center w-[13%] min-w-[100px]">연락처</th>
                                     <th className="px-4 py-3 text-center w-[8%] min-w-[60px]">등급</th>
                                     <th className="px-4 py-3 text-center w-[10%] min-w-[90px]">가입일</th>
+                                    <th className="px-4 py-3 text-center w-[7%] min-w-[60px]">상태</th>
                                     <th className="px-4 py-3 text-left">주소</th>
                                     <th className="px-4 py-3 text-center w-[80px]">AI 분석</th>
                                 </tr>
@@ -328,6 +347,11 @@ const CustomerBatch = () => {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-center text-slate-500 text-xs">{c.join_date || '-'}</td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black ${(c.status || '정상') === '정상' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                                    {c.status || '정상'}
+                                                </span>
+                                            </td>
                                             <td className="px-4 py-3 text-slate-600 text-xs truncate max-w-[300px]" title={`${c.address_primary || ''} ${c.address_detail || ''}`}>
                                                 {c.address_primary} {c.address_detail}
                                             </td>
@@ -344,7 +368,7 @@ const CustomerBatch = () => {
                     </div>
                     {/* Pagination */}
                     <div className="px-5 py-3 border-t border-slate-100 flex justify-between items-center bg-white">
-                        <div className="text-xs text-slate-400 font-medium">Page {currentPage} of {totalPages}</div>
+                        <div className="text-xs text-slate-400 font-medium">Page {currentPage} of {totalPages} (Showing {filteredList.length} items)</div>
                         <div className="flex gap-1">
                             <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-white transition-all">
                                 <span className="material-symbols-rounded text-sm">chevron_left</span>

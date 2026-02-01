@@ -32,7 +32,8 @@ const CustomerList = () => {
         subInterest: false,
         familyType: '',
         healthConcern: '',
-        memo: ''
+        memo: '',
+        status: '정상'
     };
 
     const [mode, setMode] = useState('view'); // 'view' | 'edit'
@@ -51,7 +52,8 @@ const CustomerList = () => {
     const [aiInsight, setAiInsight] = useState(null);
     const [showAddrLayer, setShowAddrLayer] = useState(false);
     const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
-    const [editingAddress, setEditingAddress] = useState(null);
+    const [isLogsModalOpen, setIsLogsModalOpen] = useState(false);
+    const [customerLogs, setCustomerLogs] = useState([]);
 
     // Search Results Selection
     const [searchResults, setSearchResults] = useState([]);
@@ -97,6 +99,25 @@ const CustomerList = () => {
         }
     };
 
+    const loadAddresses = async (cid) => {
+        try {
+            const list = await window.__TAURI__.core.invoke('get_customer_addresses', { customerId: cid });
+            setAddresses(list || []);
+        } catch (e) { console.error(e); }
+    };
+
+    const loadCustomerLogs = async (cid) => {
+        if (!cid) return;
+        try {
+            const logs = await window.__TAURI__.core.invoke('get_customer_logs', { customerId: cid });
+            setCustomerLogs(logs);
+            setIsLogsModalOpen(true);
+        } catch (e) {
+            console.error(e);
+            showAlert("오류", "변경 이력을 불러오지 못했습니다.");
+        }
+    };
+
     const loadCustomer = useCallback(async (c) => {
         setCustomer(c);
         setMode('view');
@@ -121,17 +142,11 @@ const CustomerList = () => {
             subInterest: c.sub_interest === true || c.sub_interest === 'true',
             familyType: c.family_type || '',
             healthConcern: c.health_concern || '',
-            memo: c.memo || ''
+            memo: c.memo || '',
+            status: c.status || '정상'
         });
         loadAddresses(c.customer_id);
     }, []);
-
-    const loadAddresses = async (cid) => {
-        try {
-            const list = await window.__TAURI__.core.invoke('get_customer_addresses', { customerId: cid });
-            setAddresses(list || []);
-        } catch (e) { console.error(e); }
-    };
 
     const handleUpdate = async (e) => {
         if (e) e.preventDefault();
@@ -182,7 +197,7 @@ const CustomerList = () => {
             await showAlert("알림", "말소할 고객이 조회되지 않았습니다.");
             return;
         }
-        if (!await showConfirm("말소", "정말로 이 고객을 말소하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) return;
+        if (!await showConfirm("말소", "정말로 이 고객을 말소 처리하시겠습니까?\n고객 정보는 보관되지만, '정상' 고객 검색 결과에서 제외됩니다.")) return;
         setIsProcessing(true);
         try {
             await window.__TAURI__.core.invoke('delete_customer', { id: customer.customer_id });
@@ -277,7 +292,9 @@ const CustomerList = () => {
                     <div className={`bg-white rounded-2xl p-4 shadow-sm border transition-all ${mode === 'edit' ? 'border-indigo-500 shadow-lg' : 'border-slate-100'}`}>
                         <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2">
                             <span className="w-1.5 h-3.5 bg-indigo-600 rounded-full"></span>
-                            기본 인적 사항 {mode === 'edit' && <span className="text-amber-500 text-[10px] uppercase ml-2 px-1.5 py-0.5 bg-amber-50 rounded-full font-black">Edit</span>}
+                            기본 인적 사항
+                            {mode === 'edit' && <span className="text-amber-500 text-[10px] uppercase ml-2 px-1.5 py-0.5 bg-amber-50 rounded-full font-black">Edit</span>}
+                            {formData.status === '말소' && <span className="text-rose-600 text-[10px] uppercase ml-2 px-2 py-0.5 bg-rose-50 rounded-full font-black flex items-center gap-1 border border-rose-100 animate-pulse"><span className="material-symbols-rounded text-xs">block</span> 말소 고객</span>}
                         </h3>
                         <div className="grid grid-cols-12 gap-2.5">
                             <div className="col-span-2 space-y-0.5">
@@ -465,7 +482,14 @@ const CustomerList = () => {
                         }}
                         disabled={!customer || isProcessing}
                         className={`h-10 px-4 rounded-xl font-bold text-xs flex items-center gap-2 border transition-all ${!customer ? 'bg-slate-50 border-slate-100 text-slate-200 cursor-not-allowed' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100 shadow-sm'}`}>
-                        <span className="material-symbols-rounded text-lg">psychology</span> AI 분석
+                        <span className="material-symbols-rounded text-lg">psychology</span> AI 정밀 분석
+                    </button>
+
+                    <button type="button"
+                        onClick={() => loadCustomerLogs(customer?.customer_id)}
+                        disabled={!customer}
+                        className="h-10 px-6 rounded-xl bg-white border border-slate-200 text-slate-600 font-black hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm text-sm disabled:opacity-50">
+                        <span className="material-symbols-rounded text-lg">history</span> 변경 이력
                     </button>
 
                     <button type="button"
@@ -499,154 +523,226 @@ const CustomerList = () => {
             </div>
 
             {/* AI Insight Modal */}
-            {isAiModalOpen && aiInsight && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 backdrop-blur-md bg-slate-900/40 animate-in fade-in duration-300">
-                    <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 text-left">
-                        <div className="px-6 py-5 bg-indigo-600 text-white flex justify-between items-center relative overflow-hidden">
-                            <h3 className="text-lg font-black flex items-center gap-3"><span className="material-symbols-rounded">auto_awesome</span> AI 고객 프로파일링</h3>
-                            <button onClick={() => setIsAiModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
-                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-2 italic">Profile Keywords</label>
-                                <div className="flex flex-wrap gap-1.5">{aiInsight.keywords?.map((k, i) => (<span key={i} className="px-3 py-1 bg-white text-indigo-700 rounded-lg font-black text-[10px] shadow-sm shadow-indigo-100">{k}</span>))}</div>
+            {
+                isAiModalOpen && aiInsight && (
+                    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 backdrop-blur-md bg-slate-900/40 animate-in fade-in duration-300">
+                        <div className="relative w-full max-w-xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 text-left">
+                            <div className="px-6 py-5 bg-indigo-600 text-white flex justify-between items-center relative overflow-hidden">
+                                <h3 className="text-lg font-black flex items-center gap-3"><span className="material-symbols-rounded">auto_awesome</span> AI 고객 프로파일링</h3>
+                                <button onClick={() => setIsAiModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button>
                             </div>
-                            <div className="space-y-3">
-                                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-100"><p className="font-black text-slate-800 text-xs mb-2 flex items-center gap-2">추천 대화 주제</p><p className="text-slate-600 text-[13px] leading-relaxed font-bold">{aiInsight.ice_breaking || "분석 데이터 부족"}</p></div>
-                                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-100"><p className="font-black text-slate-800 text-xs mb-2 flex items-center gap-2">제안 및 판매 전략</p><p className="text-slate-600 text-[13px] leading-relaxed font-bold">{aiInsight.sales_tip || "분석 데이터 부족"}</p></div>
+                            <div className="p-6 space-y-4">
+                                <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
+                                    <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-2 italic">Profile Keywords</label>
+                                    <div className="flex flex-wrap gap-1.5">{aiInsight.keywords?.map((k, i) => (<span key={i} className="px-3 py-1 bg-white text-indigo-700 rounded-lg font-black text-[10px] shadow-sm shadow-indigo-100">{k}</span>))}</div>
+                                </div>
+                                <div className="space-y-3">
+                                    <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-100"><p className="font-black text-slate-800 text-xs mb-2 flex items-center gap-2">추천 대화 주제</p><p className="text-slate-600 text-[13px] leading-relaxed font-bold">{aiInsight.ice_breaking || "분석 데이터 부족"}</p></div>
+                                    <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-100"><p className="font-black text-slate-800 text-xs mb-2 flex items-center gap-2">제안 및 판매 전략</p><p className="text-slate-600 text-[13px] leading-relaxed font-bold">{aiInsight.sales_tip || "분석 데이터 부족"}</p></div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Order History Modal */}
-            {isSalesModalOpen && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 backdrop-blur-md bg-slate-900/40 h-full">
-                    <div className="relative w-full max-w-4xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 max-h-[80vh] text-left">
-                        <div className="px-6 py-5 bg-slate-950 text-white flex justify-between items-center shrink-0">
-                            <h3 className="text-lg font-black flex items-center gap-3"><span className="material-symbols-rounded text-emerald-400">history</span> {formData.name} 고객 주문 내역</h3>
-                            <button onClick={() => setIsSalesModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center"><span className="material-symbols-rounded">close</span></button>
+            {
+                isSalesModalOpen && (
+                    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 backdrop-blur-md bg-slate-900/40 h-full">
+                        <div className="relative w-full max-w-4xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 max-h-[80vh] text-left">
+                            <div className="px-6 py-5 bg-slate-950 text-white flex justify-between items-center shrink-0">
+                                <h3 className="text-lg font-black flex items-center gap-3"><span className="material-symbols-rounded text-emerald-400">history</span> {formData.name} 고객 주문 내역</h3>
+                                <button onClick={() => setIsSalesModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center"><span className="material-symbols-rounded">close</span></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-slate-50 z-20 border-b border-slate-200 shadow-sm">
+                                        <tr>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">일자</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">상품</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-right">수량</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-right">금액</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-center">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {salesHistory.length > 0 ? salesHistory.map((s, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50/80"><td className="px-6 py-3 font-bold text-slate-400">{s.order_date?.split('T')[0]}</td><td className="px-6 py-3 font-black text-slate-900">{s.product_name}</td><td className="px-6 py-3 text-right font-black text-slate-600">{s.quantity}개</td><td className="px-6 py-3 text-right font-black text-indigo-600">{formatCurrency(s.total_amount)}원</td><td className="px-6 py-3 text-center"><span className={`px-2 py-0.5 rounded text-[8px] font-black ${s.status === '완료' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>{s.status}</span></td></tr>
+                                        )) : (<tr><td colSpan="5" className="px-6 py-20 text-center text-slate-300 font-black italic">기록 없음</td></tr>)}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0"><button onClick={() => setIsSalesModalOpen(false)} className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-xs">닫기</button></div>
                         </div>
-                        <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
-                            <table className="w-full text-left text-sm">
-                                <thead className="sticky top-0 bg-slate-50 z-20 border-b border-slate-200 shadow-sm">
-                                    <tr>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">일자</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">상품</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-right">수량</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-right">금액</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-center">상태</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {salesHistory.length > 0 ? salesHistory.map((s, idx) => (
-                                        <tr key={idx} className="hover:bg-slate-50/80"><td className="px-6 py-3 font-bold text-slate-400">{s.order_date?.split('T')[0]}</td><td className="px-6 py-3 font-black text-slate-900">{s.product_name}</td><td className="px-6 py-3 text-right font-black text-slate-600">{s.quantity}개</td><td className="px-6 py-3 text-right font-black text-indigo-600">{formatCurrency(s.total_amount)}원</td><td className="px-6 py-3 text-center"><span className={`px-2 py-0.5 rounded text-[8px] font-black ${s.status === '완료' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>{s.status}</span></td></tr>
-                                    )) : (<tr><td colSpan="5" className="px-6 py-20 text-center text-slate-300 font-black italic">기록 없음</td></tr>)}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0"><button onClick={() => setIsSalesModalOpen(false)} className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-xs">닫기</button></div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Daum Postcode Layer */}
-            {showAddrLayer && (
-                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm bg-slate-900/60">
-                    <div className="relative w-full max-w-[450px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden h-[550px]">
-                        <div className="px-5 py-3 bg-slate-900 text-white flex justify-between items-center"><h3 className="font-black text-sm">주소 검색</h3><button onClick={() => setShowAddrLayer(false)} className="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button></div>
-                        <div id="addr-layer-list-edit" className="flex-1 w-full" />
+            {
+                showAddrLayer && (
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm bg-slate-900/60">
+                        <div className="relative w-full max-w-[450px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden h-[550px]">
+                            <div className="px-5 py-3 bg-slate-900 text-white flex justify-between items-center"><h3 className="font-black text-sm">주소 검색</h3><button onClick={() => setShowAddrLayer(false)} className="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button></div>
+                            <div id="addr-layer-list-edit" className="flex-1 w-full" />
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Address Edit Modal */}
-            {isAddressModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-sm bg-slate-950/40 text-left">
-                    <div className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
-                        <div className="px-6 py-5 bg-indigo-600 text-white flex justify-between items-center"><h3 className="text-lg font-black">배송지 설정</h3><button onClick={() => setIsAddressModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center"><span className="material-symbols-rounded">close</span></button></div>
-                        <div className="p-6">
-                            <form onSubmit={async (e) => {
-                                e.preventDefault();
-                                const p = {
-                                    customer_id: customer.customer_id,
-                                    alias: e.target.alias.value,
-                                    recipient: e.target.recipient.value,
-                                    mobile: e.target.mobile.value,
-                                    zip: e.target.zip.value || null,
-                                    addr1: e.target.addr1.value,
-                                    addr2: e.target.addr2.value || null,
-                                    is_default: e.target.isDefault.checked,
-                                    memo: e.target.memo.value || null
-                                };
-                                try {
-                                    if (editingAddress.address_id) {
-                                        const updateP = { ...p, address_id: editingAddress.address_id };
-                                        await window.__TAURI__.core.invoke('update_customer_address', updateP);
-                                    }
-                                    else {
-                                        await window.__TAURI__.core.invoke('create_customer_address', p);
-                                    }
-                                    loadAddresses(customer.customer_id); setIsAddressModalOpen(false);
-                                } catch (err) { showAlert("오류", "저장 실패: " + err); }
-                            }} className="space-y-3">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">배송지명</label><input name="alias" value={editingAddress?.address_alias || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, address_alias: e.target.value }))} required className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
-                                    <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">수령인</label><input name="recipient" value={editingAddress?.recipient_name || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, recipient_name: e.target.value }))} required className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
-                                </div>
-                                <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">연락처</label><input name="mobile" value={editingAddress?.mobile_number || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, mobile_number: formatPhoneNumber(e.target.value) }))} required className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
-                                <div className="grid grid-cols-4 gap-2">
-                                    <div className="col-span-1 space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">우편번호</label><input name="zip" value={editingAddress?.zip_code || ''} readOnly onClick={handleModalAddressSearch} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-black text-center text-sm cursor-pointer text-black" /></div>
-                                    <div className="col-span-3 space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">주소</label><input name="addr1" value={editingAddress?.address_primary || ''} readOnly onClick={handleModalAddressSearch} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm px-3 cursor-pointer text-black" /></div>
-                                </div>
-                                <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">상세 주소</label><input name="addr2" value={editingAddress?.address_detail || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, address_detail: e.target.value }))} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
-                                <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">배송 메모</label><input name="memo" value={editingAddress?.shipping_memo || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, shipping_memo: e.target.value }))} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
-                                <div className="flex items-center gap-2 pt-1"><input type="checkbox" name="isDefault" defaultChecked={editingAddress.is_default} className="w-4 h-4 rounded text-indigo-600" /><span className="text-xs font-black text-slate-500">기본 배송지로 설정</span></div>
-                                <div className="flex justify-end pt-4"><button type="submit" className="h-10 px-10 bg-indigo-600 text-white rounded-xl font-black shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all text-xs">저장하기</button></div>
-                            </form>
+            {
+                isAddressModalOpen && (
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-sm bg-slate-950/40 text-left">
+                        <div className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+                            <div className="px-6 py-5 bg-indigo-600 text-white flex justify-between items-center"><h3 className="text-lg font-black">배송지 설정</h3><button onClick={() => setIsAddressModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center"><span className="material-symbols-rounded">close</span></button></div>
+                            <div className="p-6">
+                                <form onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    const p = {
+                                        customer_id: customer.customer_id,
+                                        alias: e.target.alias.value,
+                                        recipient: e.target.recipient.value,
+                                        mobile: e.target.mobile.value,
+                                        zip: e.target.zip.value || null,
+                                        addr1: e.target.addr1.value,
+                                        addr2: e.target.addr2.value || null,
+                                        is_default: e.target.isDefault.checked,
+                                        memo: e.target.memo.value || null
+                                    };
+                                    try {
+                                        if (editingAddress.address_id) {
+                                            const updateP = { ...p, address_id: editingAddress.address_id };
+                                            await window.__TAURI__.core.invoke('update_customer_address', updateP);
+                                        }
+                                        else {
+                                            await window.__TAURI__.core.invoke('create_customer_address', p);
+                                        }
+                                        loadAddresses(customer.customer_id); setIsAddressModalOpen(false);
+                                    } catch (err) { showAlert("오류", "저장 실패: " + err); }
+                                }} className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">배송지명</label><input name="alias" value={editingAddress?.address_alias || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, address_alias: e.target.value }))} required className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
+                                        <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">수령인</label><input name="recipient" value={editingAddress?.recipient_name || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, recipient_name: e.target.value }))} required className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
+                                    </div>
+                                    <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">연락처</label><input name="mobile" value={editingAddress?.mobile_number || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, mobile_number: formatPhoneNumber(e.target.value) }))} required className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <div className="col-span-1 space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">우편번호</label><input name="zip" value={editingAddress?.zip_code || ''} readOnly onClick={handleModalAddressSearch} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-black text-center text-sm cursor-pointer text-black" /></div>
+                                        <div className="col-span-3 space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">주소</label><input name="addr1" value={editingAddress?.address_primary || ''} readOnly onClick={handleModalAddressSearch} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm px-3 cursor-pointer text-black" /></div>
+                                    </div>
+                                    <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">상세 주소</label><input name="addr2" value={editingAddress?.address_detail || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, address_detail: e.target.value }))} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
+                                    <div className="space-y-0.5"><label className="text-xs font-black text-slate-600 ml-1">배송 메모</label><input name="memo" value={editingAddress?.shipping_memo || ''} onChange={(e) => setEditingAddress(prev => ({ ...prev, shipping_memo: e.target.value }))} className="w-full h-11 px-3 rounded-lg bg-white border border-slate-400 font-bold text-sm text-black" /></div>
+                                    <div className="flex items-center gap-2 pt-1"><input type="checkbox" name="isDefault" defaultChecked={editingAddress.is_default} className="w-4 h-4 rounded text-indigo-600" /><span className="text-xs font-black text-slate-500">기본 배송지로 설정</span></div>
+                                    <div className="flex justify-end pt-4"><button type="submit" className="h-10 px-10 bg-indigo-600 text-white rounded-xl font-black shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all text-xs">저장하기</button></div>
+                                </form>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Search Results Selection Modal */}
-            {isSearchModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-md bg-slate-900/40 animate-in fade-in duration-300">
-                    <div className="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[70vh]">
+            {
+                isSearchModalOpen && (
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 backdrop-blur-md bg-slate-900/40 animate-in fade-in duration-300">
+                        <div className="relative w-full max-w-4xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[70vh]">
+                            <div className="px-6 py-5 bg-slate-800 text-white flex justify-between items-center shrink-0">
+                                <h3 className="text-lg font-black flex items-center gap-3">
+                                    <span className="material-symbols-rounded text-indigo-400">group</span>
+                                    검색 결과 선택 <span className="text-slate-400 font-light text-sm">총 {searchResults.length}명이 검색되었습니다.</span>
+                                </h3>
+                                <button onClick={() => setIsSearchModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="sticky top-0 bg-slate-50 z-20 border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">성함</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">휴대폰</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">주소</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-center">상태</th>
+                                            <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-center">선택</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {searchResults.map((c) => (
+                                            <tr key={c.customer_id} className="hover:bg-indigo-50/50 transition-colors cursor-pointer group" onClick={() => { loadCustomer(c); setIsSearchModalOpen(false); }}>
+                                                <td className="px-6 py-4 font-black text-slate-800">{c.customer_name}</td>
+                                                <td className="px-6 py-4 font-bold text-slate-600">{formatPhoneNumber(c.mobile_number)}</td>
+                                                <td className="px-6 py-4 text-slate-500 text-xs break-all">{c.address_primary}</td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${(c.status || '정상') === '정상' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                                        {c.status || '정상'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button className="px-4 py-1.5 rounded-lg bg-white border border-slate-200 text-indigo-600 font-black text-xs group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-all">불러오기</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+                                <button onClick={() => setIsSearchModalOpen(false)} className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-xs hover:bg-slate-100 transition-all">닫기</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+            {/* 6. Customer History Modal */}
+            {isLogsModalOpen && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden border border-white/20 scale-in-center">
                         <div className="px-6 py-5 bg-slate-800 text-white flex justify-between items-center shrink-0">
                             <h3 className="text-lg font-black flex items-center gap-3">
-                                <span className="material-symbols-rounded text-indigo-400">group</span>
-                                검색 결과 선택 <span className="text-slate-400 font-light text-sm">총 {searchResults.length}명이 검색되었습니다.</span>
+                                <span className="material-symbols-rounded text-indigo-400">history</span>
+                                정보 변경 이력 <span className="text-slate-400 font-light text-sm">{customer?.customer_name} 고객님</span>
                             </h3>
-                            <button onClick={() => setIsSearchModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button>
+                            <button onClick={() => setIsLogsModalOpen(false)} className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"><span className="material-symbols-rounded">close</span></button>
                         </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <table className="w-full text-left text-sm">
-                                <thead className="sticky top-0 bg-slate-50 z-20 border-b border-slate-200">
-                                    <tr>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">성함</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">휴대폰</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase">주소</th>
-                                        <th className="px-6 py-3 font-black text-slate-500 text-xs uppercase text-center">선택</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {searchResults.map((c) => (
-                                        <tr key={c.customer_id} className="hover:bg-indigo-50/50 transition-colors cursor-pointer group" onClick={() => { loadCustomer(c); setIsSearchModalOpen(false); }}>
-                                            <td className="px-6 py-4 font-black text-slate-800">{c.customer_name}</td>
-                                            <td className="px-6 py-4 font-bold text-slate-600">{formatPhoneNumber(c.mobile_number)}</td>
-                                            <td className="px-6 py-4 text-slate-500 text-xs break-all">{c.address_primary}</td>
-                                            <td className="px-6 py-4 text-center">
-                                                <button className="px-4 py-1.5 rounded-lg bg-white border border-slate-200 text-indigo-600 font-black text-xs group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-all">불러오기</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-50/10">
+                            {customerLogs.length === 0 ? (
+                                <div className="h-40 flex flex-col items-center justify-center text-slate-400 italic font-bold">
+                                    <span className="material-symbols-rounded text-4xl mb-2 opacity-20">history</span>
+                                    기록된 변경 이력이 없습니다.
+                                </div>
+                            ) : (
+                                <div className="relative">
+                                    <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-200/50"></div>
+                                    <div className="space-y-6 relative">
+                                        {customerLogs.map((log) => (
+                                            <div key={log.log_id} className="relative pl-10">
+                                                <div className="absolute left-3 w-2.5 h-2.5 rounded-full bg-indigo-500 border-2 border-white translate-x-[-1px] z-10"></div>
+                                                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100/50">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <span className="text-[10px] font-black px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full uppercase tracking-wider">{log.field_name} 변경</span>
+                                                        <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                                                            <span className="material-symbols-rounded text-xs">schedule</span>
+                                                            {log.changed_at ? new Date(log.changed_at).toLocaleString() : '정보 없음'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-sm font-bold">
+                                                        <div className="flex-1 p-2.5 bg-rose-50/50 rounded-xl border border-rose-100/30">
+                                                            <div className="text-[9px] font-black text-rose-300 uppercase mb-0.5">이전 정보</div>
+                                                            <div className="text-rose-600 truncate">{log.old_value || '(비어있음)'}</div>
+                                                        </div>
+                                                        <span className="material-symbols-rounded text-slate-300 transform transition-transform">arrow_right_alt</span>
+                                                        <div className="flex-1 p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-100/30">
+                                                            <div className="text-[9px] font-black text-emerald-300 uppercase mb-0.5">변경된 정보</div>
+                                                            <div className="text-emerald-600 truncate">{log.new_value || '(비어있음)'}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
-                            <button onClick={() => setIsSearchModalOpen(false)} className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-xs hover:bg-slate-100 transition-all">닫기</button>
+                        <div className="px-6 py-4 bg-white border-t border-slate-100 flex justify-end">
+                            <button onClick={() => setIsLogsModalOpen(false)} className="px-6 h-10 rounded-xl bg-slate-800 text-white font-black text-sm hover:bg-slate-700 transition-all">확인</button>
                         </div>
                     </div>
                 </div>

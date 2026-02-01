@@ -12,7 +12,7 @@ use db::Schedule;
 use db::{
     init_pool, AiMarketingProposal, AnalyzedMention, ChurnRiskCustomer, CompanyInfo, Consultation,
     ConsultationAiAdvice, Customer, CustomerAddress, CustomerLedger, CustomerLifecycle,
-    DashboardStats, DbPool, Event, Expense, ExperienceProgram, ExperienceReservation,
+    CustomerLog, DashboardStats, DbPool, Event, Expense, ExperienceProgram, ExperienceReservation,
     InventoryAlert, InventorySyncItem, KeywordItem, LtvCustomer, MonthlyCohortStats,
     OnlineMentionInput, Product, ProductAssociation, ProductPriceHistory, ProductSalesStats,
     ProfitAnalysisResult, Purchase, RawRfmData, Sales, SalesClaim, SentimentAnalysisResult,
@@ -1418,7 +1418,7 @@ async fn create_customer(
     join_date: Option<String>,
     anniversary_date: Option<String>,
     anniversary_type: Option<String>,
-    marketing_consent: Option<bool>,
+    marketing_consent: bool,
     acquisition_channel: Option<String>,
     pref_product_type: Option<String>,
     pref_package_type: Option<String>,
@@ -1445,6 +1445,55 @@ async fn create_customer(
     let family_type = family_type.filter(|s| !s.trim().is_empty());
     let health_concern = health_concern.filter(|s| !s.trim().is_empty());
     let purchase_cycle = purchase_cycle.filter(|s| !s.trim().is_empty());
+
+    // 0. Check for existing (including '말소') customers with same name and mobile
+    let existing: Option<Customer> =
+        sqlx::query_as("SELECT * FROM customers WHERE customer_name = $1 AND mobile_number = $2")
+            .bind(&name)
+            .bind(&mobile)
+            .fetch_optional(&*state)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    if let Some(c) = existing {
+        if c.status.as_deref() == Some("말소") {
+            // Reactivate existing customer
+            sqlx::query(
+                "UPDATE customers SET 
+                status = '정상', membership_level = $1, phone_number = $2, email = $3, 
+                zip_code = $4, address_primary = $5, address_detail = $6, memo = $7,
+                anniversary_date = $8::date, anniversary_type = $9, marketing_consent = $10,
+                acquisition_channel = $11, pref_product_type = $12, pref_package_type = $13,
+                family_type = $14, health_concern = $15, sub_interest = $16, purchase_cycle = $17
+                WHERE customer_id = $18",
+            )
+            .bind(level)
+            .bind(phone)
+            .bind(email)
+            .bind(zip)
+            .bind(addr1)
+            .bind(addr2)
+            .bind(memo)
+            .bind(anniversary_date)
+            .bind(anniversary_type)
+            .bind(marketing_consent)
+            .bind(acquisition_channel)
+            .bind(pref_product_type)
+            .bind(pref_package_type)
+            .bind(family_type)
+            .bind(health_concern)
+            .bind(sub_interest)
+            .bind(purchase_cycle)
+            .bind(&c.customer_id)
+            .execute(&*state)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            return Ok(c.customer_id);
+        } else {
+            return Err("이미 등록된 활성 고객입니다.".to_string());
+        }
+    }
 
     // 1. Generate Custom Sequence ID: YYYYMMDD-XXXX (Global Sequence)
     // Default to today if join_date is missing OR empty
@@ -1486,8 +1535,8 @@ async fn create_customer(
             phone_number, email, zip_code, address_primary, address_detail, memo, join_date,
             anniversary_date, anniversary_type, marketing_consent, acquisition_channel,
             pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle,
-            current_balance
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12::date, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
+            current_balance, status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12::date, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, '정상')",
     )
     .bind(&customer_id)
     .bind(&name)
@@ -1597,12 +1646,19 @@ async fn update_customer(
     let health_concern = health_concern.filter(|s| !s.trim().is_empty());
     let purchase_cycle = purchase_cycle.filter(|s| !s.trim().is_empty());
 
-    // Sanitize join_date: if empty, set to None so COALESCE uses existing value
-    let join_date = match join_date.as_deref() {
-        Some(s) if !s.trim().is_empty() => Some(s.to_string()),
-        _ => None,
-    };
+    // Sanitize join_date
+    let join_date_parsed = join_date.filter(|s| !s.trim().is_empty());
 
+    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+
+    // 1. Get existing data for logging
+    let old: Customer = sqlx::query_as("SELECT * FROM customers WHERE customer_id = $1")
+        .bind(&id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 2. Perform Update
     let result = sqlx::query(
         "UPDATE customers SET 
         customer_name = $1, 
@@ -1636,27 +1692,60 @@ async fn update_customer(
     .bind(&addr1)
     .bind(&addr2)
     .bind(&memo)
-    .bind(&join_date)
-    .bind(anniversary_date)
-    .bind(anniversary_type)
-    .bind(marketing_consent)
-    .bind(acquisition_channel)
-    .bind(pref_product_type)
-    .bind(pref_package_type)
-    .bind(family_type)
-    .bind(health_concern)
-    .bind(sub_interest)
-    .bind(purchase_cycle)
+    .bind(&join_date_parsed)
+    .bind(&anniversary_date)
+    .bind(&anniversary_type)
+    .bind(&marketing_consent)
+    .bind(&acquisition_channel)
+    .bind(&pref_product_type)
+    .bind(&pref_package_type)
+    .bind(&family_type)
+    .bind(&health_concern)
+    .bind(&sub_interest)
+    .bind(&purchase_cycle)
     .bind(&id)
-    .execute(&*state)
+    .execute(&mut *tx)
     .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .map_err(|e| e.to_string())?;
 
     if result.rows_affected() == 0 {
-        return Err(
-            "수정할 고객을 찾을 수 없습니다. (ID가 유효하지 않거나 삭제되었을 수 있습니다)"
-                .to_string(),
-        );
+        tx.rollback().await.map_err(|e| e.to_string())?;
+        return Err("수정할 고객을 찾을 수 없습니다.".to_string());
+    }
+
+    // 3. Log Important Changes
+    let mut logs = Vec::new();
+    if old.customer_name != name {
+        logs.push(("성함", Some(old.customer_name), Some(name.clone())));
+    }
+    if old.mobile_number != mobile {
+        logs.push(("휴대폰", Some(old.mobile_number), Some(mobile.clone())));
+    }
+    if old.membership_level.as_deref().unwrap_or("") != level {
+        logs.push(("멤버십", old.membership_level, Some(level.clone())));
+    }
+    if old.phone_number.as_deref().unwrap_or("") != phone.as_deref().unwrap_or("") {
+        logs.push(("일반전화", old.phone_number, phone.clone()));
+    }
+    if old.email.as_deref().unwrap_or("") != email.as_deref().unwrap_or("") {
+        logs.push(("이메일", old.email, email.clone()));
+    }
+    if old.address_primary.as_deref().unwrap_or("") != addr1.as_deref().unwrap_or("") {
+        logs.push(("기본주소", old.address_primary, addr1.clone()));
+    }
+    if old.address_detail.as_deref().unwrap_or("") != addr2.as_deref().unwrap_or("") {
+        logs.push(("상세주소", old.address_detail, addr2.clone()));
+    }
+
+    for (field, old_v, new_v) in logs {
+        sqlx::query("INSERT INTO customer_logs (customer_id, field_name, old_value, new_value) VALUES ($1, $2, $3, $4)")
+            .bind(&id)
+            .bind(field)
+            .bind(old_v)
+            .bind(new_v)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // Always sync to '기본' (Basic residential) address to keep record updated
@@ -1671,11 +1760,24 @@ async fn update_customer(
     .bind(&name)
     .bind(&mobile)
     .bind(&id)
-    .execute(&*state)
+    .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
 
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+async fn get_customer_logs(
+    state: State<'_, DbPool>,
+    customer_id: String,
+) -> Result<Vec<CustomerLog>, String> {
+    sqlx::query_as("SELECT * FROM customer_logs WHERE customer_id = $1 ORDER BY changed_at DESC")
+        .bind(customer_id)
+        .fetch_all(&*state)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1819,7 +1921,7 @@ async fn set_default_customer_address(
 #[tauri::command]
 async fn delete_customer(state: State<'_, DbPool>, id: String) -> Result<(), String> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let result = sqlx::query("DELETE FROM customers WHERE customer_id = $1")
+    let result = sqlx::query("UPDATE customers SET status = '말소' WHERE customer_id = $1")
         .bind(&id)
         .execute(&*state)
         .await
@@ -1827,7 +1929,7 @@ async fn delete_customer(state: State<'_, DbPool>, id: String) -> Result<(), Str
 
     if result.rows_affected() == 0 {
         return Err(format!(
-            "삭제할 고객을 찾을 수 없습니다. (ID: {}, 이미 삭제되었거나 유효하지 않습니다)",
+            "말소할 고객을 찾을 수 없습니다. (ID: {}, 이미 말소되었거나 유효하지 않습니다)",
             id
         ));
     }
@@ -1847,7 +1949,7 @@ async fn delete_customers_batch(
 
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
-    // 1. Optionally delete associated sales first
+    // 1. Optionally delete associated sales first (Physical delete for sales if requested)
     if also_delete_sales {
         let mut sales_builder: sqlx::QueryBuilder<sqlx::Postgres> =
             sqlx::QueryBuilder::new("DELETE FROM sales WHERE customer_id IN (");
@@ -1863,9 +1965,9 @@ async fn delete_customers_batch(
             .map_err(|e| e.to_string())?;
     }
 
-    // 2. Delete the customers
+    // 2. Soft delete the customers
     let mut query_builder: sqlx::QueryBuilder<sqlx::Postgres> =
-        sqlx::QueryBuilder::new("DELETE FROM customers WHERE customer_id IN (");
+        sqlx::QueryBuilder::new("UPDATE customers SET status = '말소' WHERE customer_id IN (");
 
     let mut separated = query_builder.separated(", ");
     for id in ids {
@@ -4558,6 +4660,7 @@ pub fn run() {
             get_customer,
             create_customer,
             update_customer,
+            get_customer_logs,
             delete_customer,
             delete_customers_batch,
             create_customer_address,
@@ -5982,10 +6085,10 @@ async fn restore_database(
 
     // CUSTOMERS
     restore_table!("customers", Customer, "고객 정보 복구 중", c, t, {
-        sqlx::query("INSERT INTO customers (customer_id, customer_name, mobile_number, membership_level, phone_number, email, zip_code, address_primary, address_detail, anniversary_date, anniversary_type, marketing_consent, acquisition_channel, pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle, memo, current_balance, join_date, created_at, updated_at) 
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) 
-             ON CONFLICT (customer_id) DO UPDATE SET customer_name=EXCLUDED.customer_name, updated_at=EXCLUDED.updated_at")
-            .bind(c.customer_id).bind(c.customer_name).bind(c.mobile_number).bind(c.membership_level).bind(c.phone_number).bind(c.email).bind(c.zip_code).bind(c.address_primary).bind(c.address_detail).bind(c.anniversary_date).bind(c.anniversary_type).bind(c.marketing_consent).bind(c.acquisition_channel).bind(c.pref_product_type).bind(c.pref_package_type).bind(c.family_type).bind(c.health_concern).bind(c.sub_interest).bind(c.purchase_cycle).bind(c.memo).bind(c.current_balance).bind(c.join_date).bind(c.created_at).bind(c.updated_at)
+        sqlx::query("INSERT INTO customers (customer_id, customer_name, mobile_number, membership_level, phone_number, email, zip_code, address_primary, address_detail, anniversary_date, anniversary_type, marketing_consent, acquisition_channel, pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle, memo, current_balance, join_date, status, created_at, updated_at) 
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) 
+             ON CONFLICT (customer_id) DO UPDATE SET customer_name=EXCLUDED.customer_name, status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
+            .bind(c.customer_id).bind(c.customer_name).bind(c.mobile_number).bind(c.membership_level).bind(c.phone_number).bind(c.email).bind(c.zip_code).bind(c.address_primary).bind(c.address_detail).bind(c.anniversary_date).bind(c.anniversary_type).bind(c.marketing_consent).bind(c.acquisition_channel).bind(c.pref_product_type).bind(c.pref_package_type).bind(c.family_type).bind(c.health_concern).bind(c.sub_interest).bind(c.purchase_cycle).bind(c.memo).bind(c.current_balance).bind(c.join_date).bind(c.status).bind(c.created_at).bind(c.updated_at)
             .execute(&mut **t).await.map_err(|e| e.to_string())?;
     });
 

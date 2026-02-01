@@ -301,3 +301,15 @@ CREATE TABLE IF NOT EXISTS product_price_history (
     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_history_product_id ON product_price_history(product_id);
+
+-- 18. Customer Change Logs (For Auditing)
+CREATE TABLE IF NOT EXISTS customer_logs (
+    log_id          SERIAL PRIMARY KEY,
+    customer_id     VARCHAR(20) NOT NULL,
+    field_name      VARCHAR(50) NOT NULL,
+    old_value       TEXT,
+    new_value       TEXT,
+    changed_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    changed_by      VARCHAR(50) -- Optional: record user who changed it
+);
+CREATE INDEX IF NOT EXISTS idx_customer_logs_customer_id ON customer_logs(customer_id);

@@ -152,17 +152,19 @@ const CustomerRegister = () => {
 
         // 최종 중복 체크
         const dups = await checkDuplicates();
-        if (dups.length > 0) {
-            const exactMatch = dups.find(d =>
-                d.customer_name === formData.name &&
-                (d.mobile_number === formData.mobile || d.phone_number === formData.mobile)
-            );
+        const exactMatch = dups.find(d =>
+            d.customer_name === formData.name &&
+            (d.mobile_number === formData.mobile || d.phone_number === formData.mobile)
+        );
 
-            let msg = exactMatch
-                ? '동일한 이름과 번호를 가진 고객이 이미 존재합니다. 그래도 등록하시겠습니까?'
-                : `중복 가능성이 있는 고객이 ${dups.length}명 발견되었습니다. 그래도 등록하시겠습니까?`;
-
-            if (!await showConfirm('중복 확인', msg)) return;
+        if (exactMatch) {
+            if (exactMatch.status === '말소') {
+                if (!await showConfirm('재등록 확인', '이전에 말소된 동일한 정보의 고객이 발견되었습니다.\n정보를 복구하여 재등록하시겠습니까?')) return;
+            } else {
+                if (!await showConfirm('중복 확인', '동일한 이름과 번호를 가진 활성 고객이 이미 존재합니다. 그래도 등록하시겠습니까?')) return;
+            }
+        } else if (dups.length > 0) {
+            if (!await showConfirm('중복 확인', `중복 가능성이 있는 고객이 ${dups.length}명 발견되었습니다. 그래도 등록하시겠습니까?`)) return;
         } else {
             if (!await showConfirm('확인', '고객을 등록하시겠습니까?')) return;
         }

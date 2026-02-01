@@ -57,6 +57,7 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='anniversary_date') THEN ALTER TABLE customers ADD COLUMN anniversary_date DATE; END IF;
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='anniversary_type') THEN ALTER TABLE customers ADD COLUMN anniversary_type VARCHAR(50); END IF;
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='marketing_consent') THEN ALTER TABLE customers ADD COLUMN marketing_consent BOOLEAN DEFAULT FALSE; END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='customers' AND column_name='status') THEN ALTER TABLE customers ADD COLUMN status VARCHAR(20) DEFAULT '정상'; END IF;
 
             -- Company Info
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='company_info' AND column_name='address') THEN ALTER TABLE company_info ADD COLUMN address VARCHAR(255); END IF;
@@ -456,6 +457,8 @@ pub struct Customer {
     #[sqlx(default)]
     pub join_date: Option<NaiveDate>,
     #[sqlx(default)]
+    pub status: Option<String>,
+    #[sqlx(default)]
     pub created_at: Option<NaiveDateTime>,
     #[sqlx(default)]
     pub updated_at: Option<NaiveDateTime>,
@@ -476,6 +479,17 @@ pub struct CustomerAddress {
     pub created_at: Option<NaiveDateTime>,
     #[sqlx(default)]
     pub updated_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct CustomerLog {
+    pub log_id: i32,
+    pub customer_id: String,
+    pub field_name: String,
+    pub old_value: Option<String>,
+    pub new_value: Option<String>,
+    pub changed_at: Option<NaiveDateTime>,
+    pub changed_by: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
