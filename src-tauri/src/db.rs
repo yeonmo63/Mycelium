@@ -4,25 +4,24 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{FromRow, Pool, Postgres};
 
+use crate::error::MyceliumResult;
+
 pub type DbPool = Pool<Postgres>;
 
-pub async fn init_pool(database_url: &str) -> Result<DbPool, sqlx::Error> {
-    PgPoolOptions::new()
+pub async fn init_pool(database_url: &str) -> MyceliumResult<DbPool> {
+    Ok(PgPoolOptions::new()
         .max_connections(20) // Optimized for 5+ clients (20 * 5 = 100 max)
         .acquire_timeout(std::time::Duration::from_secs(30))
         .idle_timeout(std::time::Duration::from_secs(120)) // Keep idle conns longer
         .max_lifetime(std::time::Duration::from_secs(300)) // Rotate connections every 5m
         .connect(database_url)
-        .await
+        .await?)
 }
 
-pub async fn init_database(pool: &DbPool) -> Result<(), String> {
+pub async fn init_database(pool: &DbPool) -> MyceliumResult<()> {
     // 1. Run Migrations (Schema + Triggers)
     // This will look for .sql files in the migrations directory and apply them.
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await
-        .map_err(|e| format!("Migration failed: {}", e))?;
+    sqlx::migrate!("./migrations").run(pool).await?;
 
     // 2. Initial Seeds: Ensure at least the primary admin exists
     let admin_username = std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
@@ -34,28 +33,24 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
 
     if admin_exists.0 == 0 {
         let admin_password = std::env::var("ADMIN_PASS").unwrap_or_else(|_| "admin".to_string());
-        let password_hash =
-            bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).map_err(|e| e.to_string())?;
+        let password_hash = bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST)?;
         sqlx::query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING")
             .bind(admin_username)
             .bind(password_hash)
             .bind("admin")
             .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
     let company_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM company_info")
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     if company_count.0 == 0 {
         sqlx::query("INSERT INTO company_info (company_name) VALUES ($1)")
             .bind("(주)대관령송암버섯")
             .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
     // 4. Stock Management Trigger

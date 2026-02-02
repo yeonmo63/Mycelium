@@ -1,6 +1,7 @@
 use crate::db::{
     ChurnRiskCustomer, CustomerLifecycle, DbPool, LtvCustomer, ProductAssociation, RawRfmData,
 };
+use crate::error::MyceliumResult;
 use crate::DB_MODIFIED;
 use std::sync::atomic::Ordering;
 use tauri::{command, State};
@@ -9,7 +10,7 @@ use tauri::{command, State};
 pub async fn get_ltv_analysis(
     state: State<'_, DbPool>,
     limit: i64,
-) -> Result<Vec<LtvCustomer>, String> {
+) -> MyceliumResult<Vec<LtvCustomer>> {
     let sql = r#"
         SELECT 
             c.customer_id, c.customer_name, c.membership_level, c.join_date,
@@ -29,18 +30,17 @@ pub async fn get_ltv_analysis(
         LIMIT $1
     "#;
 
-    sqlx::query_as::<_, LtvCustomer>(sql)
+    Ok(sqlx::query_as::<_, LtvCustomer>(sql)
         .bind(limit)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
 pub async fn get_churn_risk_customers(
     state: State<'_, DbPool>,
     days_threshold: i32,
-) -> Result<Vec<ChurnRiskCustomer>, String> {
+) -> MyceliumResult<Vec<ChurnRiskCustomer>> {
     let sql = r#"
         SELECT 
             c.customer_id, c.customer_name, c.mobile_number,
@@ -62,15 +62,14 @@ pub async fn get_churn_risk_customers(
         LIMIT 50
     "#;
 
-    sqlx::query_as::<_, ChurnRiskCustomer>(sql)
+    Ok(sqlx::query_as::<_, ChurnRiskCustomer>(sql)
         .bind(days_threshold)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
-pub async fn get_rfm_analysis(state: State<'_, DbPool>) -> Result<Vec<CustomerLifecycle>, String> {
+pub async fn get_rfm_analysis(state: State<'_, DbPool>) -> MyceliumResult<Vec<CustomerLifecycle>> {
     let raw_data = sqlx::query_as::<_, RawRfmData>(
         r#"
         SELECT 
@@ -85,8 +84,7 @@ pub async fn get_rfm_analysis(state: State<'_, DbPool>) -> Result<Vec<CustomerLi
         "#,
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     if raw_data.is_empty() {
         return Ok(vec![]);
@@ -171,28 +169,26 @@ pub async fn update_customer_level(
     state: State<'_, DbPool>,
     customer_id: String,
     level: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("UPDATE customers SET membership_level = $1 WHERE customer_id = $2")
         .bind(level)
         .bind(customer_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
 #[command]
-pub async fn get_claim_customer_count(state: State<'_, DbPool>) -> Result<i64, String> {
+pub async fn get_claim_customer_count(state: State<'_, DbPool>) -> MyceliumResult<i64> {
     let count: (i64,) = sqlx::query_as("SELECT COUNT(DISTINCT customer_id) FROM sales_claims")
         .fetch_one(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(count.0)
 }
 
 #[command]
-pub async fn get_claim_targets(state: State<'_, DbPool>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn get_claim_targets(state: State<'_, DbPool>) -> MyceliumResult<Vec<serde_json::Value>> {
     let list = sqlx::query_as::<_, (String, String, i64, i32)>(
         r#"
         SELECT c.customer_name, c.mobile_number, COUNT(sc.claim_id) as claim_count, SUM(sc.refund_amount)::integer as total_refund
@@ -201,8 +197,7 @@ pub async fn get_claim_targets(state: State<'_, DbPool>) -> Result<Vec<serde_jso
     "#,
     )
     .fetch_all(&*state)
-    .await
-    .unwrap_or_default();
+    .await?;
 
     Ok(list
         .into_iter()
@@ -213,7 +208,7 @@ pub async fn get_claim_targets(state: State<'_, DbPool>) -> Result<Vec<serde_jso
 #[command]
 pub async fn get_special_care_customers(
     state: State<'_, DbPool>,
-) -> Result<Vec<serde_json::Value>, String> {
+) -> MyceliumResult<Vec<serde_json::Value>> {
     let list = sqlx::query_as::<_, (String, String, i32)>(
         r#"
         SELECT c.customer_name, c.mobile_number, c.current_balance
@@ -221,8 +216,7 @@ pub async fn get_special_care_customers(
     "#,
     )
     .fetch_all(&*state)
-    .await
-    .unwrap_or_default();
+    .await?;
 
     Ok(list
         .into_iter()
@@ -237,7 +231,7 @@ pub async fn send_sms_simulation(
     recipients: Vec<String>,
     content: String,
     _template_code: Option<String>,
-) -> Result<serde_json::Value, String> {
+) -> MyceliumResult<serde_json::Value> {
     // Just a placeholder for actual SMS logic
     let count = recipients.len() * 10; // Mock count based on groups
     Ok(serde_json::json!({
@@ -251,7 +245,7 @@ pub async fn send_sms_simulation(
 #[command]
 pub async fn get_repurchase_candidates(
     state: State<'_, DbPool>,
-) -> Result<Vec<crate::db::RepurchaseCandidate>, String> {
+) -> MyceliumResult<Vec<crate::db::RepurchaseCandidate>> {
     let sql = r#"
         WITH stats AS (
             SELECT customer_id, product_name, COUNT(*) as p_count, MAX(order_date) as last_date,
@@ -271,22 +265,20 @@ pub async fn get_repurchase_candidates(
         ORDER BY predicted_days_remaining ASC
     "#;
 
-    sqlx::query_as::<_, crate::db::RepurchaseCandidate>(sql)
+    Ok(sqlx::query_as::<_, crate::db::RepurchaseCandidate>(sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
 pub async fn get_product_associations(
     state: State<'_, DbPool>,
-) -> Result<Vec<ProductAssociation>, String> {
+) -> MyceliumResult<Vec<ProductAssociation>> {
     let total_bundles: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM (SELECT DISTINCT customer_id, order_date FROM sales WHERE customer_id IS NOT NULL AND order_date >= (CURRENT_DATE - INTERVAL '12 months') AND status != '취소') as t",
     )
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     if total_bundles == 0 {
         return Ok(vec![]);
@@ -301,9 +293,8 @@ pub async fn get_product_associations(
         WHERE a.product_name < b.product_name GROUP BY a.product_name, b.product_name HAVING COUNT(*) >= 2 ORDER BY pair_count DESC, support_percent DESC LIMIT 50
     "#;
 
-    sqlx::query_as::<_, ProductAssociation>(sql)
+    Ok(sqlx::query_as::<_, ProductAssociation>(sql)
         .bind(total_bundles)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }

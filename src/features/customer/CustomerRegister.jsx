@@ -40,7 +40,13 @@ const CustomerRegister = () => {
     // Refs
     const nameInputRef = useRef(null);
     const mobileInputRef = useRef(null);
+    const emailInputRef = useRef(null);
+    const addr2InputRef = useRef(null);
+    const phoneInputRef = useRef(null);
     const ocrInputRef = useRef(null);
+
+    const [duplicateResults, setDuplicateResults] = useState([]);
+    const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
 
     useEffect(() => {
         // Auto-focus name on mount
@@ -60,6 +66,15 @@ const CustomerRegister = () => {
             ...prev,
             [name]: val
         }));
+    };
+
+    const handleKeyDown = (e, nextRef) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (nextRef && nextRef.current) {
+                nextRef.current.focus();
+            }
+        }
     };
 
     const handleAddressSearch = () => {
@@ -129,7 +144,8 @@ const CustomerRegister = () => {
 
         const dups = await checkDuplicates();
         if (dups.length > 0) {
-            await showAlert('중복 확인', `중복 가능성이 있는 고객이 ${dups.length}명 발견되었습니다. 이미 등록된 고객인지 확인해주세요.`);
+            setDuplicateResults(dups.slice(0, 5)); // Limit to top 5 for display
+            setIsDuplicateModalOpen(true);
         }
     };
 
@@ -150,25 +166,17 @@ const CustomerRegister = () => {
             }
         }
 
-        // 최종 중복 체크
-        const dups = await checkDuplicates();
-        const exactMatch = dups.find(d =>
-            d.customer_name === formData.name &&
-            (d.mobile_number === formData.mobile || d.phone_number === formData.mobile)
-        );
-
-        if (exactMatch) {
-            if (exactMatch.status === '말소') {
-                if (!await showConfirm('재등록 확인', '이전에 말소된 동일한 정보의 고객이 발견되었습니다.\n정보를 복구하여 재등록하시겠습니까?')) return;
-            } else {
-                if (!await showConfirm('중복 확인', '동일한 이름과 번호를 가진 활성 고객이 이미 존재합니다. 그래도 등록하시겠습니까?')) return;
+        // 최종 중복 체크 - 만약 이미 모달이 떠있지 않다면
+        if (!isDuplicateModalOpen) {
+            const dups = await checkDuplicates();
+            if (dups.length > 0) {
+                setDuplicateResults(dups);
+                setIsDuplicateModalOpen(true);
+                return;
             }
-        } else if (dups.length > 0) {
-            if (!await showConfirm('중복 확인', `중복 가능성이 있는 고객이 ${dups.length}명 발견되었습니다. 그래도 등록하시겠습니까?`)) return;
-        } else {
-            if (!await showConfirm('확인', '고객을 등록하시겠습니까?')) return;
         }
 
+        if (!await showConfirm('확인', '고객을 등록하시겠습니까?')) return;
         await submitRegistration();
     };
 
@@ -393,7 +401,9 @@ const CustomerRegister = () => {
                             <div className="lg:col-span-2 space-y-1">
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">고객명 <span className="text-rose-500">*</span></label>
                                 <div className="relative">
-                                    <input type="text" name="name" ref={nameInputRef} value={formData.name} onChange={handleChange} onBlur={handleBlurCheck}
+                                    <input type="text" name="name" ref={nameInputRef} value={formData.name}
+                                        onChange={handleChange} onBlur={handleBlurCheck}
+                                        onKeyDown={(e) => handleKeyDown(e, mobileInputRef)}
                                         placeholder="이름 입력" required
                                         className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-800 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                                 </div>
@@ -410,7 +420,8 @@ const CustomerRegister = () => {
                             </div>
                             <div className="lg:col-span-5 space-y-1">
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">이메일 주소</label>
-                                <input type="email" name="email" value={formData.email} onChange={handleChange}
+                                <input type="email" name="email" ref={emailInputRef} value={formData.email} onChange={handleChange}
+                                    onKeyDown={(e) => handleKeyDown(e, phoneInputRef)}
                                     placeholder="example@mail.com"
                                     className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                             </div>
@@ -431,7 +442,7 @@ const CustomerRegister = () => {
                             </div>
                             <div className="lg:col-span-5 space-y-1">
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">상세 주소</label>
-                                <input type="text" name="addr2" value={formData.addr2} onChange={handleChange}
+                                <input type="text" name="addr2" ref={addr2InputRef} value={formData.addr2} onChange={handleChange}
                                     placeholder="아파트 동/호수 등 상세 입력"
                                     className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                             </div>
@@ -440,13 +451,16 @@ const CustomerRegister = () => {
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-y-2 gap-x-4 mt-3">
                             <div className="lg:col-span-3 space-y-1">
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">일반 전화</label>
-                                <input type="tel" name="phone" value={formData.phone} onChange={handleChange}
+                                <input type="tel" name="phone" ref={phoneInputRef} value={formData.phone} onChange={handleChange}
+                                    onKeyDown={(e) => handleKeyDown(e, mobileInputRef)}
                                     placeholder="02-000-0000"
                                     className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-700 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
                             </div>
                             <div className="lg:col-span-3 space-y-1">
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">휴대 전화</label>
-                                <input type="tel" name="mobile" value={formData.mobile} onChange={handleChange} onBlur={handleBlurCheck}
+                                <input type="tel" name="mobile" ref={mobileInputRef} value={formData.mobile} onChange={handleChange}
+                                    onBlur={handleBlurCheck}
+                                    onKeyDown={(e) => handleKeyDown(e, emailInputRef)}
                                     placeholder="010-0000-0000"
                                     className="w-full h-10 bg-white border-indigo-200 border-2 rounded-xl font-black text-slate-900 px-4 focus:ring-4 focus:ring-indigo-500/20 transition-all shadow-sm" />
                             </div>
@@ -627,6 +641,79 @@ const CustomerRegister = () => {
                                 <div className="w-12 h-12 rounded-full bg-indigo-600 border-2 border-white" />
                             </button>
                             <div className="w-[88px]" /> {/* Spacer for centering */}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Duplicate Check Modal */}
+            {isDuplicateModalOpen && (
+                <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+                        onClick={() => {
+                            setIsDuplicateModalOpen(false);
+                            nameInputRef.current?.focus();
+                        }} />
+                    <div className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-300">
+                        <div className="p-8 pb-4">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600">
+                                    <span className="material-symbols-rounded">warning</span>
+                                </div>
+                                <h3 className="text-2xl font-black text-slate-800">중복 확인</h3>
+                            </div>
+                            <p className="text-slate-500 font-medium">
+                                중복 가능성이 있는 고객이 <span className="text-rose-600 font-black">{duplicateResults.length}명</span> 발견되었습니다.<br />
+                                이미 등록된 고객인지 확인해주세요.
+                            </p>
+                        </div>
+
+                        <div className="px-8 py-2 max-h-[400px] overflow-y-auto">
+                            <div className="rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+                                <table className="w-full border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-100">
+                                            <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">고객명</th>
+                                            <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">휴대폰</th>
+                                            <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">주소</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {duplicateResults.map((dup, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-4 py-3 font-black text-slate-700">{dup.customer_name}</td>
+                                                <td className="px-4 py-3 font-bold text-slate-500">{dup.mobile_number || dup.phone_number || '-'}</td>
+                                                <td className="px-4 py-3 text-sm font-medium text-slate-400 break-all">{dup.address_primary || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="p-8 pt-4 flex gap-3">
+                            <button
+                                onClick={() => {
+                                    setIsDuplicateModalOpen(false);
+                                    nameInputRef.current?.focus();
+                                }}
+                                className="flex-1 h-12 rounded-2xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                            >
+                                <span className="material-symbols-rounded">close</span> 취소 (이름 재입력)
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setIsDuplicateModalOpen(false);
+                                    // Move to next logical field to fill
+                                    if (!formData.mobile) {
+                                        mobileInputRef.current?.focus();
+                                    } else if (!formData.addr2) {
+                                        addr2InputRef.current?.focus();
+                                    }
+                                }}
+                                className="flex-1 h-12 rounded-2xl bg-indigo-600 text-white font-black hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+                            >
+                                <span className="material-symbols-rounded">forward</span> 계속 진행 (포커스 이동)
+                            </button>
                         </div>
                     </div>
                 </div>

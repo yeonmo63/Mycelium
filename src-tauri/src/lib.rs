@@ -1,6 +1,7 @@
 ﻿#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub mod commands;
 pub mod db;
+pub mod error;
 
 use commands::config::{get_db_url, SetupState};
 use std::sync::atomic::{AtomicBool, Ordering};

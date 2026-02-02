@@ -103,7 +103,7 @@ const CustomerBatch = () => {
             return;
         }
 
-        const isPermanentDelete = statusTab === '말소';
+        const isPermanentDelete = statusTab === '휴면';
         let msg = isPermanentDelete
             ? `선택한 ${selectedIds.size}명의 고객 정보를 영구 삭제하시겠습니까?`
             : `선택한 ${selectedIds.size}명의 고객을 '휴면' 상태로 전환하시겠습니까?`;
@@ -237,7 +237,8 @@ const CustomerBatch = () => {
     // --- Pagination Logic ---
     const filteredList = customerList.filter(c => {
         if (statusTab === '전체') return true;
-        return (c.status || '정상') === statusTab;
+        const displayStatus = (c.status || '정상') === '말소' ? '휴면' : (c.status || '정상');
+        return displayStatus === statusTab;
     });
 
     const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE) || 1;
@@ -330,14 +331,13 @@ const CustomerBatch = () => {
                     <button
                         key={tab}
                         onClick={() => {
-                            const dbStatus = tab === '휴면' ? '말소' : tab;
-                            setStatusTab(dbStatus);
+                            setStatusTab(tab);
                             setCurrentPage(1);
-                            if (dbStatus === '전체') setSelectedIds(new Set());
+                            if (tab === '전체') setSelectedIds(new Set());
                         }}
-                        className={`px-6 py-2 rounded-xl font-black text-sm transition-all ${statusTab === (tab === '휴면' ? '말소' : tab) ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
+                        className={`px-6 py-2 rounded-xl font-black text-sm transition-all ${statusTab === tab ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
                     >
-                        {tab} {statusTab === (tab === '휴면' ? '말소' : tab) && <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{filteredList.length}</span>}
+                        {tab} {statusTab === tab && <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{filteredList.length}</span>}
                     </button>
                 ))}
             </div>
@@ -357,7 +357,7 @@ const CustomerBatch = () => {
                                 </button>
                             )}
 
-                            {statusTab === '말소' && (
+                            {statusTab === '휴면' && (
                                 <>
                                     <button onClick={handleReactivate} className="h-8 px-4 rounded-lg bg-indigo-600 text-white font-black hover:bg-indigo-500 transition-all flex items-center gap-1 text-xs shadow-sm shadow-indigo-200">
                                         <span className="material-symbols-rounded text-sm">person_add</span> 정상 고객 전환
@@ -376,7 +376,7 @@ const CustomerBatch = () => {
                                 </>
                             )}
 
-                            {(statusTab === '정상' || statusTab === '말소') && <div className="h-4 w-px bg-slate-200 mx-1"></div>}
+                            {(statusTab === '정상' || statusTab === '휴면') && <div className="h-4 w-px bg-slate-200 mx-1"></div>}
 
                             <button onClick={handleExportCSV} className="h-8 px-3 rounded-lg bg-white border border-emerald-200 text-emerald-600 font-black hover:bg-emerald-50 hover:border-emerald-300 transition-all flex items-center gap-1 text-xs">
                                 <span className="material-symbols-rounded text-sm">download</span> 엑셀 저장
@@ -438,7 +438,7 @@ const CustomerBatch = () => {
                                             <td className="px-4 py-3 text-center text-slate-500 text-xs">{c.join_date || '-'}</td>
                                             <td className="px-4 py-3 text-center">
                                                 <span className={`px-2 py-0.5 rounded text-[10px] font-black ${(c.status || '정상') === '정상' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                                    {c.status || '정상'}
+                                                    {(c.status || '정상') === '말소' ? '휴면' : (c.status || '정상')}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-slate-600 text-xs truncate max-w-[300px]" title={`${c.address_primary || ''} ${c.address_detail || ''}`}>
