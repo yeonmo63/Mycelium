@@ -23,6 +23,18 @@ pub enum MyceliumError {
 
     #[error("Bcrypt error: {0}")]
     Bcrypt(#[from] bcrypt::BcryptError),
+
+    #[error("Analysis error: {0}")]
+    Polars(#[from] polars::prelude::PolarsError),
+
+    #[error("Network error: {0}")]
+    Network(#[from] reqwest::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Base64 error: {0}")]
+    Base64(#[from] base64::DecodeError),
 }
 
 // Custom Serialize implementation to make MyceliumError compatible with Tauri commands

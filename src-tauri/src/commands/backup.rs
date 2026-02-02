@@ -1,8 +1,10 @@
+#![allow(non_snake_case)]
 use crate::db::{
     CompanyInfo, Consultation, Customer, CustomerAddress, CustomerLedger, CustomerLog, DbPool,
     Event, Expense, ExperienceProgram, InventoryLog, Product, ProductPriceHistory, Sales, Schedule,
     User, Vendor,
 };
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::{BACKUP_CANCELLED, DB_MODIFIED, IS_EXITING};
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use flate2::read::GzDecoder;
@@ -102,7 +104,7 @@ pub async fn cancel_backup_restore() {
 }
 
 #[command]
-pub async fn confirm_exit(app: tauri::AppHandle, skip_auto_backup: bool) -> Result<(), String> {
+pub async fn confirm_exit(app: tauri::AppHandle, skip_auto_backup: bool) -> MyceliumResult<()> {
     // Prevent re-entry
     if IS_EXITING.load(Ordering::Relaxed) {
         return Ok(());
@@ -140,7 +142,7 @@ pub async fn confirm_exit(app: tauri::AppHandle, skip_auto_backup: bool) -> Resu
 
         if let Some(pool) = app.try_state::<DbPool>() {
             match backup_database_internal(
-                None,
+                Some(app.clone()),
                 &*pool,
                 backup_path.to_string_lossy().to_string(),
                 since,
@@ -164,7 +166,7 @@ pub async fn confirm_exit(app: tauri::AppHandle, skip_auto_backup: bool) -> Resu
 pub async fn trigger_auto_backup(
     app: tauri::AppHandle,
     state: State<'_, DbPool>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     if !DB_MODIFIED.load(Ordering::Relaxed) {
         return Ok("No changes".to_string());
     }
@@ -226,7 +228,8 @@ pub async fn trigger_auto_backup(
                         .filter_map(|e| e.ok())
                         .filter(|e| {
                             e.file_name().to_string_lossy().starts_with("auto_backup_")
-                                && e.file_name().to_string_lossy().ends_with(".sql")
+                                && (e.file_name().to_string_lossy().ends_with(".sql")
+                                    || e.file_name().to_string_lossy().ends_with(".gz"))
                         })
                         .collect();
                     backups.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
@@ -236,10 +239,10 @@ pub async fn trigger_auto_backup(
                 }
                 Ok(format!("Backup created: {:?}", backup_path))
             }
-            Err(e) => Err(format!("Backup failed: {}", e)),
+            Err(e) => Err(MyceliumError::Internal(format!("Backup failed: {}", e))),
         }
     } else {
-        Err("Config dir not found".to_string())
+        Err(MyceliumError::Internal("Config dir not found".to_string()))
     }
 }
 
@@ -247,21 +250,20 @@ pub async fn trigger_auto_backup(
 pub async fn restore_database_sql(
     state: State<'_, DbPool>,
     path: String,
-) -> Result<String, String> {
-    let sql = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+) -> MyceliumResult<String> {
+    let sql = std::fs::read_to_string(&path)
+        .map_err(|e| MyceliumError::Internal(format!("Failed to read SQL file: {}", e)))?;
 
-    let mut conn = state.acquire().await.map_err(|e| e.to_string())?;
-    sqlx::query(&sql)
-        .execute(&mut *conn)
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut conn = state.acquire().await?;
+    sqlx::query(&sql).execute(&mut *conn).await?;
 
     Ok("복구가 완료되었습니다. 서비스를 다시 시작해 주세요.".to_string())
 }
 
 #[command]
-pub async fn delete_backup(path: String) -> Result<(), String> {
-    std::fs::remove_file(path).map_err(|e| e.to_string())?;
+pub async fn delete_backup(path: String) -> MyceliumResult<()> {
+    std::fs::remove_file(path)
+        .map_err(|e| MyceliumError::Internal(format!("Failed to delete backup file: {}", e)))?;
     Ok(())
 }
 
@@ -299,7 +301,7 @@ fn format_and_push(
 }
 
 #[command]
-pub async fn get_auto_backups(app: tauri::AppHandle) -> Result<Vec<AutoBackupItem>, String> {
+pub async fn get_auto_backups(app: tauri::AppHandle) -> MyceliumResult<Vec<AutoBackupItem>> {
     let mut list = Vec::new();
 
     if let Ok(config_dir) = app.path().app_config_dir() {
@@ -360,12 +362,12 @@ pub async fn get_auto_backups(app: tauri::AppHandle) -> Result<Vec<AutoBackupIte
 }
 
 #[command]
-pub async fn get_internal_backup_path(app: tauri::AppHandle) -> Result<String, String> {
+pub async fn get_internal_backup_path(app: tauri::AppHandle) -> MyceliumResult<String> {
     if let Ok(config_dir) = app.path().app_config_dir() {
         let daily_dir = config_dir.join("daily_backups");
         return Ok(daily_dir.to_string_lossy().to_string());
     }
-    Err("Config dir not found".to_string())
+    Err(MyceliumError::Internal("Config dir not found".to_string()))
 }
 
 #[command]
@@ -374,7 +376,7 @@ pub async fn run_daily_custom_backup(
     state: State<'_, DbPool>,
     is_incremental: bool,
     use_compression: bool,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     run_backup_logic(app, state, is_incremental, use_compression, true).await
 }
 
@@ -382,7 +384,7 @@ pub async fn run_daily_custom_backup(
 pub async fn check_daily_backup(
     app: tauri::AppHandle,
     state: State<'_, DbPool>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     run_backup_logic(app, state, true, true, false).await
 }
 
@@ -392,7 +394,7 @@ async fn run_backup_logic(
     is_incremental: bool,
     use_compression: bool,
     force: bool,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     if let Ok(config_dir) = app.path().app_config_dir() {
         let daily_dir = config_dir.join("daily_backups");
         if !daily_dir.exists() {
@@ -459,26 +461,31 @@ async fn run_backup_logic(
                     }
                     return Ok(msg);
                 }
-                Err(e) => return Err(format!("Daily backup failed: {}", e)),
+                Err(e) => {
+                    return Err(MyceliumError::Internal(format!(
+                        "Daily backup failed: {}",
+                        e
+                    )))
+                }
             }
         }
         Ok("Today's backup already exists".to_string())
     } else {
-        Err("Config dir not found".to_string())
+        Err(MyceliumError::Internal("Config dir not found".to_string()))
     }
 }
 
 // REST OF THE FILE TO BE ADDED
 
 #[command]
-pub async fn check_db_location(state: State<'_, DbPool>) -> Result<DbLocationInfo, String> {
+pub async fn check_db_location(state: State<'_, DbPool>) -> MyceliumResult<DbLocationInfo> {
     let pool = &*state;
 
     // 1. Query PostgreSQL for server address
     let server_addr: Option<(Option<String>,)> = sqlx::query_as("SELECT inet_server_addr()::text")
         .fetch_optional(pool)
         .await
-        .map_err(|e| format!("Failed to query server address: {}", e))?;
+        .map_err(|e| MyceliumError::Internal(format!("Failed to query server address: {}", e)))?;
 
     let db_host = server_addr
         .and_then(|r| r.0)
@@ -491,7 +498,7 @@ pub async fn check_db_location(state: State<'_, DbPool>) -> Result<DbLocationInf
         || db_host == "localhost"
         || db_host == "127.0.0.1"
         || db_host == "::1"
-        || db_host.starts_with("192.168.") && db_host == get_local_ip().unwrap_or_default();
+        || (db_host.starts_with("192.168.") && db_host == get_local_ip().unwrap_or_default());
 
     println!("[DB Location] is_local: {}", is_local);
 
@@ -565,7 +572,7 @@ pub async fn backup_database(
     path: String,
     is_incremental: bool,
     use_compression: bool,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     let since = if is_incremental {
         get_last_backup_at(&app)
     } else {
@@ -597,23 +604,28 @@ fn get_last_backup_at(app: &tauri::AppHandle) -> Option<chrono::NaiveDateTime> {
     None
 }
 
-fn update_last_backup_at(app: &tauri::AppHandle, ts: chrono::NaiveDateTime) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+fn update_last_backup_at(app: &tauri::AppHandle, ts: chrono::NaiveDateTime) -> MyceliumResult<()> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
     let mut config_data = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| MyceliumError::Internal(e.to_string()))?;
         serde_json::from_str::<serde_json::Value>(&content).unwrap_or(serde_json::json!({}))
     } else {
         serde_json::json!({})
     };
     config_data["last_backup_at"] = serde_json::json!(ts.format("%Y-%m-%dT%H:%M:%S").to_string());
-    let content = serde_json::to_string_pretty(&config_data).map_err(|e| e.to_string())?;
-    std::fs::write(&config_path, content).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&config_data)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    std::fs::write(&config_path, content).map_err(|e| MyceliumError::Internal(e.to_string()))?;
     Ok(())
 }
 
 #[command]
-pub async fn get_backup_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub async fn get_backup_status(app: tauri::AppHandle) -> MyceliumResult<serde_json::Value> {
     let last_at = get_last_backup_at(&app);
     Ok(serde_json::json!({
         "last_backup_at": last_at.map(|ts| ts.format("%Y-%m-%dT%H:%M:%S").to_string()),
@@ -628,7 +640,7 @@ async fn backup_database_internal(
     path: String,
     since: Option<chrono::NaiveDateTime>,
     use_compression: bool,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     println!("[Backup] Starting database backup to: {}", path);
 
     let emit_progress = |processed: i64, total: i64, message: &str| {
@@ -668,60 +680,46 @@ async fn backup_database_internal(
 
     let count_users: (i64,) = sqlx::query_as(&count_query("users"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_products: (i64,) = sqlx::query_as(&count_query("products"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_customers: (i64,) = sqlx::query_as(&count_query("customers"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_addresses: (i64,) = sqlx::query_as(&count_query("customer_addresses"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_sales: (i64,) = sqlx::query_as(&count_query("sales"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_events: (i64,) = sqlx::query_as(&count_query("event"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_schedules: (i64,) = sqlx::query_as(&count_query("schedules"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_company: (i64,) = sqlx::query_as(&count_query("company_info"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_expenses: (i64,) = sqlx::query_as(&count_query("expenses"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_purchases: (i64,) = sqlx::query_as(&count_query("purchases"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_consultations: (i64,) = sqlx::query_as(&count_query("consultations"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_claims: (i64,) = sqlx::query_as(&count_query("sales_claims"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_inventory: (i64,) = sqlx::query_as(&count_query("inventory_logs"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_ledger: (i64,) = sqlx::query_as(&count_query("customer_ledger"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_customer_logs: (i64,) = sqlx::query_as(&if let Some(s) = since {
         format!(
             "SELECT COUNT(*) FROM customer_logs WHERE changed_at > '{}'",
@@ -731,37 +729,30 @@ async fn backup_database_internal(
         "SELECT COUNT(*) FROM customer_logs".to_string()
     })
     .fetch_one(pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
     let count_vendors: (i64,) = sqlx::query_as(&count_query("vendors"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_exp_programs: (i64,) = sqlx::query_as(&count_query("experience_programs"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_exp_reservations: (i64,) = sqlx::query_as(&count_query("experience_reservations"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_price_history: (i64,) = sqlx::query_as(&count_query("product_price_history"))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let count_deletions: (i64,) = if let Some(s) = since {
         sqlx::query_as(&format!(
             "SELECT COUNT(*) FROM deletion_log WHERE deleted_at > '{}'",
             s.format("%Y-%m-%d %H:%M:%S")
         ))
         .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?
+        .await?
     } else {
         sqlx::query_as("SELECT COUNT(*) FROM deletion_log")
             .fetch_one(pool)
-            .await
-            .map_err(|e| e.to_string())?
+            .await?
     };
 
     let total_records = count_users.0
@@ -787,7 +778,8 @@ async fn backup_database_internal(
 
     let mut processed = 0i64;
 
-    let file = std::fs::File::create(&path).map_err(|e| format!("Failed to create file: {}", e))?;
+    let file = std::fs::File::create(&path)
+        .map_err(|e| MyceliumError::Internal(format!("Failed to create file: {}", e)))?;
 
     let mut writer: BufWriter<Box<dyn std::io::Write + Send>> = if use_compression {
         let encoder = GzEncoder::new(file, Compression::fast());
@@ -796,32 +788,37 @@ async fn backup_database_internal(
         BufWriter::with_capacity(1024 * 1024, Box::new(file))
     };
 
-    writeln!(writer, "{{").map_err(|e| e.to_string())?;
-    writeln!(writer, "  \"version\": \"2.2\",").map_err(|e| e.to_string())?;
-    writeln!(writer, "  \"total_records\": {},", total_records).map_err(|e| e.to_string())?;
+    writeln!(writer, "{{").map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    writeln!(writer, "  \"version\": \"2.2\",")
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    writeln!(writer, "  \"total_records\": {},", total_records)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     writeln!(
         writer,
         "  \"timestamp\": \"{}\",",
         chrono::Local::now().to_rfc3339()
     )
-    .map_err(|e| e.to_string())?;
-    writeln!(writer, "  \"is_incremental\": {},", since.is_some()).map_err(|e| e.to_string())?;
+    .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    writeln!(writer, "  \"is_incremental\": {},", since.is_some())
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     if let Some(s) = since {
         writeln!(
             writer,
             "  \"since\": \"{}\",",
             s.format("%Y-%m-%dT%H:%M:%S")
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     } else {
-        writeln!(writer, "  \"since\": null,").map_err(|e| e.to_string())?;
+        writeln!(writer, "  \"since\": null,")
+            .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     }
 
     macro_rules! batch_table_internal {
         ($table:expr, $type:ty, $query:expr, $field:expr, $msg:expr, $count:expr, $time_col:expr) => {{
             println!("[Backup] Start: Table {}", $table);
             emit_progress(processed, total_records, $msg);
-            write!(writer, "  \"{}\": [\n", $field).map_err(|e| e.to_string())?;
+            write!(writer, "  \"{}\": [\n", $field)
+                .map_err(|e| MyceliumError::Internal(e.to_string()))?;
             let mut first_record = true;
             let base_query = if let Some(s) = since {
                 format!(
@@ -837,17 +834,22 @@ async fn backup_database_internal(
             while let Some(record) = rows.next().await {
                 if BACKUP_CANCELLED.load(Ordering::Relaxed) {
                     println!("[Backup] CANCELLED during table {}", $table);
-                    return Err("사용자에 의해 백업이 중단되었습니다.".to_string());
+                    return Err(MyceliumError::Internal(
+                        "사용자에 의해 백업이 중단되었습니다.".to_string(),
+                    ));
                 }
-                let record = record.map_err(|e| format!("Fetch from {} failed: {}", $table, e))?;
+                let record = record.map_err(|e| {
+                    MyceliumError::Internal(format!("Fetch from {} failed: {}", $table, e))
+                })?;
 
                 if !first_record {
-                    write!(writer, ",\n").map_err(|e| e.to_string())?;
+                    write!(writer, ",\n").map_err(|e| MyceliumError::Internal(e.to_string()))?;
                 }
                 first_record = false;
 
-                write!(writer, "    ").map_err(|e| e.to_string())?;
-                serde_json::to_writer(&mut writer, &record).map_err(|e| e.to_string())?;
+                write!(writer, "    ").map_err(|e| MyceliumError::Internal(e.to_string()))?;
+                serde_json::to_writer(&mut writer, &record)
+                    .map_err(|e| MyceliumError::Internal(e.to_string()))?;
                 processed += 1;
 
                 if processed % 10000 == 0 {
@@ -864,7 +866,7 @@ async fn backup_database_internal(
                 }
             }
             emit_progress(processed, total_records, $msg);
-            writeln!(writer, "\n  ],").map_err(|e| e.to_string())?;
+            writeln!(writer, "\n  ],").map_err(|e| MyceliumError::Internal(e.to_string()))?;
             println!("[Backup] End: Table {} (Records: {})", $table, $count);
         }};
     }
@@ -1053,19 +1055,15 @@ async fn backup_database_internal(
         "deleted_at"
     );
 
-    writeln!(writer, "  \"backup_complete\": true").map_err(|e| e.to_string())?;
-    writeln!(writer, "}}").map_err(|e| e.to_string())?;
+    writeln!(writer, "  \"backup_complete\": true")
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    writeln!(writer, "}}").map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     // Flush the buffer and finish compression if needed
     let inner = writer
         .into_inner()
-        .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+        .map_err(|e| MyceliumError::Internal(format!("Failed to flush buffer: {}", e)))?;
 
-    // We can't easily call .finish() on Box<dyn Write>, but we can handle it earlier
-    // or just let it drop. For GzEncoder, it should flush on drop but .finish() is better.
-    // However, our Boxed writer hides the .finish() method.
-    // Let's use as_any or better, use a local variable for the encoder if possible.
-    // For now, dropping the writer is usually enough for BufWriter + File/Encoder.
     drop(inner);
 
     emit_progress(total_records, total_records, "백업 완료!");
@@ -1083,7 +1081,7 @@ pub async fn restore_database(
     app: tauri::AppHandle,
     state: State<'_, DbPool>,
     path: String,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     let pool = &*state;
 
     let emit_progress = |processed: i64, total: i64, message: &str| {
@@ -1107,21 +1105,24 @@ pub async fn restore_database(
     // 1. Detect Incremental / Full and Total Filesize
     let (is_incremental, total_bytes, is_gzipped) = {
         let mut magic = [0u8; 2];
-        let mut f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        let mut f =
+            std::fs::File::open(&path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
         let is_gzipped_inner = f.read_exact(&mut magic).is_ok() && magic == [0x1f, 0x8b];
         let file_size = std::fs::File::open(&path)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| MyceliumError::Internal(e.to_string()))?
             .metadata()
-            .map_err(|e| e.to_string())?
+            .map_err(|e| MyceliumError::Internal(e.to_string()))?
             .len();
 
         // Peek for incremental flag
         let reader: Box<dyn std::io::Read> = if is_gzipped_inner {
             Box::new(GzDecoder::new(
-                std::fs::File::open(&path).map_err(|e| e.to_string())?,
+                std::fs::File::open(&path).map_err(|e| MyceliumError::Internal(e.to_string()))?,
             ))
         } else {
-            Box::new(std::fs::File::open(&path).map_err(|e| e.to_string())?)
+            Box::new(
+                std::fs::File::open(&path).map_err(|e| MyceliumError::Internal(e.to_string()))?,
+            )
         };
         let mut r = std::io::BufReader::new(reader);
         let mut header_buf = vec![0u8; 4096];
@@ -1138,10 +1139,7 @@ pub async fn restore_database(
 
     let start_time = chrono::Local::now().timestamp_millis();
 
-    let mut tx = pool.begin().await.map_err(|e| {
-        println!("[Restore] Transaction start failed: {}", e);
-        e.to_string()
-    })?;
+    let mut tx = pool.begin().await?;
 
     // Set short lock timeout and disable triggers for performance
     let _ = sqlx::query("SET lock_timeout = '30s'")
@@ -1154,7 +1152,9 @@ pub async fn restore_database(
 
     if !is_incremental {
         if BACKUP_CANCELLED.load(Ordering::Relaxed) {
-            return Err("복구가 취소되었습니다.".to_string());
+            return Err(MyceliumError::Internal(
+                "복구가 취소되었습니다.".to_string(),
+            ));
         }
 
         // 1.1 Force disconnect other connections to acquire exclusive lock for TRUNCATE
@@ -1176,7 +1176,7 @@ pub async fn restore_database(
             .await
             .map_err(|e| {
                 println!("[Restore] Truncate failed: {}", e);
-                format!("데이터 삭제 실패: 다른 사용자가 데이터를 사용 중입니다. 모든 창을 닫고 다시 시도해 주세요. (에러: {})", e)
+                MyceliumError::Internal(format!("데이터 삭제 실패: 다른 사용자가 데이터를 사용 중입니다. 모든 창을 닫고 다시 시도해 주세요. (에러: {})", e))
             })?;
     }
 
@@ -1196,7 +1196,7 @@ pub async fn restore_database(
     }
 
     let byte_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(&path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     let base_reader = CountingReader {
         inner: file,
@@ -1215,7 +1215,7 @@ pub async fn restore_database(
     macro_rules! restore_table {
         ($marker:expr, $type:ty, $msg:expr, $item:ident, $tx:ident, $logic:block) => {{
             if BACKUP_CANCELLED.load(Ordering::Relaxed) {
-                return Err("복구가 취소되었습니다.".to_string());
+                return Err(MyceliumError::Internal("복구가 취소되었습니다.".to_string()));
             }
 
             let mut current_bytes = byte_count.load(Ordering::Relaxed);
@@ -1241,7 +1241,7 @@ pub async fn restore_database(
                 search_count += 1;
                 if search_count % 500 == 0 {
                     if BACKUP_CANCELLED.load(Ordering::Relaxed) {
-                        return Err("복구가 취소되었습니다.".to_string());
+                        return Err(MyceliumError::Internal("복구가 취소되었습니다.".to_string()));
                     }
                     current_bytes = byte_count.load(Ordering::Relaxed);
                     emit_progress(
@@ -1298,7 +1298,7 @@ pub async fn restore_database(
                     }
 
                     if BACKUP_CANCELLED.load(Ordering::Relaxed) {
-                        return Err("복구가 취소되었습니다.".to_string());
+                        return Err(MyceliumError::Internal("복구가 취소되었습니다.".to_string()));
                     }
 
                     // Clean the line for JSON parsing (remove trailing/leading commas)
@@ -1312,7 +1312,7 @@ pub async fn restore_database(
                             // If it's just the end brace of the main object, it might be the end of file
                             if clean == "}" { break; }
                             println!("[Restore] JSON Error in {}: {}. Line: {}", $marker, e, clean);
-                            return Err(format!("데이터 분석 오류 ({}): {}", $marker, e));
+                            return Err(MyceliumError::Internal(format!("데이터 분석 오류 ({}): {}", $marker, e)));
                         }
                     };
 
@@ -1344,7 +1344,7 @@ pub async fn restore_database(
     restore_table!("users", User, "사용자 정보 복구 중", u, t, {
         sqlx::query("INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO UPDATE SET password_hash=EXCLUDED.password_hash, updated_at=EXCLUDED.updated_at")
             .bind(u.id).bind(u.username).bind(u.password_hash).bind(u.role).bind(u.created_at).bind(u.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // PRODUCTS
@@ -1353,7 +1353,7 @@ pub async fn restore_database(
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) 
              ON CONFLICT (product_id) DO UPDATE SET product_name=EXCLUDED.product_name, status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
             .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.item_type).bind(p.product_code).bind(p.status).bind(p.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // CUSTOMERS
@@ -1362,7 +1362,7 @@ pub async fn restore_database(
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) 
              ON CONFLICT (customer_id) DO UPDATE SET customer_name=EXCLUDED.customer_name, status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
             .bind(c.customer_id).bind(c.customer_name).bind(c.mobile_number).bind(c.membership_level).bind(c.phone_number).bind(c.email).bind(c.zip_code).bind(c.address_primary).bind(c.address_detail).bind(c.anniversary_date).bind(c.anniversary_type).bind(c.marketing_consent).bind(c.acquisition_channel).bind(c.pref_product_type).bind(c.pref_package_type).bind(c.family_type).bind(c.health_concern).bind(c.sub_interest).bind(c.purchase_cycle).bind(c.memo).bind(c.current_balance).bind(c.join_date).bind(c.status).bind(c.created_at).bind(c.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // ADDRESSES
@@ -1377,7 +1377,7 @@ pub async fn restore_database(
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) 
              ON CONFLICT (address_id) DO UPDATE SET address_primary=EXCLUDED.address_primary, updated_at=EXCLUDED.updated_at")
             .bind(a.address_id).bind(a.customer_id).bind(a.address_alias).bind(a.recipient_name).bind(a.mobile_number).bind(a.zip_code).bind(a.address_primary).bind(a.address_detail).bind(a.is_default).bind(a.shipping_memo).bind(a.created_at).bind(a.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1387,21 +1387,21 @@ pub async fn restore_database(
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) 
              ON CONFLICT (sales_id) DO UPDATE SET status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
             .bind(&s.sales_id).bind(&s.customer_id).bind(&s.status).bind(s.order_date).bind(&s.product_name).bind(&s.specification).bind(s.unit_price).bind(s.quantity).bind(s.total_amount).bind(s.discount_rate).bind(&s.courier_name).bind(&s.tracking_number).bind(&s.memo).bind(&s.shipping_name).bind(&s.shipping_zip_code).bind(&s.shipping_address_primary).bind(&s.shipping_address_detail).bind(&s.shipping_mobile_number).bind(s.shipping_date).bind(s.paid_amount).bind(&s.payment_status).bind(s.updated_at).bind(&s.product_code).bind(s.product_id)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // EVENTS
     restore_table!("events", Event, "행사 정보 복구 중", e, t, {
         sqlx::query("INSERT INTO event (event_id, event_name, organizer, manager_name, manager_contact, location_address, location_detail, start_date, end_date, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (event_id) DO UPDATE SET event_name=EXCLUDED.event_name, updated_at=EXCLUDED.updated_at")
             .bind(e.event_id).bind(e.event_name).bind(e.organizer).bind(e.manager_name).bind(e.manager_contact).bind(e.location_address).bind(e.location_detail).bind(e.start_date).bind(e.end_date).bind(e.memo).bind(e.created_at).bind(e.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // SCHEDULES
     restore_table!("schedules", Schedule, "일정 정보 복구 중", s, t, {
         sqlx::query("INSERT INTO schedules (schedule_id, title, description, start_time, end_time, status, created_at, updated_at, related_type, related_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (schedule_id) DO UPDATE SET title=EXCLUDED.title, updated_at=EXCLUDED.updated_at")
             .bind(s.schedule_id).bind(s.title).bind(s.description).bind(s.start_time).bind(s.end_time).bind(s.status).bind(s.created_at).bind(s.updated_at).bind(s.related_type).bind(s.related_id)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // COMPANY_INFO
@@ -1414,7 +1414,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO company_info (id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET company_name=EXCLUDED.company_name, updated_at=EXCLUDED.updated_at")
             .bind(c.id).bind(c.company_name).bind(c.representative_name).bind(c.address).bind(c.business_type).bind(c.item).bind(c.phone_number).bind(c.mobile_number).bind(c.business_reg_number).bind(c.registration_date).bind(c.memo).bind(c.created_at).bind(c.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1422,7 +1422,7 @@ pub async fn restore_database(
     restore_table!("expenses", Expense, "지출 내역 복구 중", e, t, {
         sqlx::query("INSERT INTO expenses (expense_id, expense_date, category, memo, amount, payment_method, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (expense_id) DO UPDATE SET amount=EXCLUDED.amount, updated_at=EXCLUDED.updated_at")
             .bind(e.expense_id).bind(e.expense_date).bind(e.category).bind(e.memo).bind(e.amount).bind(e.payment_method).bind(e.created_at).bind(e.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // PURCHASES
@@ -1435,7 +1435,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO purchases (purchase_id, purchase_date, vendor_id, item_name, specification, quantity, unit_price, total_amount, payment_status, memo, inventory_synced, material_item_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (purchase_id) DO UPDATE SET total_amount=EXCLUDED.total_amount, updated_at=EXCLUDED.updated_at")
             .bind(p.purchase_id).bind(p.purchase_date).bind(p.vendor_id).bind(p.item_name).bind(p.specification).bind(p.quantity).bind(p.unit_price).bind(p.total_amount).bind(p.payment_status).bind(p.memo).bind(p.inventory_synced).bind(p.material_item_id).bind(p.created_at).bind(p.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1449,7 +1449,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO consultations (consult_id, customer_id, guest_name, contact, channel, counselor_name, category, title, content, answer, status, priority, consult_date, follow_up_date, created_at, updated_at, sentiment) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT (consult_id) DO UPDATE SET status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
             .bind(c.consult_id).bind(c.customer_id).bind(c.guest_name).bind(c.contact).bind(c.channel).bind(c.counselor_name).bind(c.category).bind(c.title).bind(c.content).bind(c.answer).bind(c.status).bind(c.priority).bind(c.consult_date).bind(c.follow_up_date).bind(c.created_at).bind(c.updated_at).bind(c.sentiment)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1463,7 +1463,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO sales_claims (claim_id, sales_id, customer_id, claim_type, claim_status, reason_category, quantity, refund_amount, is_inventory_recovered, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (claim_id) DO UPDATE SET claim_status=EXCLUDED.claim_status, updated_at=EXCLUDED.updated_at")
             .bind(c.claim_id).bind(c.sales_id).bind(c.customer_id).bind(c.claim_type).bind(c.claim_status).bind(c.reason_category).bind(c.quantity).bind(c.refund_amount).bind(c.is_inventory_recovered).bind(c.memo).bind(c.created_at).bind(c.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1477,7 +1477,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO inventory_logs (log_id, product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, reference_id, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (log_id) DO UPDATE SET current_stock=EXCLUDED.current_stock, updated_at=EXCLUDED.updated_at")
             .bind(l.log_id).bind(l.product_id).bind(l.product_name).bind(l.specification).bind(l.product_code).bind(l.change_type).bind(l.change_quantity).bind(l.current_stock).bind(l.reference_id).bind(l.memo).bind(l.created_at).bind(l.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1491,7 +1491,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO customer_ledger (ledger_id, customer_id, transaction_date, transaction_type, amount, description, reference_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (ledger_id) DO UPDATE SET amount=EXCLUDED.amount, updated_at=EXCLUDED.updated_at")
             .bind(l.ledger_id).bind(l.customer_id).bind(l.transaction_date).bind(l.transaction_type).bind(l.amount).bind(l.description).bind(l.reference_id).bind(l.created_at).bind(l.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1505,7 +1505,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO customer_logs (log_id, customer_id, field_name, old_value, new_value, changed_at, changed_by) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (log_id) DO NOTHING")
             .bind(l.log_id).bind(l.customer_id).bind(l.field_name).bind(l.old_value).bind(l.new_value).bind(l.changed_at).bind(l.changed_by)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1513,7 +1513,7 @@ pub async fn restore_database(
     restore_table!("vendors", Vendor, "거래처 정보 복구 중", v, t, {
         sqlx::query("INSERT INTO vendors (vendor_id, vendor_name, business_number, representative, mobile_number, email, address, main_items, memo, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (vendor_id) DO UPDATE SET vendor_name=EXCLUDED.vendor_name, updated_at=EXCLUDED.updated_at")
             .bind(v.vendor_id).bind(v.vendor_name).bind(v.business_number).bind(v.representative).bind(v.mobile_number).bind(v.email).bind(v.address).bind(v.main_items).bind(v.memo).bind(v.is_active).bind(v.created_at).bind(v.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
     });
 
     // EXPERIENCE PROGRAMS
@@ -1526,7 +1526,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO experience_programs (program_id, program_name, description, duration_min, max_capacity, price_per_person, is_active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (program_id) DO UPDATE SET program_name=EXCLUDED.program_name, updated_at=EXCLUDED.updated_at")
             .bind(p.program_id).bind(p.program_name).bind(p.description).bind(p.duration_min).bind(p.max_capacity).bind(p.price_per_person).bind(p.is_active).bind(p.created_at).bind(p.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1540,7 +1540,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO experience_reservations (reservation_id, program_id, customer_id, guest_name, guest_contact, reservation_date, reservation_time, participant_count, total_amount, status, payment_status, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (reservation_id) DO UPDATE SET status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
             .bind(r.reservation_id).bind(r.program_id).bind(r.customer_id).bind(r.guest_name).bind(r.guest_contact).bind(r.reservation_date).bind(r.reservation_time).bind(r.participant_count).bind(r.total_amount).bind(r.status).bind(r.payment_status).bind(r.memo).bind(r.created_at).bind(r.updated_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1554,7 +1554,7 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO product_price_history (history_id, product_id, old_price, new_price, reason, changed_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (history_id) DO NOTHING")
             .bind(h.history_id).bind(h.product_id).bind(h.old_price).bind(h.new_price).bind(h.reason).bind(h.changed_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
         }
     );
 
@@ -1563,7 +1563,7 @@ pub async fn restore_database(
         // 1. Restore the log entry itself (Audit Trail)
         sqlx::query("INSERT INTO deletion_log (log_id, table_name, record_id, deleted_info, deleted_by, deleted_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (log_id) DO NOTHING")
             .bind(d.log_id).bind(d.table_name.clone()).bind(d.record_id.clone()).bind(d.deleted_info).bind(d.deleted_by).bind(d.deleted_at)
-            .execute(&mut **t).await.map_err(|e| e.to_string())?;
+            .execute(&mut **t).await?;
 
         // 2. Perform actual deletion if incremental (In full restore, records are already correct)
         if is_incremental {
@@ -1592,10 +1592,7 @@ pub async fn restore_database(
         "데이터 최종 승인 및 색인(Index) 최적화 중... (거의 다 되었습니다!)",
     );
 
-    tx.commit().await.map_err(|e| {
-        println!("[Restore] Commit failed: {}", e);
-        e.to_string()
-    })?;
+    tx.commit().await?;
 
     // 4. Run ANALYZE to update statistics for the query planner after bulk insert
     println!("[Restore] Running ANALYZE for query optimization...");
@@ -1645,7 +1642,7 @@ pub async fn restore_database(
 }
 
 #[command]
-pub async fn reset_database(state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn reset_database(state: State<'_, DbPool>) -> MyceliumResult<String> {
     // 1. Truncate ALL tables including users and company_info
     // Added users and company_info to the list as per user request
     let sql = "TRUNCATE TABLE 
@@ -1658,29 +1655,26 @@ pub async fn reset_database(state: State<'_, DbPool>) -> Result<String, String> 
         users, company_info
         RESTART IDENTITY CASCADE";
 
-    sqlx::query(sql)
-        .execute(&*state)
-        .await
-        .map_err(|e| format!("Failed to reset database: {}", e))?;
+    sqlx::query(sql).execute(&*state).await?;
 
     // 2. Re-create default Admin user (admin / admin)
     // The user explicitly requested: "id: admin, pw: admin만 남기로"
-    let password_hash = bcrypt::hash("admin", bcrypt::DEFAULT_COST).map_err(|e| e.to_string())?;
+    let password_hash = bcrypt::hash("admin", bcrypt::DEFAULT_COST)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     sqlx::query("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)")
         .bind("admin")
         .bind(password_hash)
         .bind("admin")
         .execute(&*state)
-        .await
-        .map_err(|e| format!("Failed to recreate admin user: {}", e))?;
+        .await?;
 
     Ok("데이터 초기화가 완료되었습니다.\n모든 데이터가 삭제되고 초기 관리자(admin) 계정만 생성되었습니다.".to_string())
 }
 
 #[command]
-pub async fn cleanup_old_logs(state: State<'_, DbPool>, months: i32) -> Result<u64, String> {
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+pub async fn cleanup_old_logs(state: State<'_, DbPool>, months: i32) -> MyceliumResult<u64> {
+    let mut tx = state.begin().await?;
 
     // 1. Delete old customer logs
     let res1 = sqlx::query(
@@ -1688,8 +1682,7 @@ pub async fn cleanup_old_logs(state: State<'_, DbPool>, months: i32) -> Result<u
     )
     .bind(months)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     // 2. Delete old inventory logs
     let res2 = sqlx::query(
@@ -1697,17 +1690,16 @@ pub async fn cleanup_old_logs(state: State<'_, DbPool>, months: i32) -> Result<u
     )
     .bind(months)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     let total = res1.rows_affected() + res2.rows_affected();
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
 
     Ok(total)
 }
 
 #[command]
-pub async fn run_db_maintenance(state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn run_db_maintenance(state: State<'_, DbPool>) -> MyceliumResult<String> {
     // 1. Run Log Cleanup (Default 12 months for safety)
     let _ =
         sqlx::query("DELETE FROM customer_logs WHERE changed_at < NOW() - INTERVAL '12 months'")
@@ -1720,10 +1712,7 @@ pub async fn run_db_maintenance(state: State<'_, DbPool>) -> Result<String, Stri
             .await;
 
     // 2. Postgres optimization: VACUUM (ANALYZE)
-    sqlx::query("VACUUM ANALYZE")
-        .execute(&*state)
-        .await
-        .map_err(|e| format!("VACUUM failed: {}", e))?;
+    sqlx::query("VACUUM ANALYZE").execute(&*state).await?;
 
     Ok("DB 최적화가 완료되었습니다.\n(1년 이상 된 로그 정리 및 인덱스 재구성)".to_string())
 }

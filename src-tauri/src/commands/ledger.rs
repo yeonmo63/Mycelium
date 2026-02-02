@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 use crate::db::Customer;
 use crate::db::DbPool;
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::NaiveDate;
 use std::sync::atomic::Ordering;
@@ -12,7 +13,7 @@ pub async fn get_customer_ledger(
     customerId: String,
     startDate: Option<String>,
     endDate: Option<String>,
-) -> Result<Vec<crate::db::CustomerLedgerEntry>, String> {
+) -> MyceliumResult<Vec<crate::db::CustomerLedgerEntry>> {
     let mut sql = r#"
         SELECT 
             ledger_id, 
@@ -27,27 +28,27 @@ pub async fn get_customer_ledger(
         WHERE customer_id = $1
     "#.to_string();
 
-    let rows = if let (Some(s), Some(e)) = (startDate, endDate) {
-        let sd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").unwrap_or_default();
-        let ed = NaiveDate::parse_from_str(&e, "%Y-%m-%d").unwrap_or_default();
+    if let (Some(s), Some(e)) = (startDate, endDate) {
+        let sd = NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+            .map_err(|e| MyceliumError::Validation(format!("Invalid start date: {}", e)))?;
+        let ed = NaiveDate::parse_from_str(&e, "%Y-%m-%d")
+            .map_err(|e| MyceliumError::Validation(format!("Invalid end date: {}", e)))?;
         sql.push_str(" AND transaction_date BETWEEN $2 AND $3");
         sql.push_str(" ORDER BY transaction_date DESC, ledger_id DESC");
 
-        sqlx::query_as::<_, crate::db::CustomerLedgerEntry>(&sql)
+        Ok(sqlx::query_as::<_, crate::db::CustomerLedgerEntry>(&sql)
             .bind(customerId)
             .bind(sd)
             .bind(ed)
             .fetch_all(&*state)
-            .await
+            .await?)
     } else {
         sql.push_str(" ORDER BY transaction_date DESC, ledger_id DESC");
-        sqlx::query_as::<_, crate::db::CustomerLedgerEntry>(&sql)
+        Ok(sqlx::query_as::<_, crate::db::CustomerLedgerEntry>(&sql)
             .bind(customerId)
             .fetch_all(&*state)
-            .await
-    };
-
-    rows.map_err(|e| e.to_string())
+            .await?)
+    }
 }
 
 #[command]
@@ -58,7 +59,7 @@ pub async fn create_ledger_entry(
     transactionType: String, // '입금', '이월', '조정', '반품' etc
     amount: i32,
     description: Option<String>,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
     // Rule:
@@ -75,9 +76,9 @@ pub async fn create_ledger_entry(
     };
 
     let t_date = NaiveDate::parse_from_str(&transactionDate, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid date: {}", e))?;
+        .map_err(|e| MyceliumError::Validation(format!("Invalid date: {}", e)))?;
 
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let row: (i32,) = sqlx::query_as(
         "INSERT INTO customer_ledger (customer_id, transaction_date, transaction_type, amount, description)
@@ -89,18 +90,16 @@ pub async fn create_ledger_entry(
     .bind(final_amount)
     .bind(description)
     .fetch_one(&mut *tx)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     // Update Customer Balance
     sqlx::query("UPDATE customers SET current_balance = COALESCE(current_balance, 0) + $1 WHERE customer_id = $2")
         .bind(final_amount)
         .bind(&customerId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
 
     Ok(row.0)
 }
@@ -113,17 +112,16 @@ pub async fn update_ledger_entry(
     transactionType: String, // '입금', '이월', '조정', '반품' etc
     amount: i32,
     description: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     // 1. Get Old Entry
     let old_entry: (i32, String) =
         sqlx::query_as("SELECT amount, customer_id FROM customer_ledger WHERE ledger_id = $1")
             .bind(ledgerId)
             .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| format!("Entry not found: {}", e))?;
+            .await?;
 
     let old_amount = old_entry.0;
     let customer_id = old_entry.1;
@@ -140,7 +138,7 @@ pub async fn update_ledger_entry(
     let diff = final_amount - old_amount;
 
     let t_date = NaiveDate::parse_from_str(&transactionDate, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid date: {}", e))?;
+        .map_err(|e| MyceliumError::Validation(format!("Invalid date: {}", e)))?;
 
     // 3. Update Ledger
     sqlx::query(
@@ -152,8 +150,7 @@ pub async fn update_ledger_entry(
     .bind(description)
     .bind(ledgerId)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     // 4. Update Balance
     if diff != 0 {
@@ -161,26 +158,24 @@ pub async fn update_ledger_entry(
             .bind(diff)
             .bind(customer_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn delete_ledger_entry(state: State<'_, DbPool>, ledgerId: i32) -> Result<(), String> {
+pub async fn delete_ledger_entry(state: State<'_, DbPool>, ledgerId: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     // 1. Get Old Entry
     let old_entry: (i32, String) =
         sqlx::query_as("SELECT amount, customer_id FROM customer_ledger WHERE ledger_id = $1")
             .bind(ledgerId)
             .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| format!("Entry not found: {}", e))?;
+            .await?;
 
     let amount = old_entry.0;
     let customer_id = old_entry.1;
@@ -189,31 +184,28 @@ pub async fn delete_ledger_entry(state: State<'_, DbPool>, ledgerId: i32) -> Res
     sqlx::query("DELETE FROM customer_ledger WHERE ledger_id = $1")
         .bind(ledgerId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     // 3. Update Balance (Reverse effect)
     sqlx::query("UPDATE customers SET current_balance = COALESCE(current_balance, 0) - $1 WHERE customer_id = $2")
         .bind(amount)
         .bind(customer_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn get_customers_with_debt(state: State<'_, DbPool>) -> Result<Vec<Customer>, String> {
+pub async fn get_customers_with_debt(state: State<'_, DbPool>) -> MyceliumResult<Vec<Customer>> {
     // 1. Sync current_balance from ledger sum for all customers to ensure integrity
     // This repairs any discrepancies caused by manual edits or bugs.
     sqlx::query(
         "UPDATE customers c SET current_balance = COALESCE((SELECT SUM(amount) FROM customer_ledger l WHERE l.customer_id = c.customer_id), 0)"
     )
     .execute(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     // 2. Fetch only customers with debt > 0 and active status
     let sql = r#"
@@ -222,8 +214,7 @@ pub async fn get_customers_with_debt(state: State<'_, DbPool>) -> Result<Vec<Cus
         ORDER BY current_balance DESC
     "#;
 
-    sqlx::query_as::<_, Customer>(sql)
+    Ok(sqlx::query_as::<_, Customer>(sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }

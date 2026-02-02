@@ -97,9 +97,7 @@ pub async fn get_customer_ai_insight(
     );
 
     // 5. Call AI
-    let result_json = call_gemini_ai_internal(&api_key, &prompt)
-        .await
-        .map_err(|e| MyceliumError::Internal(e))?;
+    let result_json = call_gemini_ai_internal(&api_key, &prompt).await?;
 
     // 6. Parse
     Ok(serde_json::from_str(&result_json)
@@ -161,6 +159,12 @@ pub async fn create_customer(
     anniversaryType: Option<String>,
     marketingConsent: Option<bool>,
     acquisitionChannel: Option<String>,
+    prefProductType: Option<String>,
+    prefPackageType: Option<String>,
+    familyType: Option<String>,
+    healthConcern: Option<String>,
+    subInterest: Option<bool>,
+    purchaseCycle: Option<String>,
 ) -> MyceliumResult<String> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
@@ -182,8 +186,9 @@ pub async fn create_customer(
         "INSERT INTO customers (
             customer_id, customer_name, mobile_number, membership_level, phone_number, email, 
             zip_code, address_primary, address_detail, memo, anniversary_date, anniversary_type, 
-            marketing_consent, acquisition_channel, join_date, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_DATE, '정상')"
+            marketing_consent, acquisition_channel, join_date, status,
+            pref_product_type, pref_package_type, family_type, health_concern, sub_interest, purchase_cycle
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_DATE, '정상', $15, $16, $17, $18, $19, $20)"
     )
     .bind(&new_id)
     .bind(&customerName)
@@ -199,6 +204,12 @@ pub async fn create_customer(
     .bind(anniversaryType)
     .bind(marketingConsent.unwrap_or(false))
     .bind(acquisitionChannel)
+    .bind(prefProductType)
+    .bind(prefPackageType)
+    .bind(familyType)
+    .bind(healthConcern)
+    .bind(subInterest.unwrap_or(false))
+    .bind(purchaseCycle)
     .execute(&*state)
     .await?;
 
@@ -223,6 +234,12 @@ pub async fn update_customer(
     marketingConsent: Option<bool>,
     acquisitionChannel: Option<String>,
     status: Option<String>,
+    prefProductType: Option<String>,
+    prefPackageType: Option<String>,
+    familyType: Option<String>,
+    healthConcern: Option<String>,
+    subInterest: Option<bool>,
+    purchaseCycle: Option<String>,
 ) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let mut tx = state.begin().await?;
@@ -248,7 +265,9 @@ pub async fn update_customer(
         "UPDATE customers SET 
             customer_name = $1, mobile_number = $2, membership_level = $3, phone_number = $4, email = $5, 
             zip_code = $6, address_primary = $7, address_detail = $8, memo = $9, anniversary_date = $10, 
-            anniversary_type = $11, marketing_consent = $12, acquisition_channel = $13, status = $14
+            anniversary_type = $11, marketing_consent = $12, acquisition_channel = $13, status = $14,
+            pref_product_type = $16, pref_package_type = $17, family_type = $18, health_concern = $19, 
+            sub_interest = $20, purchase_cycle = $21
         WHERE customer_id = $15"
     )
     .bind(&customerName)
@@ -266,6 +285,12 @@ pub async fn update_customer(
     .bind(acquisitionChannel)
     .bind(status.unwrap_or_else(|| "정상".to_string()))
     .bind(&customerId)
+    .bind(prefProductType)
+    .bind(prefPackageType)
+    .bind(familyType)
+    .bind(healthConcern)
+    .bind(subInterest.unwrap_or(false))
+    .bind(purchaseCycle)
     .execute(&mut *tx)
     .await?;
 

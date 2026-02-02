@@ -1,6 +1,8 @@
+#![allow(non_snake_case)]
 use crate::commands::config::get_gemini_api_key;
 use crate::commands::config::get_naver_keys;
 use crate::db::{Customer, DbPool};
+use crate::error::{MyceliumError, MyceliumResult};
 use serde::{Deserialize, Serialize};
 use tauri::{command, AppHandle, State};
 
@@ -19,7 +21,7 @@ pub struct NaverItem {
 }
 
 #[command]
-pub async fn fetch_naver_search(app: AppHandle, query: String) -> Result<Vec<NaverItem>, String> {
+pub async fn fetch_naver_search(app: AppHandle, query: String) -> MyceliumResult<Vec<NaverItem>> {
     let (client_id, client_secret) = get_naver_keys(&app);
 
     let url = format!(
@@ -33,28 +35,29 @@ pub async fn fetch_naver_search(app: AppHandle, query: String) -> Result<Vec<Nav
         .header("X-Naver-Client-Id", client_id)
         .header("X-Naver-Client-Secret", client_secret)
         .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .await?;
 
     if !res.status().is_success() {
-        return Err(format!("Naver API Error: {}", res.status()));
+        return Err(MyceliumError::Internal(format!(
+            "Naver API Error: {}",
+            res.status()
+        )));
     }
 
-    let search_result: NaverSearchResult = res
-        .json()
-        .await
-        .map_err(|e| format!("Parse failed: {}", e))?;
+    let search_result: NaverSearchResult = res.json().await?;
 
     Ok(search_result.items)
 }
 
 #[command]
-pub async fn call_gemini_ai(app: AppHandle, prompt: String) -> Result<String, String> {
-    let api_key = get_gemini_api_key(&app).ok_or("Gemini API 키가 설정되지 않았습니다.")?;
+pub async fn call_gemini_ai(app: AppHandle, prompt: String) -> MyceliumResult<String> {
+    let api_key = get_gemini_api_key(&app).ok_or_else(|| {
+        MyceliumError::Internal("Gemini API 키가 설정되지 않았습니다.".to_string())
+    })?;
     call_gemini_ai_internal(&api_key, &prompt).await
 }
 
-pub async fn call_gemini_ai_internal(api_key: &str, prompt: &str) -> Result<String, String> {
+pub async fn call_gemini_ai_internal(api_key: &str, prompt: &str) -> MyceliumResult<String> {
     let clean_key = api_key.trim().trim_matches(|c: char| c == '"' || c == '\'');
     let client = reqwest::Client::new();
 
@@ -159,7 +162,7 @@ pub async fn call_gemini_ai_internal(api_key: &str, prompt: &str) -> Result<Stri
             let error_text = resp.text().await.unwrap_or_default();
 
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                return Err("AI_QUOTA_EXCEEDED: Gemini AI 사용 한도를 초과했습니다.\n\n일일 무료 한도가 소진되었거나, 분당 요청 제한에 도달했습니다. 잠시 후 다시 시도하거나, API 키 설정에서 유료 플랜으로 업그레이드하세요.".to_string());
+                return Err(MyceliumError::Internal("AI_QUOTA_EXCEEDED: Gemini AI 사용 한도를 초과했습니다.\n\n일일 무료 한도가 소진되었거나, 분당 요청 제한에 도달했습니다. 잠시 후 다시 시도하거나, API 키 설정에서 유료 플랜으로 업그레이드하세요.".to_string()));
             }
 
             if status == reqwest::StatusCode::FORBIDDEN {
@@ -167,7 +170,7 @@ pub async fn call_gemini_ai_internal(api_key: &str, prompt: &str) -> Result<Stri
                     || error_text.contains("limit")
                     || error_text.contains("exceeded")
                 {
-                    return Err("AI_QUOTA_EXCEEDED: Gemini AI 할당량이 초과되었습니다.\n\nAPI 키의 사용 한도가 소진되었습니다. Google AI Studio에서 사용량을 확인하거나, 새로운 API 키를 발급받으세요.".to_string());
+                    return Err(MyceliumError::Internal("AI_QUOTA_EXCEEDED: Gemini AI 할당량이 초과되었습니다.\n\nAPI 키의 사용 한도가 소진되었습니다. Google AI Studio에서 사용량을 확인하거나, 새로운 API 키를 발급받으세요.".to_string()));
                 }
             }
 
@@ -182,7 +185,10 @@ pub async fn call_gemini_ai_internal(api_key: &str, prompt: &str) -> Result<Stri
         }
     }
 
-    Err(format!("AI 모델 연결 실패:\n{}", errors.join("\n")))
+    Err(MyceliumError::Internal(format!(
+        "AI 모델 연결 실패:\n{}",
+        errors.join("\n")
+    )))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -202,7 +208,7 @@ pub async fn call_gemini_vision_ai(
     prompt: &str,
     image_base64: &str,
     mime_type: &str,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     let clean_key = api_key.trim().trim_matches(|c: char| c == '"' || c == '\'');
     let client = reqwest::Client::new();
 
@@ -300,7 +306,7 @@ pub async fn call_gemini_vision_ai(
         };
 
         if resp.status().is_success() {
-            let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            let json: serde_json::Value = resp.json().await?;
             if let Some(content) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
                 let cleaned = content
                     .trim()
@@ -323,7 +329,10 @@ pub async fn call_gemini_vision_ai(
         }
     }
 
-    Err(format!("AI 연결 실패:\n{}", errors.join("\n")))
+    Err(MyceliumError::Internal(format!(
+        "AI 연결 실패:\n{}",
+        errors.join("\n")
+    )))
 }
 
 #[command]
@@ -331,8 +340,10 @@ pub async fn parse_business_card_ai(
     app: AppHandle,
     image_base64: String,
     mime_type: String,
-) -> Result<ParsedBusinessCard, String> {
-    let api_key = get_gemini_api_key(&app).ok_or("Gemini API 키가 설정되지 않았습니다.")?;
+) -> MyceliumResult<ParsedBusinessCard> {
+    let api_key = get_gemini_api_key(&app).ok_or_else(|| {
+        MyceliumError::Internal("Gemini API 키가 설정되지 않았습니다.".to_string())
+    })?;
 
     let prompt = "
     Analyze this business card image.
@@ -344,14 +355,13 @@ pub async fn parse_business_card_ai(
 
     let json_str = call_gemini_vision_ai(&api_key, prompt, &image_base64, &mime_type).await?;
 
-    let result: ParsedBusinessCard = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Parsing Error: {}. Raw: {}", e, json_str))?;
+    let result: ParsedBusinessCard = serde_json::from_str(&json_str)?;
 
     Ok(result)
 }
 
 #[command]
-pub async fn test_gemini_connection(_app: AppHandle) -> Result<String, String> {
+pub async fn test_gemini_connection(_app: AppHandle) -> MyceliumResult<String> {
     Ok("Connection OK".to_string())
 }
 
@@ -359,12 +369,12 @@ pub async fn test_gemini_connection(_app: AppHandle) -> Result<String, String> {
 pub async fn get_ai_behavior_strategy(
     _state: State<'_, DbPool>,
     _customer_id: Option<String>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     Ok("Behavior Strategy Stub".to_string())
 }
 
 #[command]
-pub async fn analyze_online_sentiment(_state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn analyze_online_sentiment(_state: State<'_, DbPool>) -> MyceliumResult<String> {
     Ok("Sentiment Analysis Stub".to_string())
 }
 
@@ -372,17 +382,17 @@ pub async fn analyze_online_sentiment(_state: State<'_, DbPool>) -> Result<Strin
 pub async fn get_morning_briefing(
     _app: AppHandle,
     _state: State<'_, DbPool>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     Ok("Morning Briefing Stub".to_string())
 }
 
 #[command]
-pub async fn get_ai_repurchase_analysis(_state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn get_ai_repurchase_analysis(_state: State<'_, DbPool>) -> MyceliumResult<String> {
     Ok("Repurchase Analysis Stub".to_string())
 }
 
 #[command]
-pub async fn get_weather_marketing_advice(_state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn get_weather_marketing_advice(_state: State<'_, DbPool>) -> MyceliumResult<String> {
     Ok("Weather Advice Stub".to_string())
 }
 
@@ -391,25 +401,25 @@ pub async fn get_consultation_briefing(
     app: AppHandle,
     state: State<'_, DbPool>,
     customer_id: String,
-) -> Result<String, String> {
-    let api_key = get_gemini_api_key(&app).ok_or("Gemini API 키가 필요합니다.")?;
+) -> MyceliumResult<String> {
+    let api_key = get_gemini_api_key(&app)
+        .ok_or_else(|| MyceliumError::Internal("Gemini API 키가 필요합니다.".to_string()))?;
 
     let customer: Option<Customer> =
         sqlx::query_as("SELECT * FROM customers WHERE customer_id = $1")
             .bind(&customer_id)
             .fetch_optional(&*state)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
-    let c = customer.ok_or("고객 정보를 찾을 수 없습니다.")?;
+    let c = customer
+        .ok_or_else(|| MyceliumError::Validation("고객 정보를 찾을 수 없습니다.".to_string()))?;
 
     let history: Vec<crate::db::Consultation> = sqlx::query_as(
         "SELECT * FROM consultations WHERE customer_id = $1 ORDER BY consult_date DESC LIMIT 30",
     )
     .bind(&customer_id)
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     if history.is_empty() {
         return Ok("이전 상담 내역이 없는 신규 고객입니다.".to_string());
@@ -445,15 +455,16 @@ pub async fn get_consultation_briefing(
 pub async fn get_pending_consultations_summary(
     app: AppHandle,
     state: State<'_, DbPool>,
-) -> Result<String, String> {
-    let api_key = get_gemini_api_key(&app).ok_or("Gemini API 키가 설정되지 않았습니다.")?;
+) -> MyceliumResult<String> {
+    let api_key = get_gemini_api_key(&app).ok_or_else(|| {
+        MyceliumError::Internal("Gemini API 키가 설정되지 않았습니다.".to_string())
+    })?;
 
     let pending: Vec<crate::db::Consultation> = sqlx::query_as(
         "SELECT * FROM consultations WHERE status != '완료' ORDER BY consult_date DESC LIMIT 50",
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     if pending.is_empty() {
         return Ok("현재 처리 대기 중인 상담이 없습니다. 평화로운 하루입니다! 😊".to_string());
@@ -484,7 +495,7 @@ pub async fn get_pending_consultations_summary(
 }
 
 #[command]
-pub async fn get_ai_marketing_proposal(_state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn get_ai_marketing_proposal(_state: State<'_, DbPool>) -> MyceliumResult<String> {
     Ok("AI Marketing Proposal Stub".to_string())
 }
 
@@ -492,7 +503,7 @@ pub async fn get_ai_marketing_proposal(_state: State<'_, DbPool>) -> Result<Stri
 pub async fn get_ai_detailed_plan(
     _state: State<'_, DbPool>,
     _plan_type: String,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     Ok("AI Detailed Plan Stub".to_string())
 }
 
@@ -500,7 +511,7 @@ pub async fn get_ai_detailed_plan(
 pub async fn get_consultation_ai_advisor(
     _state: State<'_, DbPool>,
     _consultation_id: i32,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     Ok("Consultation Advisor Stub".to_string())
 }
 
@@ -508,11 +519,11 @@ pub async fn get_consultation_ai_advisor(
 pub async fn get_ai_consultation_advice(
     _state: State<'_, DbPool>,
     _consultation_id: i32,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     Ok("Consultation Advice Stub".to_string())
 }
 
 #[command]
-pub async fn get_ai_demand_forecast(_state: State<'_, DbPool>) -> Result<String, String> {
+pub async fn get_ai_demand_forecast(_state: State<'_, DbPool>) -> MyceliumResult<String> {
     Ok("Demand Forecast Stub".to_string())
 }

@@ -2,6 +2,7 @@
 use crate::db::{
     DbPool, InventoryAlert, InventoryLog, Product, ProductHistoryItem, ProductPriceHistory,
 };
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::NaiveDateTime;
 use sqlx;
@@ -9,13 +10,12 @@ use std::sync::atomic::Ordering;
 use tauri::{command, State};
 
 #[command]
-pub async fn get_product_list(state: State<'_, DbPool>) -> Result<Vec<Product>, String> {
+pub async fn get_product_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Product>> {
     let products = sqlx::query_as::<_, Product>(
         "SELECT product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, product_code, status FROM products ORDER BY product_name"
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     Ok(products)
 }
@@ -23,7 +23,7 @@ pub async fn get_product_list(state: State<'_, DbPool>) -> Result<Vec<Product>, 
 #[command]
 pub async fn get_discontinued_product_names(
     pool: State<'_, DbPool>,
-) -> Result<Vec<String>, String> {
+) -> MyceliumResult<Vec<String>> {
     let sql = r#"
         SELECT product_name FROM (
             SELECT DISTINCT product_name FROM sales
@@ -38,8 +38,7 @@ pub async fn get_discontinued_product_names(
 
     let rows = sqlx::query_scalar::<_, String>(sql)
         .fetch_all(&*pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     Ok(rows)
 }
@@ -50,21 +49,19 @@ pub async fn consolidate_products(
     oldProductId: i32,
     newProductId: i32,
     syncNames: Option<bool>,
-) -> Result<(), String> {
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+) -> MyceliumResult<()> {
+    let mut tx = pool.begin().await?;
     let sync = syncNames.unwrap_or(false);
 
     let old_p: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(oldProductId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| format!("Source product not found: {}", e))?;
+        .await?;
 
     let new_p: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(newProductId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| format!("Target product not found: {}", e))?;
+        .await?;
 
     if sync {
         sqlx::query(
@@ -73,7 +70,7 @@ pub async fn consolidate_products(
         )
         .bind(newProductId).bind(&new_p.product_name).bind(&new_p.specification).bind(&new_p.product_code)
         .bind(oldProductId).bind(&old_p.product_name).bind(&old_p.specification)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
 
         sqlx::query(
             "UPDATE inventory_logs SET product_id = $1, product_name = $2, specification = $3, product_code = $4 
@@ -81,7 +78,7 @@ pub async fn consolidate_products(
         )
         .bind(newProductId).bind(&new_p.product_name).bind(&new_p.specification).bind(&new_p.product_code)
         .bind(oldProductId).bind(&old_p.product_name).bind(&old_p.specification)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
     } else {
         sqlx::query(
             "UPDATE sales SET product_id = $1 
@@ -90,8 +87,7 @@ pub async fn consolidate_products(
         .bind(newProductId)
         .bind(oldProductId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
         sqlx::query(
             "UPDATE inventory_logs SET product_id = $1 
@@ -100,8 +96,7 @@ pub async fn consolidate_products(
         .bind(newProductId)
         .bind(oldProductId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
     let old_qty = old_p.stock_quantity.unwrap_or(0);
@@ -112,8 +107,7 @@ pub async fn consolidate_products(
         .bind(old_qty)
         .bind(newProductId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Stock merging failed: {}", e))?;
+        .await?;
 
         sqlx::query(
             "INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo) 
@@ -126,18 +120,16 @@ pub async fn consolidate_products(
         .bind(old_qty)
         .bind(format!("상품 병합으로 인한 재고 흡수 (원본: {} [{}])", old_p.product_name, oldProductId))
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
     sqlx::query("UPDATE products SET status = '단종상품', memo = COALESCE(memo, '') || $1 WHERE product_id = $2")
         .bind(format!(" | {}에 상품 ID:{}로 병합됨", chrono::Local::now().format("%Y-%m-%d"), newProductId))
         .bind(oldProductId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -154,9 +146,9 @@ pub async fn create_product(
     materialRatio: Option<f64>,
     itemType: Option<String>,
     productCode: Option<String>,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let row: (i32,) = sqlx::query_as(
         "INSERT INTO products (product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, product_code) 
@@ -173,8 +165,7 @@ pub async fn create_product(
     .bind(itemType.unwrap_or("product".to_string()))
     .bind(&productCode)
     .fetch_one(&mut *tx)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     let product_id = row.0;
 
@@ -190,11 +181,10 @@ pub async fn create_product(
         .bind(&productCode)
         .bind(stockQuantity.unwrap_or(0))
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(product_id)
 }
 
@@ -213,8 +203,8 @@ pub async fn update_product(
     itemType: Option<String>,
     status: Option<String>,
     syncSalesNames: Option<bool>,
-) -> Result<(), String> {
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+) -> MyceliumResult<()> {
+    let mut tx = state.begin().await?;
     let sync = syncSalesNames.unwrap_or(false);
     let cost = costPrice.unwrap_or(0);
     let ratio = materialRatio.unwrap_or(1.0);
@@ -223,21 +213,20 @@ pub async fn update_product(
     let old: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(productId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     if let Some(qty) = stockQuantity {
         sqlx::query(
             "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, stock_quantity = $4, safety_stock = $5, cost_price = $6, material_id = $7, material_ratio = $8, item_type = $9, status = $10 WHERE product_id = $11",
         )
         .bind(&productName).bind(&specification).bind(unitPrice).bind(qty).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(productId)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
     } else {
         sqlx::query(
             "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, safety_stock = $4, cost_price = $5, material_id = $6, material_ratio = $7, item_type = $8, status = $9 WHERE product_id = $10",
         )
         .bind(&productName).bind(&specification).bind(unitPrice).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(productId)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
     }
 
     let mut changes = Vec::new();
@@ -285,40 +274,37 @@ pub async fn update_product(
         .bind(old.stock_quantity.unwrap_or(0))
         .bind(memo)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
         if sync {
             sqlx::query("UPDATE sales SET product_name = $1, specification = $2, product_code = $3 WHERE product_id = $4")
             .bind(&productName).bind(&specification).bind(&old.product_code).bind(productId)
-            .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+            .execute(&mut *tx).await?;
 
             sqlx::query("UPDATE inventory_logs SET product_name = $1, specification = $2, product_code = $3 WHERE product_id = $4")
             .bind(&productName).bind(&specification).bind(&old.product_code).bind(productId)
-            .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+            .execute(&mut *tx).await?;
         }
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn discontinue_product(state: State<'_, DbPool>, productId: i32) -> Result<(), String> {
+pub async fn discontinue_product(state: State<'_, DbPool>, productId: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let product: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(productId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     sqlx::query("UPDATE products SET status = '단종상품' WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
 
     sqlx::query(
         "INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo) 
@@ -330,23 +316,21 @@ pub async fn discontinue_product(state: State<'_, DbPool>, productId: i32) -> Re
     .bind(&product.product_code)
     .bind(product.stock_quantity.unwrap_or(0))
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn delete_product(state: State<'_, DbPool>, productId: i32) -> Result<(), String> {
+pub async fn delete_product(state: State<'_, DbPool>, productId: i32) -> MyceliumResult<()> {
     let sales_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sales WHERE product_id = $1")
         .bind(productId)
         .fetch_one(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     if sales_count.0 > 0 {
-        return Err("HAS_HISTORY".to_string());
+        return Err(MyceliumError::Validation("HAS_HISTORY".to_string()));
     }
 
     let log_count: (i64,) = sqlx::query_as(
@@ -354,59 +338,52 @@ pub async fn delete_product(state: State<'_, DbPool>, productId: i32) -> Result<
     )
     .bind(productId)
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     if log_count.0 > 0 {
-        return Err("HAS_HISTORY".to_string());
+        return Err(MyceliumError::Validation("HAS_HISTORY".to_string()));
     }
 
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     sqlx::query("DELETE FROM inventory_logs WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     sqlx::query("DELETE FROM products WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn hard_delete_product(state: State<'_, DbPool>, productId: i32) -> Result<(), String> {
+pub async fn hard_delete_product(state: State<'_, DbPool>, productId: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     sqlx::query("DELETE FROM sales WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     sqlx::query("DELETE FROM inventory_logs WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     sqlx::query("DELETE FROM product_price_history WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     sqlx::query("DELETE FROM products WHERE product_id = $1")
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -414,29 +391,27 @@ pub async fn hard_delete_product(state: State<'_, DbPool>, productId: i32) -> Re
 pub async fn get_product_price_history(
     state: State<'_, DbPool>,
     productId: i32,
-) -> Result<Vec<ProductPriceHistory>, String> {
-    sqlx::query_as::<_, ProductPriceHistory>(
+) -> MyceliumResult<Vec<ProductPriceHistory>> {
+    Ok(sqlx::query_as::<_, ProductPriceHistory>(
         "SELECT * FROM product_price_history WHERE product_id = $1 ORDER BY changed_at DESC",
     )
     .bind(productId)
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())
+    .await?)
 }
 
 #[command]
 pub async fn get_product_history(
     state: State<'_, DbPool>,
     productId: i32,
-) -> Result<Vec<ProductHistoryItem>, String> {
+) -> MyceliumResult<Vec<ProductHistoryItem>> {
     let mut history = Vec::new();
 
     let prices: Vec<ProductPriceHistory> =
         sqlx::query_as("SELECT * FROM product_price_history WHERE product_id = $1")
             .bind(productId)
             .fetch_all(&*state)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
     for p in prices {
         history.push(ProductHistoryItem {
@@ -461,8 +436,7 @@ pub async fn get_product_history(
     )
     .bind(productId)
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     for (date, c_type, qty, memo) in logs {
         history.push(ProductHistoryItem {
@@ -492,15 +466,14 @@ pub async fn update_product_stock(
     productId: i32,
     newQty: i32,
     reason: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let product: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(productId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     let old_qty = product.stock_quantity.unwrap_or(0);
 
@@ -508,8 +481,7 @@ pub async fn update_product_stock(
         .bind(newQty)
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo) VALUES ($1, $2, $3, $4, '조정', $5, $6, $7)")
         .bind(productId)
@@ -520,10 +492,9 @@ pub async fn update_product_stock(
         .bind(newQty)
         .bind(reason)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -534,31 +505,29 @@ pub async fn convert_stock(
     productId: i32,
     convertQty: i32,
     memo: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let material: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(materialId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| format!("Material not found: {}", e))?;
+        .await?;
 
     let product: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
         .bind(productId)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| format!("Product not found: {}", e))?;
+        .await?;
 
     let ratio = product.material_ratio.unwrap_or(1.0);
     let deduct = (convertQty as f64 * ratio).ceil() as i32;
 
     if material.stock_quantity.unwrap_or(0) < deduct {
-        return Err(format!(
+        return Err(MyceliumError::Validation(format!(
             "원자재 재고가 부족합니다. (필요: {}, 현재: {})",
             deduct,
             material.stock_quantity.unwrap_or(0)
-        ));
+        )));
     }
 
     let m_new_qty = material.stock_quantity.unwrap_or(0) - deduct;
@@ -576,30 +545,27 @@ pub async fn convert_stock(
         .bind(m_new_qty)
         .bind(materialId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
         .bind(p_new_qty)
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, $6, $7, 'CONVERT_OUT')")
     .bind(m_actual_id).bind(&m_name).bind(&m_spec).bind(&m_code).bind(-m_deduct).bind(m_new_qty).bind(format!("가공 전환: {} 제작용 원자재 소모", p_name))
-    .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    .execute(&mut *tx).await?;
 
     let p_code: Option<String> =
         sqlx::query_scalar("SELECT product_code FROM products WHERE product_id = $1")
             .bind(productId)
             .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '입고', $5, $6, $7, 'CONVERT_IN')")
     .bind(productId).bind(&p_name).bind(&p_spec).bind(&p_code).bind(convertQty).bind(p_new_qty).bind(format!("가공 완료: {}", memo))
-    .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    .execute(&mut *tx).await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
 
     Ok(())
 }
@@ -611,20 +577,19 @@ pub async fn adjust_product_stock(
     changeQty: i32,
     memo: String,
     reasonCategory: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let product: Product = sqlx::query_as("SELECT product_id, product_name, specification, product_code, stock_quantity FROM products WHERE product_id = $1")
-        .bind(productId).fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
+        .bind(productId).fetch_one(&mut *tx).await?;
 
     let new_qty = product.stock_quantity.unwrap_or(0) + changeQty;
     sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
         .bind(new_qty)
         .bind(productId)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     let log_type = if let Some(cat) = reasonCategory {
         if !cat.is_empty() && cat != "단순오차" {
@@ -641,9 +606,9 @@ pub async fn adjust_product_stock(
     };
 
     sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ADJUST')")
-    .bind(productId).bind(&product.product_name).bind(&product.specification).bind(&product.product_code).bind(log_type).bind(changeQty).bind(new_qty).bind(memo).execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    .bind(productId).bind(&product.product_name).bind(&product.specification).bind(&product.product_code).bind(log_type).bind(changeQty).bind(new_qty).bind(memo).execute(&mut *tx).await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
 
     Ok(())
 }
@@ -653,7 +618,7 @@ pub async fn get_inventory_logs(
     state: State<'_, DbPool>,
     limit: i64,
     itemType: Option<String>,
-) -> Result<Vec<InventoryLog>, String> {
+) -> MyceliumResult<Vec<InventoryLog>> {
     let base_sql = r#"
         SELECT l.* FROM inventory_logs l 
         LEFT JOIN products p ON l.product_id = p.product_id 
@@ -662,26 +627,26 @@ pub async fn get_inventory_logs(
 
     if let Some(t) = itemType {
         let sql = format!("{} AND (p.item_type = $1 OR ($1 = 'product' AND p.item_type IS NULL)) ORDER BY l.created_at DESC LIMIT $2", base_sql);
-        sqlx::query_as::<_, InventoryLog>(&sql)
+        let rows = sqlx::query_as::<_, InventoryLog>(&sql)
             .bind(t)
             .bind(limit)
             .fetch_all(&*state)
-            .await
-            .map_err(|e| e.to_string())
+            .await?;
+        Ok(rows)
     } else {
         let sql = format!("{} ORDER BY l.created_at DESC LIMIT $1", base_sql);
-        sqlx::query_as::<_, InventoryLog>(&sql)
+        let rows = sqlx::query_as::<_, InventoryLog>(&sql)
             .bind(limit)
             .fetch_all(&*state)
-            .await
-            .map_err(|e| e.to_string())
+            .await?;
+        Ok(rows)
     }
 }
 
 #[command]
 pub async fn get_inventory_forecast_alerts(
     state: State<'_, DbPool>,
-) -> Result<Vec<InventoryAlert>, String> {
+) -> MyceliumResult<Vec<InventoryAlert>> {
     let sql = r#"
         WITH consumption AS (
             SELECT product_name, SUM(quantity) as total_qty, COUNT(DISTINCT order_date) as days_active
@@ -695,8 +660,7 @@ pub async fn get_inventory_forecast_alerts(
         WHERE p.status = '판매중' ORDER BY stock_quantity ASC LIMIT 10
     "#;
 
-    sqlx::query_as::<_, InventoryAlert>(sql)
+    Ok(sqlx::query_as::<_, InventoryAlert>(sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }

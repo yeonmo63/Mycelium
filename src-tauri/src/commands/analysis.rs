@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::DbPool;
+use crate::error::{MyceliumError, MyceliumResult};
 use chrono::NaiveDate;
 use polars::prelude::*;
 use tauri::{command, State};
@@ -7,7 +9,7 @@ use tauri::{command, State};
 pub async fn sales_polars_analysis_v4(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<serde_json::Value, String> {
+) -> MyceliumResult<serde_json::Value> {
     // 1. Fetch Data
     // customer_id included
     let rows: Vec<(Option<NaiveDate>, String, i32, i32, Option<String>)> = sqlx::query_as(
@@ -15,8 +17,7 @@ pub async fn sales_polars_analysis_v4(
     )
     .bind(year)
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     if rows.is_empty() {
         return Ok(serde_json::json!({
@@ -54,19 +55,13 @@ pub async fn sales_polars_analysis_v4(
         "quantity" => qtys,
         "total_amount" => totals,
         "customer_id" => customer_ids,
-    )
-    .map_err(|e: PolarsError| e.to_string())?
+    )?
     .lazy()
     .with_column(col("total_amount").cast(DataType::Int64))
-    .collect()
-    .map_err(|e: PolarsError| e.to_string())?;
+    .collect()?;
 
     // 3. Analytics
-    let total_sum: i64 = df
-        .column("total_amount")
-        .map_err(|e: PolarsError| e.to_string())?
-        .sum::<i64>()
-        .map_err(|e: PolarsError| e.to_string())?;
+    let total_sum: i64 = df.column("total_amount")?.sum::<i64>()?;
 
     let monthly_df = df
         .clone()
@@ -79,8 +74,7 @@ pub async fn sales_polars_analysis_v4(
             col("total_amount").sum().alias("total_amount"),
         ])
         .sort(["month"], SortMultipleOptions::default())
-        .collect()
-        .map_err(|e: PolarsError| e.to_string())?;
+        .collect()?;
 
     let product_df = df
         .clone()
@@ -99,8 +93,7 @@ pub async fn sales_polars_analysis_v4(
             },
         )
         .limit(10)
-        .collect()
-        .map_err(|e: PolarsError| e.to_string())?;
+        .collect()?;
 
     let weekly_df = df
         .clone()
@@ -113,15 +106,14 @@ pub async fn sales_polars_analysis_v4(
             col("total_amount").sum().alias("total_amount"),
         ])
         .sort(["weekday"], SortMultipleOptions::default())
-        .collect()
-        .map_err(|e: PolarsError| e.to_string())?;
+        .collect()?;
 
     // 4. Transform to JSON
     let mut monthly_list = Vec::new();
-    let m_months = monthly_df.column("month").unwrap().i8().unwrap();
-    let m_counts = monthly_df.column("record_count").unwrap().u32().unwrap();
-    let m_qtys = monthly_df.column("total_quantity").unwrap().i32().unwrap();
-    let m_totals = monthly_df.column("total_amount").unwrap().i64().unwrap();
+    let m_months = monthly_df.column("month")?.i8()?;
+    let m_counts = monthly_df.column("record_count")?.u32()?;
+    let m_qtys = monthly_df.column("total_quantity")?.i32()?;
+    let m_totals = monthly_df.column("total_amount")?.i64()?;
 
     for i in 0..monthly_df.height() {
         monthly_list.push(serde_json::json!({
@@ -132,10 +124,10 @@ pub async fn sales_polars_analysis_v4(
         }));
     }
 
-    let p_names = product_df.column("product_name").unwrap().str().unwrap();
-    let p_counts = product_df.column("record_count").unwrap().u32().unwrap();
-    let p_qtys = product_df.column("total_quantity").unwrap().i32().unwrap();
-    let p_totals = product_df.column("total_amount").unwrap().i64().unwrap();
+    let p_names = product_df.column("product_name")?.str()?;
+    let p_counts = product_df.column("record_count")?.u32()?;
+    let p_qtys = product_df.column("total_quantity")?.i32()?;
+    let p_totals = product_df.column("total_amount")?.i64()?;
 
     let mut product_list = Vec::new();
     for i in 0..product_df.height() {
@@ -147,10 +139,10 @@ pub async fn sales_polars_analysis_v4(
         }));
     }
 
-    let w_days = weekly_df.column("weekday").unwrap().i8().unwrap();
-    let w_counts = weekly_df.column("record_count").unwrap().u32().unwrap();
-    let w_qtys = weekly_df.column("total_quantity").unwrap().i32().unwrap();
-    let w_totals = weekly_df.column("total_amount").unwrap().i64().unwrap();
+    let w_days = weekly_df.column("weekday")?.i8()?;
+    let w_counts = weekly_df.column("record_count")?.u32()?;
+    let w_qtys = weekly_df.column("total_quantity")?.i32()?;
+    let w_totals = weekly_df.column("total_amount")?.i64()?;
 
     let mut weekly_list = Vec::new();
     for i in 0..weekly_df.height() {
@@ -177,7 +169,7 @@ pub async fn sales_polars_analysis_v4(
 pub async fn get_all_time_customer_analysis(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<serde_json::Value, String> {
+) -> MyceliumResult<serde_json::Value> {
     // 1. Fetch Sales Data with Customer ID for Specific Year
     let rows: Vec<(Option<NaiveDate>, Option<String>)> = sqlx::query_as(
         "SELECT order_date, customer_id FROM sales 
@@ -185,8 +177,7 @@ pub async fn get_all_time_customer_analysis(
     )
     .bind(year)
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     if rows.is_empty() {
         return Ok(serde_json::json!({
@@ -212,11 +203,9 @@ pub async fn get_all_time_customer_analysis(
     let df = df!(
         "order_date" => dates,
         "customer_id" => customer_ids,
-    )
-    .map_err(|e: PolarsError| e.to_string())?
+    )?
     .lazy()
-    .collect()
-    .map_err(|e: PolarsError| e.to_string())?;
+    .collect()?;
 
     // 3. Analytics
     // Frequency: Count unique purchasing days per customer
@@ -231,8 +220,7 @@ pub async fn get_all_time_customer_analysis(
                 .sort(SortOptions::default())
                 .alias("dates"),
         ])
-        .collect()
-        .map_err(|e: PolarsError| e.to_string())?;
+        .collect()?;
 
     // Frequency Distribution Data
     let distribution_df = customer_stats_val
@@ -241,15 +229,10 @@ pub async fn get_all_time_customer_analysis(
         .group_by([col("frequency")])
         .agg([len().alias("customer_count")])
         .sort(["frequency"], SortMultipleOptions::default())
-        .collect()
-        .map_err(|e: PolarsError| e.to_string())?;
+        .collect()?;
 
     // Cycle Analysis
-    let s_dates = customer_stats_val
-        .column("dates")
-        .map_err(|e: PolarsError| e.to_string())?
-        .list()
-        .map_err(|e: PolarsError| e.to_string())?;
+    let s_dates = customer_stats_val.column("dates")?.list()?;
 
     // Cycle Counts
     let mut cycle_counts = [0; 6]; // 1~30, 31~90, 91~180, 181~365, 365+, OneTime
@@ -269,10 +252,8 @@ pub async fn get_all_time_customer_analysis(
             continue;
         }
 
-        let date_series = series
-            .cast(&DataType::Int32)
-            .map_err(|e: PolarsError| e.to_string())?;
-        let date_ca = date_series.i32().map_err(|e: PolarsError| e.to_string())?;
+        let date_series = series.cast(&DataType::Int32)?;
+        let date_ca = date_series.i32()?;
 
         let mut sum_diff = 0;
         let mut count_diff = 0;
@@ -320,12 +301,8 @@ pub async fn get_all_time_customer_analysis(
     };
 
     // 4. Transform to JSON
-    let c_freq = distribution_df.column("frequency").unwrap().u32().unwrap();
-    let c_counts = distribution_df
-        .column("customer_count")
-        .unwrap()
-        .u32()
-        .unwrap();
+    let c_freq = distribution_df.column("frequency")?.u32()?;
+    let c_counts = distribution_df.column("customer_count")?.u32()?;
 
     let mut customer_dist_list = Vec::new();
     for i in 0..distribution_df.height() {
@@ -355,7 +332,7 @@ pub async fn get_all_time_customer_analysis(
 pub async fn get_sales_by_region_analysis(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<serde_json::Value, String> {
+) -> MyceliumResult<serde_json::Value> {
     // 1. Fetch Data (Filtered by product type)
     let rows: Vec<(Option<String>, i32, i32)> = sqlx::query_as(
         "SELECT c.address_primary, s.quantity, s.total_amount 
@@ -368,8 +345,7 @@ pub async fn get_sales_by_region_analysis(
     )
     .bind(year)
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     if rows.is_empty() {
         return Ok(serde_json::json!([]));
@@ -434,8 +410,7 @@ pub async fn get_sales_by_region_analysis(
         "region" => regions,
         "quantity" => qtys,
         "total_amount" => totals,
-    )
-    .map_err(|e: PolarsError| e.to_string())?
+    )?
     .lazy()
     .with_column(col("total_amount").cast(DataType::Int64))
     .with_column(col("quantity").cast(DataType::Int64))
@@ -452,13 +427,12 @@ pub async fn get_sales_by_region_analysis(
             ..Default::default()
         },
     )
-    .collect()
-    .map_err(|e: PolarsError| e.to_string())?;
+    .collect()?;
 
     // 4. Output
-    let r_vals = df.column("region").unwrap().str().unwrap();
-    let q_vals = df.column("total_quantity").unwrap().i64().unwrap();
-    let t_vals = df.column("total_amount").unwrap().i64().unwrap();
+    let r_vals = df.column("region")?.str()?;
+    let q_vals = df.column("total_quantity")?.i64()?;
+    let t_vals = df.column("total_amount")?.i64()?;
 
     let mut result_list = Vec::new();
     for i in 0..df.height() {
@@ -476,7 +450,7 @@ pub async fn get_sales_by_region_analysis(
 pub async fn get_order_value_distribution(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<serde_json::Value, String> {
+) -> MyceliumResult<serde_json::Value> {
     // 1. Fetch raw daily aggregate per customer for specific year
     let rows: Vec<(i64,)> = sqlx::query_as(
         "SELECT CAST(SUM(total_amount) AS BIGINT) as daily_total 
@@ -486,8 +460,7 @@ pub async fn get_order_value_distribution(
     )
     .bind(year)
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     if rows.is_empty() {
         return Ok(serde_json::json!([]));
@@ -545,10 +518,12 @@ pub async fn get_sales_period_analysis(
     state: State<'_, DbPool>,
     start_date: String,
     end_date: String,
-) -> Result<serde_json::Value, String> {
+) -> MyceliumResult<serde_json::Value> {
     // 1. Extract Month-Day from input dates
-    let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(|e| e.to_string())?;
-    let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|e| e.to_string())?;
+    let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d")
+        .map_err(|e| MyceliumError::Validation(e.to_string()))?;
+    let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d")
+        .map_err(|e| MyceliumError::Validation(e.to_string()))?;
 
     let start_md = start.format("%m-%d").to_string();
     let end_md = end.format("%m-%d").to_string();
@@ -584,10 +559,7 @@ pub async fn get_sales_period_analysis(
         )
     };
 
-    let rows: Vec<(i32, i32, i64, i32)> = sqlx::query_as(&query)
-        .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+    let rows: Vec<(i32, i32, i64, i32)> = sqlx::query_as(&query).fetch_all(&*state).await?;
 
     if rows.is_empty() {
         return Ok(serde_json::json!([]));

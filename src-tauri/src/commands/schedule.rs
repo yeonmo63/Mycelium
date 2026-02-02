@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::{DbPool, Schedule};
+use crate::error::MyceliumResult;
 use crate::DB_MODIFIED;
 use chrono::NaiveDate;
 use std::sync::atomic::Ordering;
@@ -9,8 +11,8 @@ pub async fn get_schedules(
     state: State<'_, DbPool>,
     start_date: String,
     end_date: String,
-) -> Result<Vec<Schedule>, String> {
-    sqlx::query_as::<_, Schedule>(
+) -> MyceliumResult<Vec<Schedule>> {
+    Ok(sqlx::query_as::<_, Schedule>(
         "SELECT * FROM schedules 
          WHERE start_time <= $2::timestamp AND end_time >= $1::timestamp
          ORDER BY start_time ASC",
@@ -18,8 +20,7 @@ pub async fn get_schedules(
     .bind(start_date)
     .bind(end_date)
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())
+    .await?)
 }
 
 #[command]
@@ -30,7 +31,7 @@ pub async fn create_schedule(
     start_time: String,
     end_time: String,
     status: Option<String>,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let id: i32 = sqlx::query_scalar(
         "INSERT INTO schedules (title, description, start_time, end_time, status) 
@@ -43,8 +44,7 @@ pub async fn create_schedule(
     .bind(end_time)
     .bind(status)
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
     Ok(id)
 }
 
@@ -57,7 +57,7 @@ pub async fn update_schedule(
     start_time: String,
     end_time: String,
     status: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query(
         "UPDATE schedules SET 
@@ -72,19 +72,17 @@ pub async fn update_schedule(
     .bind(status)
     .bind(schedule_id)
     .execute(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
     Ok(())
 }
 
 #[command]
-pub async fn delete_schedule(state: State<'_, DbPool>, schedule_id: i32) -> Result<(), String> {
+pub async fn delete_schedule(state: State<'_, DbPool>, schedule_id: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM schedules WHERE schedule_id = $1")
         .bind(schedule_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -92,7 +90,7 @@ pub async fn delete_schedule(state: State<'_, DbPool>, schedule_id: i32) -> Resu
 pub async fn get_upcoming_anniversaries(
     state: State<'_, DbPool>,
     days: i32,
-) -> Result<Vec<serde_json::Value>, String> {
+) -> MyceliumResult<Vec<serde_json::Value>> {
     let sql = r#"
         SELECT customer_name, anniversary_date, anniversary_type, mobile_number
         FROM customers
@@ -106,11 +104,8 @@ pub async fn get_upcoming_anniversaries(
         ORDER BY TO_CHAR(anniversary_date, 'MM-DD') ASC
     "#;
 
-    let rows: Vec<(String, NaiveDate, Option<String>, String)> = sqlx::query_as(sql)
-        .bind(days)
-        .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, NaiveDate, Option<String>, String)> =
+        sqlx::query_as(sql).bind(days).fetch_all(&*state).await?;
 
     Ok(rows
         .into_iter()

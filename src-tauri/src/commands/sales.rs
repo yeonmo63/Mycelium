@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::{DbPool, Sales, SalesClaim};
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::{NaiveDate, Utc};
 use std::sync::atomic::Ordering;
@@ -52,7 +54,7 @@ pub async fn create_sale(
     order_date: String,
     memo: Option<String>,
     status: Option<String>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
     let sale_id = format!("S-{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
@@ -66,8 +68,7 @@ pub async fn create_sale(
     .bind(&product_name)
     .bind(&specification)
     .fetch_optional(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
     let product_id = p_id_row.map(|r| r.0);
 
     sqlx::query(
@@ -86,8 +87,7 @@ pub async fn create_sale(
     .bind(status.unwrap_or_else(|| "접수".to_string()))
     .bind(product_id)
     .execute(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(sale_id)
 }
@@ -97,36 +97,31 @@ pub async fn get_daily_sales(
     state: State<'_, DbPool>,
     date: String,
     filter: String,
-) -> Result<Vec<Sales>, String> {
+) -> MyceliumResult<Vec<Sales>> {
     let mut sql = "SELECT * FROM sales".to_string();
     let parsed_date = NaiveDate::parse_from_str(&date, "%Y-%m-%d").unwrap_or_default();
 
     match filter.as_str() {
         "order_date" => {
             sql.push_str(" WHERE order_date = $1 ORDER BY sales_id DESC");
-        } // "shipping_date" => {
-        //     sql.push_str(" WHERE shipping_date = $1 ORDER BY sales_id DESC");
-        // }
+        }
         _ => {
             // Default to order_date
             sql.push_str(" WHERE order_date = $1 ORDER BY sales_id DESC");
         }
     }
 
-    let sales = sqlx::query_as::<_, Sales>(&sql)
+    Ok(sqlx::query_as::<_, Sales>(&sql)
         .bind(parsed_date)
         .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
-
-    Ok(sales)
+        .await?)
 }
 
 #[command]
 pub async fn search_sales_by_any(
     state: State<'_, DbPool>,
     query: String,
-) -> Result<Vec<Sales>, String> {
+) -> MyceliumResult<Vec<Sales>> {
     let search_pattern = format!("%{}%", query);
     // Search in product_name, customer_name, shipping_name, memo, tracking_number
     let sql = r#"
@@ -143,11 +138,10 @@ pub async fn search_sales_by_any(
         LIMIT 100
     "#;
 
-    sqlx::query_as::<_, Sales>(sql)
+    Ok(sqlx::query_as::<_, Sales>(sql)
         .bind(search_pattern)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
@@ -155,25 +149,23 @@ pub async fn update_sale_status(
     state: State<'_, DbPool>,
     sales_id: String,
     status: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("UPDATE sales SET status = $1 WHERE sales_id = $2")
         .bind(status)
         .bind(sales_id)
         .execute(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
     Ok(())
 }
 
 #[command]
-pub async fn cancel_sale(state: State<'_, DbPool>, sales_id: String) -> Result<(), String> {
+pub async fn cancel_sale(state: State<'_, DbPool>, sales_id: String) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("UPDATE sales SET status = '취소' WHERE sales_id = $1")
         .bind(sales_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -183,7 +175,7 @@ pub async fn get_sales_by_event_id_and_date_range(
     event_id: String,
     start_date: String,
     end_date: String,
-) -> Result<Vec<Sales>, String> {
+) -> MyceliumResult<Vec<Sales>> {
     let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").unwrap_or_default();
     let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").unwrap_or_default();
 
@@ -195,20 +187,19 @@ pub async fn get_sales_by_event_id_and_date_range(
         ORDER BY s.order_date DESC
     "#;
 
-    sqlx::query_as::<_, Sales>(sql)
+    Ok(sqlx::query_as::<_, Sales>(sql)
         .bind(event_id)
         .bind(start)
         .bind(end)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
 pub async fn get_daily_receipts(
     state: State<'_, DbPool>,
     date: String,
-) -> Result<Vec<crate::db::Sales>, String> {
+) -> MyceliumResult<Vec<Sales>> {
     // Receipts usually mean paid sales
     let parsed_date = NaiveDate::parse_from_str(&date, "%Y-%m-%d").unwrap_or_default();
     let sql = r#"
@@ -222,21 +213,19 @@ pub async fn get_daily_receipts(
           AND s.status != '취소'
         ORDER BY s.sales_id DESC
     "#;
-    sqlx::query_as::<_, Sales>(sql)
+    Ok(sqlx::query_as::<_, Sales>(sql)
         .bind(parsed_date)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
-pub async fn delete_sale(state: State<'_, DbPool>, sales_id: String) -> Result<(), String> {
+pub async fn delete_sale(state: State<'_, DbPool>, sales_id: String) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM sales WHERE sales_id = $1")
         .bind(sales_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -262,28 +251,27 @@ pub async fn update_sale(
     shipping_date: Option<String>,
     customer_id: Option<String>,
     order_date: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     // Date parsing
     let shipping_date_parsed = match shipping_date {
         Some(s) if !s.is_empty() => Some(
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-                .map_err(|e| format!("Invalid shipping date: {}", e))?,
+                .map_err(|e| MyceliumError::Internal(format!("Invalid shipping date: {}", e)))?,
         ),
         _ => None,
     };
     let order_date_parsed = NaiveDate::parse_from_str(&order_date, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid order date: {}", e))?;
+        .map_err(|e| MyceliumError::Internal(format!("Invalid order date: {}", e)))?;
 
     // Resolve product_id
     let p_id_row: Option<(i32,)> = sqlx::query_as("SELECT product_id FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2")
         .bind(&product_name)
         .bind(&specification)
         .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     let product_id = p_id_row.map(|r| r.0);
 
     // Update
@@ -317,10 +305,9 @@ pub async fn update_sale(
     .bind(product_id)
     .bind(sales_id)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -332,17 +319,16 @@ pub async fn complete_shipment(
     carrier: Option<String>,
     tracking_number: Option<String>,
     shipping_date: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let sale: Option<(String, i32, Option<String>)> =
         sqlx::query_as("SELECT status, total_amount, customer_id FROM sales WHERE sales_id = $1")
             .bind(&sales_id)
             .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
     if let Some((status, amount, cust_id)) = sale {
         if status != "입금완료" {
@@ -356,24 +342,23 @@ pub async fn complete_shipment(
                 .bind(amount)
                 .bind(&sales_id)
                 .execute(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
+                .await?;
 
                 // 2. Update Customer Balance logic (Sync with Ledger)
                 sqlx::query("UPDATE customers SET current_balance = COALESCE(current_balance, 0) + $1 WHERE customer_id = $2")
                     .bind(amount)
                     .bind(&cid)
                     .execute(&mut *tx)
-                    .await
-                    .map_err(|e: sqlx::Error| e.to_string())?;
+                    .await?;
             }
         }
     }
 
     let date_parsed = match shipping_date {
-        Some(s) if !s.is_empty() => {
-            Some(NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| e.to_string())?)
-        }
+        Some(s) if !s.is_empty() => Some(
+            NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                .map_err(|e| MyceliumError::Internal(e.to_string()))?,
+        ),
         _ => Some(chrono::Utc::now().date_naive()),
     };
 
@@ -386,10 +371,9 @@ pub async fn complete_shipment(
     .bind(date_parsed)
     .bind(sales_id)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -398,7 +382,7 @@ pub async fn get_sales_claims(
     state: State<'_, DbPool>,
     start_date: Option<String>,
     end_date: Option<String>,
-) -> Result<Vec<SalesClaim>, String> {
+) -> MyceliumResult<Vec<SalesClaim>> {
     let mut sql = r#"
         SELECT c.*, s.product_name, s.customer_id as sales_customer_id
         FROM sales_claims c
@@ -420,8 +404,7 @@ pub async fn get_sales_claims(
         sqlx::query_as::<_, SalesClaim>(&sql)
             .fetch_all(&*state)
             .await
-    }
-    .map_err(|e| e.to_string())?;
+    }?;
 
     Ok(rows)
 }
@@ -435,7 +418,7 @@ pub async fn create_sales_claim(
     reason_category: String,
     quantity: i32,
     memo: Option<String>,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let row: (i32,) = sqlx::query_as(
         "INSERT INTO sales_claims (sales_id, customer_id, claim_type, reason_category, quantity, memo) 
@@ -448,8 +431,7 @@ pub async fn create_sales_claim(
     .bind(quantity)
     .bind(memo)
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(row.0)
 }
@@ -461,15 +443,14 @@ pub async fn process_sales_claim(
     claim_status: String,
     is_inventory_recovered: bool,
     refund_amount: i32,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let claim: SalesClaim = sqlx::query_as("SELECT * FROM sales_claims WHERE claim_id = $1")
         .bind(claim_id)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     sqlx::query("UPDATE sales_claims SET claim_status = $1, is_inventory_recovered = $2, refund_amount = $3 WHERE claim_id = $4")
         .bind(&claim_status)
@@ -477,8 +458,7 @@ pub async fn process_sales_claim(
         .bind(refund_amount)
         .bind(claim_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     if claim_status == "완료" {
         let new_sales_status = match claim.claim_type.as_str() {
@@ -492,22 +472,20 @@ pub async fn process_sales_claim(
             .bind(new_sales_status)
             .bind(&claim.sales_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn delete_sales_claim(state: State<'_, DbPool>, claim_id: i32) -> Result<(), String> {
+pub async fn delete_sales_claim(state: State<'_, DbPool>, claim_id: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM sales_claims WHERE claim_id = $1")
         .bind(claim_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -518,7 +496,7 @@ pub async fn update_sales_claim(
     reason_category: String,
     quantity: i32,
     memo: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("UPDATE sales_claims SET reason_category = $1, quantity = $2, memo = $3 WHERE claim_id = $4")
         .bind(reason_category)
@@ -526,8 +504,7 @@ pub async fn update_sales_claim(
         .bind(memo)
         .bind(claim_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -535,8 +512,8 @@ pub async fn update_sales_claim(
 pub async fn get_sale_detail(
     state: State<'_, DbPool>,
     sales_id: String,
-) -> Result<Option<Sales>, String> {
-    let sale = sqlx::query_as::<_, Sales>(
+) -> MyceliumResult<Option<Sales>> {
+    Ok(sqlx::query_as::<_, Sales>(
         r#"
         SELECT s.*, c.customer_name 
         FROM sales s
@@ -546,9 +523,7 @@ pub async fn get_sale_detail(
     )
     .bind(sales_id)
     .fetch_optional(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(sale)
+    .await?)
 }
 
 #[command]
@@ -556,12 +531,12 @@ pub async fn get_customer_sales_on_date(
     state: State<'_, DbPool>,
     customer_id: String,
     date: String,
-) -> Result<Vec<Sales>, String> {
+) -> MyceliumResult<Vec<Sales>> {
     // Parse date for validation, though we pass string to SQL
     let parsed_date = NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid date format: {}", e))?;
+        .map_err(|e| MyceliumError::Internal(format!("Invalid date format: {}", e)))?;
 
-    let sales = sqlx::query_as::<_, Sales>(
+    Ok(sqlx::query_as::<_, Sales>(
         "SELECT s.*, c.customer_name 
          FROM sales s
          LEFT JOIN customers c ON s.customer_id = c.customer_id
@@ -572,24 +547,20 @@ pub async fn get_customer_sales_on_date(
     .bind(customer_id)
     .bind(parsed_date)
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
-
-    Ok(sales)
+    .await?)
 }
 
 #[command]
 pub async fn get_customer_sales_history(
     state: State<'_, DbPool>,
     customer_id: String,
-) -> Result<Vec<Sales>, String> {
-    sqlx::query_as::<_, Sales>(
+) -> MyceliumResult<Vec<Sales>> {
+    Ok(sqlx::query_as::<_, Sales>(
         "SELECT * FROM sales WHERE customer_id = $1 ORDER BY order_date DESC",
     )
     .bind(customer_id)
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())
+    .await?)
 }
 
 // BATCH SPECIAL SALES
@@ -599,11 +570,8 @@ pub async fn save_special_sales_batch(
     event: SpecialEventInput,
     sales: Vec<SpecialSaleInput>,
     deleted_sales_ids: Vec<String>,
-) -> Result<String, String> {
-    let mut tx = state
-        .begin()
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+) -> MyceliumResult<String> {
+    let mut tx = state.begin().await?;
 
     // 1. Resolve Event ID (Create or Update)
     let event_id = if let Some(eid) = &event.event_id {
@@ -616,8 +584,7 @@ pub async fn save_special_sales_batch(
             )
             .bind(format!("{}%", date_str))
             .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
             let next_val = match last_record {
                 Some((last_id,)) => {
@@ -662,8 +629,7 @@ pub async fn save_special_sales_batch(
             .bind(end_date_parsed)
             .bind(&event.memo)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
             new_eid
         } else {
@@ -697,8 +663,7 @@ pub async fn save_special_sales_batch(
             .bind(&event.memo)
             .bind(eid)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
             eid.clone()
         }
@@ -711,8 +676,7 @@ pub async fn save_special_sales_batch(
         )
         .bind(format!("{}%", date_str))
         .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
         let next_val = match last_record {
             Some((last_id,)) => {
@@ -757,8 +721,7 @@ pub async fn save_special_sales_batch(
         .bind(end_date_parsed)
         .bind(&event.memo)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
         new_eid
     };
@@ -769,8 +732,7 @@ pub async fn save_special_sales_batch(
         sqlx::query("DELETE FROM sales WHERE sales_id = $1")
             .bind(del_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
     // 3. Handle Upserts
@@ -785,8 +747,7 @@ pub async fn save_special_sales_batch(
     )
     .bind(&sl_like)
     .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     let mut next_seq = match last_sale_rec {
         Some((lid,)) => {
@@ -812,7 +773,7 @@ pub async fn save_special_sales_batch(
             if !sid.is_empty() {
                 // Find product_id
                 let p_id_row: Option<(i32,)> = sqlx::query_as("SELECT product_id FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2")
-                    .bind(&sale.product_name).bind(&sale.specification).fetch_optional(&mut *tx).await.map_err(|e| e.to_string())?;
+                    .bind(&sale.product_name).bind(&sale.specification).fetch_optional(&mut *tx).await?;
                 let p_id = p_id_row.map(|r| r.0);
 
                 // Update Sale Record
@@ -831,8 +792,7 @@ pub async fn save_special_sales_batch(
                     .bind(p_id)
                     .bind(sid)
                     .execute(&mut *tx)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                    .await?;
                 continue;
             }
         }
@@ -843,7 +803,7 @@ pub async fn save_special_sales_batch(
 
         // Find product_id
         let p_id_row: Option<(i32,)> = sqlx::query_as("SELECT product_id FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2")
-            .bind(&sale.product_name).bind(&sale.specification).fetch_optional(&mut *tx).await.map_err(|e| e.to_string())?;
+            .bind(&sale.product_name).bind(&sale.specification).fetch_optional(&mut *tx).await?;
         let p_id = p_id_row.map(|r| r.0);
 
         sqlx::query("INSERT INTO sales (sales_id, customer_id, order_date, product_name, specification, quantity, unit_price, total_amount, discount_rate, memo, status, shipping_date, product_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '현장판매완료', $11, $12)")
@@ -860,11 +820,10 @@ pub async fn save_special_sales_batch(
         .bind(today_naive) // shipping_date = today for spot sales
         .bind(p_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
 
     Ok(event_id)
 }
@@ -898,19 +857,15 @@ pub async fn save_general_sales_batch(
     state: State<'_, DbPool>,
     items: Vec<GeneralSalesBatchItem>,
     deleted_ids: Vec<String>,
-) -> Result<(), String> {
-    let mut tx = state
-        .begin()
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+) -> MyceliumResult<()> {
+    let mut tx = state.begin().await?;
 
     // 1. Handle Deletions
     for del_id in deleted_ids {
         sqlx::query("DELETE FROM sales WHERE sales_id = $1")
             .bind(del_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
     // 2. Prepare for ID generation
@@ -924,8 +879,7 @@ pub async fn save_general_sales_batch(
     )
     .bind(&sl_like)
     .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     let mut next_seq = match last_sale_rec {
         Some((lid,)) => {
@@ -950,7 +904,7 @@ pub async fn save_general_sales_batch(
 
         // Find product_id
         let p_id_row: Option<(i32,)> = sqlx::query_as("SELECT product_id FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2")
-            .bind(&item.productName).bind(&item.specification).fetch_optional(&mut *tx).await.map_err(|e| e.to_string())?;
+            .bind(&item.productName).bind(&item.specification).fetch_optional(&mut *tx).await?;
         let product_id = p_id_row.map(|r| r.0);
 
         if let Some(sid) = &item.salesId {
@@ -984,7 +938,7 @@ pub async fn save_general_sales_batch(
                 .bind(item.discountRate)
                 .bind(product_id)
                 .bind(sid)
-                .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+                .execute(&mut *tx).await?;
 
                 continue;
             }
@@ -1021,10 +975,10 @@ pub async fn save_general_sales_batch(
         .bind(&item.paymentStatus)
         .bind(item.discountRate)
         .bind(product_id)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     DB_MODIFIED.store(true, Ordering::Relaxed);
     Ok(())
 }

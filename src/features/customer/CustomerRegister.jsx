@@ -48,10 +48,55 @@ const CustomerRegister = () => {
     const [duplicateResults, setDuplicateResults] = useState([]);
     const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
 
+    // --- Suggestion States ---
+    const [nameSuggestions, setNameSuggestions] = useState([]);
+    const [mobileSuggestions, setMobileSuggestions] = useState([]);
+    const [isNameFocused, setIsNameFocused] = useState(false);
+    const [isMobileFocused, setIsMobileFocused] = useState(false);
+
+    const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+    const [isNameDirty, setIsNameDirty] = useState(false);
+    const [isMobileDirty, setIsMobileDirty] = useState(false);
+
     useEffect(() => {
         // Auto-focus name on mount
         if (nameInputRef.current) nameInputRef.current.focus();
     }, []);
+
+    // Debounced Search for Suggestions (Name)
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            if (isNameDirty && formData.name.trim().length >= 2 && window.__TAURI__) {
+                try {
+                    const results = await window.__TAURI__.core.invoke('search_customers_by_name', { name: formData.name });
+                    setNameSuggestions(results.slice(0, 5));
+                } catch (e) {
+                    console.error("Name search failed:", e);
+                }
+            } else {
+                setNameSuggestions([]);
+            }
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [formData.name, isNameDirty]);
+
+    // Debounced Search for Suggestions (Mobile)
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            const cleanMobile = formData.mobile.replace(/[^0-9]/g, '');
+            if (isMobileDirty && cleanMobile.length >= 4 && window.__TAURI__) {
+                try {
+                    const results = await window.__TAURI__.core.invoke('search_customers_by_mobile', { mobile: formData.mobile });
+                    setMobileSuggestions(results.slice(0, 5));
+                } catch (e) {
+                    console.error("Mobile search failed:", e);
+                }
+            } else {
+                setMobileSuggestions([]);
+            }
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [formData.mobile, isMobileDirty]);
 
     // --- Handlers ---
     const handleChange = (e) => {
@@ -62,10 +107,50 @@ const CustomerRegister = () => {
             val = formatPhoneNumber(val);
         }
 
+        if (name === 'name') setIsNameDirty(true);
+        if (name === 'mobile') setIsMobileDirty(true);
+
         setFormData(prev => ({
             ...prev,
             [name]: val
         }));
+    };
+
+    const handleSelectSuggestion = async (cust) => {
+        let msg = `[${cust.customer_name}] 고객 정보를 불러오시겠습니까?`;
+        if (cust.status !== '정상') {
+            msg = `[${cust.customer_name}]님은 현재 '${cust.status}' 상태입니다. 정보를 불러오고 '정상' 고객으로 복원하시겠습니까?`;
+        }
+
+        if (await showConfirm('고객 선택', msg)) {
+            setFormData(prev => ({
+                ...prev,
+                name: cust.customer_name,
+                mobile: cust.mobile_number,
+                level: cust.membership_level || '일반',
+                email: cust.email || '',
+                zip: cust.zip_code || '',
+                addr1: cust.address_primary || '',
+                addr2: cust.address_detail || '',
+                phone: cust.phone_number || '',
+                memo: cust.memo || '',
+                marketingConsent: cust.marketing_consent || false,
+                anniversaryDate: cust.anniversary_date || '',
+                anniversaryType: cust.anniversary_type || '',
+                acquisition: cust.acquisition_channel || '',
+                purchaseCycle: cust.purchase_cycle || '',
+                prefProduct: cust.pref_product_type || '',
+                prefPackage: cust.pref_package_type || '',
+                familyType: cust.family_type || '',
+                healthConcern: cust.health_concern || '',
+                subInterest: cust.sub_interest || false
+            }));
+            setSelectedCustomerId(cust.customer_id);
+            setIsNameDirty(false);
+            setIsMobileDirty(false);
+            setNameSuggestions([]);
+            setMobileSuggestions([]);
+        }
     };
 
     const handleKeyDown = (e, nextRef) => {
@@ -138,16 +223,6 @@ const CustomerRegister = () => {
         }
     };
 
-    const handleBlurCheck = async (e) => {
-        const { value } = e.target;
-        if (!value || value.length < 2) return;
-
-        const dups = await checkDuplicates();
-        if (dups.length > 0) {
-            setDuplicateResults(dups.slice(0, 5)); // Limit to top 5 for display
-            setIsDuplicateModalOpen(true);
-        }
-    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -176,7 +251,7 @@ const CustomerRegister = () => {
             }
         }
 
-        if (!await showConfirm('확인', '고객을 등록하시겠습니까?')) return;
+        if (!await showConfirm('확인', selectedCustomerId ? '고객 정보를 수정하시겠습니까?' : '고객을 등록하시겠습니까?')) return;
         await submitRegistration();
     };
 
@@ -184,6 +259,7 @@ const CustomerRegister = () => {
         setIsProcessing(true);
         try {
             const payload = {
+                customerId: selectedCustomerId || undefined,
                 customerName: formData.name,
                 mobileNumber: formData.mobile,
                 membershipLevel: formData.level,
@@ -197,24 +273,28 @@ const CustomerRegister = () => {
                 anniversaryType: formData.anniversaryType || null,
                 marketingConsent: formData.marketingConsent,
                 acquisitionChannel: formData.acquisition || null,
-                // These CRM fields are not in the current create_customer signature, 
-                // but might be needed in the future or ignored by Tauri if extra
                 prefProductType: formData.prefProduct || null,
                 prefPackageType: formData.prefPackage || null,
                 familyType: formData.familyType || null,
                 healthConcern: formData.healthConcern || null,
                 subInterest: formData.subInterest,
-                purchaseCycle: formData.purchaseCycle || null
+                purchaseCycle: formData.purchaseCycle || null,
+                status: '정상' // Always set to normal on save/reactivate
             };
 
             if (window.__TAURI__) {
-                await window.__TAURI__.core.invoke('create_customer', payload);
-                await showAlert('성공', '고객이 성공적으로 등록되었습니다.');
+                if (selectedCustomerId) {
+                    await window.__TAURI__.core.invoke('update_customer', payload);
+                    await showAlert('성공', '고객 정보가 성공적으로 수정(복원)되었습니다.');
+                } else {
+                    await window.__TAURI__.core.invoke('create_customer', payload);
+                    await showAlert('성공', '고객이 성공적으로 등록되었습니다.');
+                }
                 handleReset();
             }
         } catch (error) {
             console.error('Failed to register customer:', error);
-            await showAlert('오류', '고객 등록에 실패했습니다: ' + error);
+            await showAlert('오류', '처리에 실패했습니다: ' + error);
         } finally {
             setIsProcessing(false);
         }
@@ -222,6 +302,9 @@ const CustomerRegister = () => {
 
     const handleReset = () => {
         setFormData(initialFormState);
+        setSelectedCustomerId(null);
+        setIsNameDirty(false);
+        setIsMobileDirty(false);
         if (nameInputRef.current) nameInputRef.current.focus();
     };
 
@@ -381,8 +464,10 @@ const CustomerRegister = () => {
                 <div className="flex-1 overflow-y-auto pr-2 space-y-2">
 
                     {/* section 1: Basic Info */}
-                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative group">
+                        <div className="absolute top-0 right-0 w-32 h-32 overflow-hidden pointer-events-none">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/30 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                        </div>
                         <h3 className="text-lg font-black text-slate-800 mb-2 flex items-center gap-2">
                             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
                                 <span className="material-symbols-rounded text-xl">info</span>
@@ -402,10 +487,53 @@ const CustomerRegister = () => {
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">고객명 <span className="text-rose-500">*</span></label>
                                 <div className="relative">
                                     <input type="text" name="name" ref={nameInputRef} value={formData.name}
-                                        onChange={handleChange} onBlur={handleBlurCheck}
+                                        onChange={handleChange}
+                                        onFocus={() => setIsNameFocused(true)}
+                                        onBlur={() => setTimeout(() => setIsNameFocused(false), 200)}
                                         onKeyDown={(e) => handleKeyDown(e, mobileInputRef)}
                                         placeholder="이름 입력" required
                                         className="w-full h-10 bg-white border-slate-200 border rounded-xl font-bold text-slate-800 px-4 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm" />
+
+                                    {/* Inline Suggestions (Search Window) for Name */}
+                                    {isNameFocused && nameSuggestions.length > 0 && (
+                                        <div className="absolute z-[100] top-full left-0 w-80 mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="material-symbols-rounded text-xs text-rose-500">warning</span>
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tight">이미 등록된 비슷한 이름</span>
+                                                </div>
+                                                <span className="text-[9px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-md font-black">중복 주의</span>
+                                            </div>
+                                            <div className="max-h-60 overflow-y-auto custom-scrollbar">
+                                                {nameSuggestions.map(cust => (
+                                                    <div key={cust.customer_id}
+                                                        onClick={() => cust.status !== '정상' && handleSelectSuggestion(cust)}
+                                                        className={`p-3 border-b border-slate-50 last:border-0 transition-colors ${cust.status !== '정상' ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default opacity-60 bg-slate-50'}`}>
+                                                        <div className="flex justify-between items-start mb-0.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-bold text-slate-800">{cust.customer_name}</span>
+                                                                {cust.status !== '정상' ? (
+                                                                    <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-md">{cust.status}</span>
+                                                                ) : (
+                                                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">등록됨</span>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md">{cust.membership_level || '일반'}</span>
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 flex items-center gap-1 font-medium">
+                                                            <span className="material-symbols-rounded text-sm">call</span> {cust.mobile_number || '-'}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-400 truncate mt-0.5 font-medium">
+                                                            <span className="material-symbols-rounded text-sm">location_on</span> {cust.address_primary || '주소 정보 없음'}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 text-center">
+                                                <p className="text-[10px] text-slate-400 font-bold">이미 등록된 고객이면 등록을 중단해주세요.</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="lg:col-span-2 space-y-1">
@@ -458,11 +586,53 @@ const CustomerRegister = () => {
                             </div>
                             <div className="lg:col-span-3 space-y-1">
                                 <label className="text-[11px] font-black text-slate-400 uppercase ml-1">휴대 전화</label>
-                                <input type="tel" name="mobile" ref={mobileInputRef} value={formData.mobile} onChange={handleChange}
-                                    onBlur={handleBlurCheck}
-                                    onKeyDown={(e) => handleKeyDown(e, emailInputRef)}
-                                    placeholder="010-0000-0000"
-                                    className="w-full h-10 bg-white border-indigo-200 border-2 rounded-xl font-black text-slate-900 px-4 focus:ring-4 focus:ring-indigo-500/20 transition-all shadow-sm" />
+                                <div className="relative">
+                                    <input type="tel" name="mobile" ref={mobileInputRef} value={formData.mobile} onChange={handleChange}
+                                        onFocus={() => setIsMobileFocused(true)}
+                                        onBlur={() => setTimeout(() => setIsMobileFocused(false), 200)}
+                                        onKeyDown={(e) => handleKeyDown(e, emailInputRef)}
+                                        placeholder="010-0000-0000"
+                                        className="w-full h-10 bg-white border-indigo-200 border-2 rounded-xl font-black text-slate-900 px-4 focus:ring-4 focus:ring-indigo-500/20 transition-all shadow-sm" />
+
+                                    {/* Inline Suggestions (Search Window) for Mobile */}
+                                    {isMobileFocused && mobileSuggestions.length > 0 && (
+                                        <div className="absolute z-[100] top-full right-0 w-80 mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="material-symbols-rounded text-xs text-rose-500">warning</span>
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tight">이미 등록된 비슷한 번호</span>
+                                                </div>
+                                                <span className="text-[9px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-md font-black">중복 주의</span>
+                                            </div>
+                                            <div className="max-h-60 overflow-y-auto custom-scrollbar">
+                                                {mobileSuggestions.map(cust => (
+                                                    <div key={cust.customer_id}
+                                                        onClick={() => handleSelectSuggestion(cust)}
+                                                        className="p-3 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0 transition-colors text-left">
+                                                        <div className="flex justify-between items-start mb-0.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-bold text-slate-800">{cust.customer_name}</span>
+                                                                {cust.status !== '정상' && (
+                                                                    <span className="text-[9px] font-black bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-md">{cust.status}</span>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md">{cust.membership_level || '일반'}</span>
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 flex items-center gap-1 font-medium">
+                                                            <span className="material-symbols-rounded text-sm">call</span> {cust.mobile_number || '-'}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-400 truncate mt-0.5 font-medium">
+                                                            <span className="material-symbols-rounded text-sm">location_on</span> {cust.address_primary || '주소 정보 없음'}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 text-center">
+                                                <p className="text-[10px] text-slate-400 font-bold">번호가 겹치는 고객이 이미 등록되어 있습니다.</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                             <div className="lg:col-span-6 flex items-end pb-1">
                                 <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-6 py-3 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all w-full group/check">
@@ -477,8 +647,10 @@ const CustomerRegister = () => {
                     </div>
 
                     {/* Section 2: CRM & Taste */}
-                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50/30 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                    <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 relative group">
+                        <div className="absolute top-0 right-0 w-32 h-32 overflow-hidden pointer-events-none">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50/30 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110" />
+                        </div>
                         <h3 className="text-lg font-black text-slate-800 mb-2 flex items-center gap-2">
                             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
                                 <span className="material-symbols-rounded text-xl">volunteer_activism</span>
@@ -673,16 +845,41 @@ const CustomerRegister = () => {
                                     <thead>
                                         <tr className="bg-slate-50 border-b border-slate-100">
                                             <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">고객명</th>
+                                            <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">상태</th>
                                             <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">휴대폰</th>
-                                            <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">주소</th>
+                                            <th className="px-4 py-3 text-left text-[11px] font-black text-slate-400 uppercase">작업</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
                                         {duplicateResults.map((dup, idx) => (
                                             <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-4 py-3 font-black text-slate-700">{dup.customer_name}</td>
-                                                <td className="px-4 py-3 font-bold text-slate-500">{dup.mobile_number || dup.phone_number || '-'}</td>
-                                                <td className="px-4 py-3 text-sm font-medium text-slate-400 break-all">{dup.address_primary || '-'}</td>
+                                                <td className="px-4 py-3">
+                                                    <div className="font-black text-slate-700">{dup.customer_name}</div>
+                                                    <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{dup.address_primary || '주소 없음'}</div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    {dup.status !== '정상' ? (
+                                                        <span className="text-[10px] font-black bg-rose-100 text-rose-600 px-2 py-1 rounded-md">{dup.status}</span>
+                                                    ) : (
+                                                        <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-md">정상</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 font-bold text-slate-500">{dup.mobile_number || '-'}</td>
+                                                <td className="px-4 py-3">
+                                                    {dup.status !== '정상' ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsDuplicateModalOpen(false);
+                                                                handleSelectSuggestion(dup);
+                                                            }}
+                                                            className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 font-black text-xs hover:bg-indigo-600 hover:text-white transition-all whitespace-nowrap"
+                                                        >
+                                                            선택 및 복원
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-[11px] font-bold text-slate-400">이미 등록됨</span>
+                                                    )}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -696,14 +893,13 @@ const CustomerRegister = () => {
                                     setIsDuplicateModalOpen(false);
                                     nameInputRef.current?.focus();
                                 }}
-                                className="flex-1 h-12 rounded-2xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                                className="h-12 px-6 rounded-2xl bg-slate-100 text-slate-600 font-black hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
                             >
-                                <span className="material-symbols-rounded">close</span> 취소 (이름 재입력)
+                                <span className="material-symbols-rounded">close</span> 취소 (재입력)
                             </button>
                             <button
                                 onClick={() => {
                                     setIsDuplicateModalOpen(false);
-                                    // Move to next logical field to fill
                                     if (!formData.mobile) {
                                         mobileInputRef.current?.focus();
                                     } else if (!formData.addr2) {
@@ -712,7 +908,7 @@ const CustomerRegister = () => {
                                 }}
                                 className="flex-1 h-12 rounded-2xl bg-indigo-600 text-white font-black hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
                             >
-                                <span className="material-symbols-rounded">forward</span> 계속 진행 (포커스 이동)
+                                <span className="material-symbols-rounded">forward</span> 무시하고 계속 진행
                             </button>
                         </div>
                     </div>

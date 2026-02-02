@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::{init_pool, CompanyInfo, User};
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use serde_json::{json, Value};
@@ -60,17 +62,21 @@ pub fn get_gemini_api_key(app: &AppHandle) -> Option<String> {
 }
 
 #[command]
-pub async fn get_gemini_api_key_for_ui(app: AppHandle) -> Result<String, String> {
+pub async fn get_gemini_api_key_for_ui(app: AppHandle) -> MyceliumResult<String> {
     Ok(get_gemini_api_key(&app).unwrap_or_default())
 }
 
 #[command]
-pub async fn save_gemini_api_key(app: AppHandle, key: String) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn save_gemini_api_key(app: AppHandle, key: String) -> MyceliumResult<()> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
 
     let mut config_data = if config_path.exists() {
-        let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
         serde_json::from_str::<Value>(&content).unwrap_or(json!({}))
     } else {
         json!({})
@@ -78,14 +84,14 @@ pub async fn save_gemini_api_key(app: AppHandle, key: String) -> Result<(), Stri
 
     config_data["gemini_api_key"] = Value::String(key);
 
-    let config_str = serde_json::to_string_pretty(&config_data).map_err(|e| e.to_string())?;
-    fs::write(&config_path, config_str).map_err(|e| e.to_string())?;
+    let config_str = serde_json::to_string_pretty(&config_data)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    fs::write(&config_path, config_str).map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     // Also update current process env to take effect immediately
-    std::env::set_var(
-        "GEMINI_API_KEY",
-        &config_data["gemini_api_key"].as_str().unwrap_or(""),
-    );
+    if let Some(key_str) = config_data["gemini_api_key"].as_str() {
+        std::env::set_var("GEMINI_API_KEY", key_str);
+    }
 
     Ok(())
 }
@@ -121,12 +127,16 @@ pub async fn save_naver_keys(
     app: AppHandle,
     client_id: String,
     client_secret: String,
-) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+) -> MyceliumResult<()> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
 
     let mut config_data = if config_path.exists() {
-        let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
         serde_json::from_str::<Value>(&content).unwrap_or(json!({}))
     } else {
         json!({})
@@ -135,8 +145,9 @@ pub async fn save_naver_keys(
     config_data["naver_client_id"] = Value::String(client_id);
     config_data["naver_client_secret"] = Value::String(client_secret);
 
-    let config_str = serde_json::to_string_pretty(&config_data).map_err(|e| e.to_string())?;
-    fs::write(&config_path, config_str).map_err(|e| e.to_string())?;
+    let config_str = serde_json::to_string_pretty(&config_data)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    fs::write(&config_path, config_str).map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     Ok(())
 }
@@ -172,12 +183,16 @@ fn get_default_templates() -> Value {
 }
 
 #[command]
-pub async fn get_message_templates(app: AppHandle) -> Result<Value, String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn get_message_templates(app: AppHandle) -> MyceliumResult<Value> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let template_path = config_dir.join("templates.json");
 
     if template_path.exists() {
-        let content = fs::read_to_string(&template_path).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(&template_path)
+            .map_err(|e| MyceliumError::Internal(e.to_string()))?;
         Ok(serde_json::from_str::<Value>(&content).unwrap_or_else(|_| get_default_templates()))
     } else {
         Ok(get_default_templates())
@@ -185,22 +200,29 @@ pub async fn get_message_templates(app: AppHandle) -> Result<Value, String> {
 }
 
 #[command]
-pub async fn save_message_templates(app: AppHandle, templates: Value) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn save_message_templates(app: AppHandle, templates: Value) -> MyceliumResult<()> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     if !config_dir.exists() {
-        fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+        fs::create_dir_all(&config_dir).map_err(|e| MyceliumError::Internal(e.to_string()))?;
     }
     let template_path = config_dir.join("templates.json");
 
-    let content = serde_json::to_string_pretty(&templates).map_err(|e| e.to_string())?;
-    fs::write(&template_path, content).map_err(|e| e.to_string())?;
+    let content = serde_json::to_string_pretty(&templates)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    fs::write(&template_path, content).map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     Ok(())
 }
 
 #[command]
-pub async fn reset_message_templates(app: AppHandle) -> Result<Value, String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn reset_message_templates(app: AppHandle) -> MyceliumResult<Value> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let template_path = config_dir.join("templates.json");
 
     if template_path.exists() {
@@ -211,12 +233,16 @@ pub async fn reset_message_templates(app: AppHandle) -> Result<Value, String> {
 }
 
 #[command]
-pub async fn save_external_backup_path(app: AppHandle, path: String) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn save_external_backup_path(app: AppHandle, path: String) -> MyceliumResult<()> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
 
     let mut config_data = if config_path.exists() {
-        let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
         serde_json::from_str::<Value>(&content).unwrap_or(json!({}))
     } else {
         json!({})
@@ -224,19 +250,24 @@ pub async fn save_external_backup_path(app: AppHandle, path: String) -> Result<(
 
     config_data["external_backup_path"] = Value::String(path);
 
-    let config_str = serde_json::to_string_pretty(&config_data).map_err(|e| e.to_string())?;
-    fs::write(&config_path, config_str).map_err(|e| e.to_string())?;
+    let config_str = serde_json::to_string_pretty(&config_data)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    fs::write(&config_path, config_str).map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     Ok(())
 }
 
 #[command]
-pub async fn get_external_backup_path(app: AppHandle) -> Result<String, String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn get_external_backup_path(app: AppHandle) -> MyceliumResult<String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
 
     if config_path.exists() {
-        let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
         let json: Value = serde_json::from_str(&content).unwrap_or(json!({}));
         if let Some(path) = json.get("external_backup_path").and_then(|v| v.as_str()) {
             return Ok(path.to_string());
@@ -246,7 +277,7 @@ pub async fn get_external_backup_path(app: AppHandle) -> Result<String, String> 
 }
 
 #[command]
-pub async fn get_naver_client_id_for_ui(app: AppHandle) -> Result<String, String> {
+pub async fn get_naver_client_id_for_ui(app: AppHandle) -> MyceliumResult<String> {
     let (id, _) = get_naver_keys(&app);
     Ok(id)
 }
@@ -266,12 +297,16 @@ pub async fn save_sms_config(
     api_key: String,
     sender_number: String,
     provider: String,
-) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+) -> MyceliumResult<()> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
 
     let mut config_data = if config_path.exists() {
-        let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let content =
+            fs::read_to_string(&config_path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
         serde_json::from_str::<Value>(&content).unwrap_or(json!({}))
     } else {
         json!({})
@@ -281,22 +316,27 @@ pub async fn save_sms_config(
     config_data["sms_sender_number"] = Value::String(sender_number);
     config_data["sms_provider"] = Value::String(provider);
 
-    let config_str = serde_json::to_string_pretty(&config_data).map_err(|e| e.to_string())?;
-    fs::write(&config_path, config_str).map_err(|e| e.to_string())?;
+    let config_str = serde_json::to_string_pretty(&config_data)
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    fs::write(&config_path, config_str).map_err(|e| MyceliumError::Internal(e.to_string()))?;
 
     Ok(())
 }
 
 #[command]
-pub async fn get_sms_config_for_ui(app: AppHandle) -> Result<Option<SmsConfig>, String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+pub async fn get_sms_config_for_ui(app: AppHandle) -> MyceliumResult<Option<SmsConfig>> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
 
     if !config_path.exists() {
         return Ok(None);
     }
 
-    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let content =
+        fs::read_to_string(&config_path).map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_data: Value = serde_json::from_str(&content).unwrap_or(json!({}));
 
     let api_key = config_data
@@ -332,22 +372,26 @@ pub async fn setup_system(
     db_port: String,
     db_name: String,
     gemini_key: Option<String>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     // 1. Validate inputs
     if db_user.trim().is_empty() {
-        return Err("Database user is required".to_string());
+        return Err(MyceliumError::Validation(
+            "Database user is required".to_string(),
+        ));
     }
     if db_name.trim().is_empty() {
-        return Err("Database name is required".to_string());
+        return Err(MyceliumError::Validation(
+            "Database name is required".to_string(),
+        ));
     }
     // Simple validation to prevent injection in CREATE DATABASE
     if !db_name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
-        return Err(
+        return Err(MyceliumError::Validation(
             "Database name must contain only alphanumeric characters and underscores.".to_string(),
-        );
+        ));
     }
 
     // 2. Try to connect to 'postgres' database to create the new database
@@ -359,17 +403,17 @@ pub async fn setup_system(
     // We use a temporary connection just to create the DB
     use sqlx::Connection;
     use std::str::FromStr;
-    let opts = sqlx::postgres::PgConnectOptions::from_str(&maintenance_url)
-        .map_err(|e: sqlx::Error| format!("Invalid connection URL: {}", e))?;
-    // .log_statements(log::LevelFilter::Debug); // Need log crate if wanted
+    let opts = sqlx::postgres::PgConnectOptions::from_str(&maintenance_url).map_err(
+        |e: sqlx::Error| MyceliumError::Internal(format!("Invalid connection URL: {}", e)),
+    )?;
 
     let mut conn = sqlx::postgres::PgConnection::connect_with(&opts)
         .await
         .map_err(|e: sqlx::Error| {
-            format!(
+            MyceliumError::Internal(format!(
                 "Failed to connect to PostgreSQL. Check credentials. Error: {}",
                 e
-            )
+            ))
         })?;
 
     // 3. Create Database if not exists
@@ -385,7 +429,7 @@ pub async fn setup_system(
             if msg.contains("already exists") || msg.contains("이미 있음") {
                 // println!("Database already exists, proceeding to configuration.");
             } else {
-                return Err(format!("Failed to create database '{}': {}", db_name, e));
+                return Err(MyceliumError::Database(e));
             }
         }
     }
@@ -399,11 +443,11 @@ pub async fn setup_system(
     let config_dir = app_handle
         .path()
         .app_config_dir()
-        .map_err(|e: tauri::Error| e.to_string())?;
+        .map_err(|e: tauri::Error| MyceliumError::Internal(e.to_string()))?;
 
     if !config_dir.exists() {
         fs::create_dir_all(&config_dir)
-            .map_err(|e| format!("Failed to create config dir: {}", e))?;
+            .map_err(|e| MyceliumError::Internal(format!("Failed to create config dir: {}", e)))?;
     }
 
     let config_path = config_dir.join("config.json");
@@ -423,24 +467,26 @@ pub async fn setup_system(
             config_data["gemini_api_key"] = Value::String(clean_key.to_string());
         }
     }
-    let config_str =
-        serde_json::to_string_pretty(&config_data).map_err(|e: serde_json::Error| e.to_string())?;
+    let config_str = serde_json::to_string_pretty(&config_data)
+        .map_err(|e: serde_json::Error| MyceliumError::Internal(e.to_string()))?;
 
     fs::write(&config_path, config_str)
-        .map_err(|e| format!("Failed to write config file: {}", e))?;
+        .map_err(|e| MyceliumError::Internal(format!("Failed to write config file: {}", e)))?;
 
     // 5. Initialize Schema
-    let pool = init_pool(&final_db_url)
-        .await
-        .map_err(|e| format!("Failed to connect to new database: {}", e))?;
+    let pool = init_pool(&final_db_url).await.map_err(|e| {
+        MyceliumError::Internal(format!("Failed to connect to new database: {}", e))
+    })?;
     crate::db::init_database(&pool)
         .await
-        .map_err(|e| format!("Failed to initialize schema: {}", e))?;
+        .map_err(|e| MyceliumError::Internal(format!("Failed to initialize schema: {}", e)))?;
 
     // Initialize App Plugin (for version checking)
     app_handle
         .plugin(tauri_plugin_app::init())
-        .map_err(|e: tauri::Error| format!("Failed to initialize App plugin: {}", e))?;
+        .map_err(|e: tauri::Error| {
+            MyceliumError::Internal(format!("Failed to initialize App plugin: {}", e))
+        })?;
 
     // 6. Update State and Manage Pool
     app_handle.manage(pool);
@@ -454,12 +500,11 @@ pub async fn setup_system(
 #[command]
 pub async fn get_company_info(
     state: State<'_, crate::db::DbPool>,
-) -> Result<Option<CompanyInfo>, String> {
+) -> MyceliumResult<Option<CompanyInfo>> {
     let pool = state.inner();
     let row = sqlx::query_as::<_, CompanyInfo>("SELECT * FROM company_info LIMIT 1")
         .fetch_optional(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(row)
 }
 
@@ -476,7 +521,7 @@ pub async fn save_company_info(
     address: Option<String>,
     business_type: Option<String>,
     item: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     let reg_date = registration_date.and_then(|s| {
         chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
             .ok()
@@ -488,8 +533,7 @@ pub async fn save_company_info(
     // Check if exists
     let exists = sqlx::query("SELECT 1 FROM company_info LIMIT 1")
         .fetch_optional(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     if exists.is_some() {
         sqlx::query(
@@ -510,8 +554,7 @@ pub async fn save_company_info(
         .bind(business_type)
         .bind(item)
         .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     } else {
         sqlx::query(
             "INSERT INTO company_info 
@@ -530,8 +573,7 @@ pub async fn save_company_info(
         .bind(business_type)
         .bind(item)
         .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
     Ok(())
@@ -550,26 +592,29 @@ pub struct LoginResponse {
 pub async fn verify_admin_password(
     state: State<'_, crate::db::DbPool>,
     password: String,
-) -> Result<bool, String> {
+) -> MyceliumResult<bool> {
     let user_result = sqlx::query_as::<_, User>(
         "SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE username = 'admin'",
     )
     .fetch_optional(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     match user_result {
         Some(user) => {
             if let Some(hash) = &user.password_hash {
                 match verify(&password, hash) {
                     Ok(is_valid) => Ok(is_valid),
-                    Err(_) => Err("Password verification error".to_string()),
+                    Err(_) => Err(MyceliumError::Auth(
+                        "Password verification error".to_string(),
+                    )),
                 }
             } else {
-                Err("Admin user has no password set".to_string())
+                Err(MyceliumError::Auth(
+                    "Admin user has no password set".to_string(),
+                ))
             }
         }
-        None => Err("Admin user not found".to_string()),
+        None => Err(MyceliumError::Auth("Admin user not found".to_string())),
     }
 }
 
@@ -578,7 +623,7 @@ pub async fn login(
     state: State<'_, crate::db::DbPool>,
     username: String,
     password: String,
-) -> Result<LoginResponse, String> {
+) -> MyceliumResult<LoginResponse> {
     // Validate inputs
     if username.trim().is_empty() || password.trim().is_empty() {
         return Ok(LoginResponse {
@@ -596,8 +641,7 @@ pub async fn login(
     )
     .bind(&username)
     .fetch_optional(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     match user_result {
         Some(user) => {
@@ -657,17 +701,21 @@ pub async fn change_password(
     username: String,
     old_password: String,
     new_password: String,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     // Validate inputs
     if username.trim().is_empty()
         || old_password.trim().is_empty()
         || new_password.trim().is_empty()
     {
-        return Err("모든 필드를 입력해주세요.".to_string());
+        return Err(MyceliumError::Validation(
+            "모든 필드를 입력해주세요.".to_string(),
+        ));
     }
 
     if new_password.len() < 4 {
-        return Err("새 비밀번호는 최소 4자 이상이어야 합니다.".to_string());
+        return Err(MyceliumError::Validation(
+            "새 비밀번호는 최소 4자 이상이어야 합니다.".to_string(),
+        ));
     }
 
     // Query user from database
@@ -676,8 +724,7 @@ pub async fn change_password(
     )
     .bind(&username)
     .fetch_optional(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     match user_result {
         Some(user) => {
@@ -686,18 +733,26 @@ pub async fn change_password(
                 match verify(&old_password, password_hash) {
                     Ok(is_valid) => {
                         if !is_valid {
-                            return Err("현재 비밀번호가 올바르지 않습니다.".to_string());
+                            return Err(MyceliumError::Auth(
+                                "현재 비밀번호가 올바르지 않습니다.".to_string(),
+                            ));
                         }
                     }
-                    Err(_) => return Err("비밀번호 확인 중 오류가 발생했습니다.".to_string()),
+                    Err(_) => {
+                        return Err(MyceliumError::Internal(
+                            "비밀번호 확인 중 오류가 발생했습니다.".to_string(),
+                        ))
+                    }
                 }
             } else {
-                return Err("사용자 정보가 올바르지 않습니다.".to_string());
+                return Err(MyceliumError::Auth(
+                    "사용자 정보가 올바르지 않습니다.".to_string(),
+                ));
             }
 
             // Hash new password
             let new_password_hash = hash(&new_password, DEFAULT_COST)
-                .map_err(|e| format!("비밀번호 해시 생성 실패: {}", e))?;
+                .map_err(|e| MyceliumError::Internal(format!("비밀번호 해시 생성 실패: {}", e)))?;
 
             // Update password in database
             DB_MODIFIED.store(true, Ordering::Relaxed);
@@ -705,23 +760,23 @@ pub async fn change_password(
                 .bind(&new_password_hash)
                 .bind(&username)
                 .execute(&*state)
-                .await
-                .map_err(|e| e.to_string())?;
+                .await?;
 
             Ok("비밀번호가 성공적으로 변경되었습니다.".to_string())
         }
-        None => Err("존재하지 않는 사용자입니다.".to_string()),
+        None => Err(MyceliumError::Auth(
+            "존재하지 않는 사용자입니다.".to_string(),
+        )),
     }
 }
 
 #[command]
-pub async fn get_all_users(state: State<'_, crate::db::DbPool>) -> Result<Vec<User>, String> {
+pub async fn get_all_users(state: State<'_, crate::db::DbPool>) -> MyceliumResult<Vec<User>> {
     let users = sqlx::query_as::<_, User>(
         "SELECT id, username, password_hash, role, created_at, updated_at FROM users ORDER BY created_at DESC",
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(users)
 }
@@ -732,16 +787,18 @@ pub async fn create_user(
     username: String,
     password: Option<String>,
     role: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     if username.trim().is_empty() {
-        return Err("아이디를 입력해주세요.".to_string());
+        return Err(MyceliumError::Validation(
+            "아이디를 입력해주세요.".to_string(),
+        ));
     }
 
     let password_hash = if let Some(pwd) = password {
         if pwd.trim().is_empty() {
             None
         } else {
-            Some(hash(&pwd, DEFAULT_COST).map_err(|e| e.to_string())?)
+            Some(hash(&pwd, DEFAULT_COST).map_err(|e| MyceliumError::Internal(e.to_string()))?)
         }
     } else {
         None
@@ -753,8 +810,7 @@ pub async fn create_user(
         .bind(password_hash)
         .bind(role)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     Ok(())
 }
@@ -766,12 +822,12 @@ pub async fn update_user(
     username: String,
     password: Option<String>,
     role: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     let password_hash = if let Some(pwd) = password {
         if pwd.trim().is_empty() {
             None
         } else {
-            Some(hash(&pwd, DEFAULT_COST).map_err(|e| e.to_string())?)
+            Some(hash(&pwd, DEFAULT_COST).map_err(|e| MyceliumError::Internal(e.to_string()))?)
         }
     } else {
         None
@@ -785,39 +841,25 @@ pub async fn update_user(
             .bind(role)
             .bind(id)
             .execute(&*state)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     } else {
         sqlx::query("UPDATE users SET username = $1, role = $2 WHERE id = $3")
             .bind(username)
             .bind(role)
             .bind(id)
             .execute(&*state)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
     }
 
     Ok(())
 }
 
 #[command]
-pub async fn delete_user(state: State<'_, crate::db::DbPool>, id: i32) -> Result<(), String> {
-    let username: (String,) = sqlx::query_as("SELECT username FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_one(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if username.0 == "admin" {
-        return Err("관리자 계정은 삭제할 수 없습니다.".to_string());
-    }
-
+pub async fn delete_user(state: State<'_, crate::db::DbPool>, id: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
-
+        .await?;
     Ok(())
 }

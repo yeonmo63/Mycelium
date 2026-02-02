@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::{DbPool, ExperienceProgram, ExperienceReservation};
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use sqlx::FromRow;
@@ -27,13 +29,12 @@ pub struct ExperienceDashboardStats {
 #[command(rename_all = "snake_case")]
 pub async fn get_experience_programs(
     state: State<'_, DbPool>,
-) -> Result<Vec<ExperienceProgram>, String> {
-    sqlx::query_as::<_, ExperienceProgram>(
+) -> MyceliumResult<Vec<ExperienceProgram>> {
+    Ok(sqlx::query_as::<_, ExperienceProgram>(
         "SELECT * FROM experience_programs ORDER BY program_name",
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())
+    .await?)
 }
 
 #[command(rename_all = "snake_case")]
@@ -45,7 +46,7 @@ pub async fn create_experience_program(
     max_capacity: i32,
     price_per_person: i32,
     is_active: bool,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let row: (i32,) = sqlx::query_as(
         "INSERT INTO experience_programs (program_name, description, duration_min, max_capacity, price_per_person, is_active) 
@@ -58,8 +59,7 @@ pub async fn create_experience_program(
     .bind(price_per_person)
     .bind(is_active)
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(row.0)
 }
@@ -74,7 +74,7 @@ pub async fn update_experience_program(
     max_capacity: i32,
     price_per_person: i32,
     is_active: bool,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query(
         "UPDATE experience_programs SET program_name=$1, description=$2, duration_min=$3, max_capacity=$4, price_per_person=$5, is_active=$6 WHERE program_id=$7",
@@ -87,8 +87,7 @@ pub async fn update_experience_program(
     .bind(is_active)
     .bind(program_id)
     .execute(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(())
 }
@@ -97,13 +96,12 @@ pub async fn update_experience_program(
 pub async fn delete_experience_program(
     state: State<'_, DbPool>,
     program_id: i32,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM experience_programs WHERE program_id = $1")
         .bind(program_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -112,7 +110,7 @@ pub async fn get_experience_reservations(
     state: State<'_, DbPool>,
     start_date: Option<String>,
     end_date: Option<String>,
-) -> Result<Vec<ExperienceReservation>, String> {
+) -> MyceliumResult<Vec<ExperienceReservation>> {
     let mut sql = String::from(
         "SELECT r.*, p.program_name 
          FROM experience_reservations r
@@ -134,10 +132,7 @@ pub async fn get_experience_reservations(
         query
     };
 
-    query
-        .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())
+    Ok(query.fetch_all(&*state).await?)
 }
 
 #[command(rename_all = "snake_case")]
@@ -154,14 +149,14 @@ pub async fn create_experience_reservation(
     status: String,
     payment_status: String,
     memo: Option<String>,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let date_parsed = NaiveDate::parse_from_str(&reservation_date, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid date: {}", e))?;
+        .map_err(|e| MyceliumError::Validation(format!("Invalid date: {}", e)))?;
     let time_parsed = NaiveTime::parse_from_str(&reservation_time, "%H:%M")
-        .map_err(|e| format!("Invalid time: {}", e))?;
+        .map_err(|e| MyceliumError::Validation(format!("Invalid time: {}", e)))?;
 
     let row: (i32,) = sqlx::query_as(
         "INSERT INTO experience_reservations (program_id, customer_id, guest_name, guest_contact, reservation_date, reservation_time, participant_count, total_amount, status, payment_status, memo) 
@@ -179,8 +174,7 @@ pub async fn create_experience_reservation(
     .bind(&payment_status)
     .bind(&memo)
     .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     let r_id = row.0;
 
@@ -192,8 +186,7 @@ pub async fn create_experience_reservation(
         )
         .bind(program_id)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
         let start_dt = NaiveDateTime::new(date_parsed, time_parsed);
         let end_dt = start_dt + chrono::Duration::minutes(prog.1 as i64);
@@ -207,11 +200,10 @@ pub async fn create_experience_reservation(
         .bind(end_dt)
         .bind(r_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(r_id)
 }
 
@@ -230,21 +222,21 @@ pub async fn update_experience_reservation(
     status: String,
     payment_status: String,
     memo: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     let date_parsed = NaiveDate::parse_from_str(&reservation_date, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid date: {}", e))?;
+        .map_err(|e| MyceliumError::Validation(format!("Invalid date: {}", e)))?;
     let time_parsed = NaiveTime::parse_from_str(&reservation_time, "%H:%M")
-        .map_err(|e| format!("Invalid time: {}", e))?;
+        .map_err(|e| MyceliumError::Validation(format!("Invalid time: {}", e)))?;
 
     // 1. Remove associated schedule
-    sqlx::query("DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1")
-        .bind(reservation_id)
-        .execute(&mut *tx)
-        .await
-        .ok();
+    let _ =
+        sqlx::query("DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1")
+            .bind(reservation_id)
+            .execute(&mut *tx)
+            .await;
 
     sqlx::query(
         "UPDATE experience_reservations SET program_id=$1, customer_id=$2, guest_name=$3, guest_contact=$4, 
@@ -264,8 +256,7 @@ pub async fn update_experience_reservation(
     .bind(&memo)
     .bind(reservation_id)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     // Auto-create Schedule if Confirmed or Completed
     if status == "예약완료" || status == "체험완료" {
@@ -275,8 +266,7 @@ pub async fn update_experience_reservation(
         )
         .bind(program_id)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to fetch program info: {}", e))?;
+        .await?;
 
         let start_dt = NaiveDateTime::new(date_parsed, time_parsed);
         let end_dt = start_dt + chrono::Duration::minutes(duration_min as i64);
@@ -297,11 +287,10 @@ pub async fn update_experience_reservation(
         .bind(schedule_status)
         .bind(reservation_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -309,24 +298,23 @@ pub async fn update_experience_reservation(
 pub async fn delete_experience_reservation(
     state: State<'_, DbPool>,
     reservation_id: i32,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     // Delete Schedule
-    sqlx::query("DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1")
-        .bind(reservation_id)
-        .execute(&mut *tx)
-        .await
-        .ok();
+    let _ =
+        sqlx::query("DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1")
+            .bind(reservation_id)
+            .execute(&mut *tx)
+            .await;
 
     sqlx::query("DELETE FROM experience_reservations WHERE reservation_id = $1")
         .bind(reservation_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -336,9 +324,9 @@ pub async fn update_experience_status(
     reservation_id: i32,
     status: String,
     append_memo: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
     sqlx::query(
         "UPDATE experience_reservations 
@@ -355,17 +343,17 @@ pub async fn update_experience_status(
     .bind(reservation_id)
     .bind(append_memo)
     .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     // Schedule Logic
     if status == "예약완료" {
         // Delete existing
-        sqlx::query("DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1")
-            .bind(reservation_id)
-            .execute(&mut *tx)
-            .await
-            .ok();
+        let _ = sqlx::query(
+            "DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1",
+        )
+        .bind(reservation_id)
+        .execute(&mut *tx)
+        .await;
 
         // Fetch Info
         let (program_name, duration_min, guest_name, r_date, r_time, r_memo): (String, i32, String, NaiveDate, NaiveTime, Option<String>) = sqlx::query_as(
@@ -376,8 +364,7 @@ pub async fn update_experience_status(
         )
         .bind(reservation_id)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
         let start_dt = NaiveDateTime::new(r_date, r_time);
         let end_dt = start_dt + chrono::Duration::minutes(duration_min as i64);
@@ -393,22 +380,22 @@ pub async fn update_experience_status(
         .bind(end_dt)
         .bind(reservation_id)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     } else if status == "예약취소" || status == "예약대기" {
-        sqlx::query("DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1")
-            .bind(reservation_id)
-            .execute(&mut *tx)
-            .await
-            .ok();
+        let _ = sqlx::query(
+            "DELETE FROM schedules WHERE related_type = 'EXPERIENCE' AND related_id = $1",
+        )
+        .bind(reservation_id)
+        .execute(&mut *tx)
+        .await;
     } else if status == "체험완료" {
-        sqlx::query("UPDATE schedules SET status = 'Completed' WHERE related_type = 'EXPERIENCE' AND related_id = $1")
+        let _ = sqlx::query("UPDATE schedules SET status = 'Completed' WHERE related_type = 'EXPERIENCE' AND related_id = $1")
             .bind(reservation_id)
             .execute(&mut *tx)
-            .await.ok();
+            .await;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -417,21 +404,20 @@ pub async fn update_experience_payment_status(
     state: State<'_, DbPool>,
     reservation_id: i32,
     payment_status: String,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("UPDATE experience_reservations SET payment_status = $1 WHERE reservation_id = $2")
         .bind(payment_status)
         .bind(reservation_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
 #[command(rename_all = "snake_case")]
 pub async fn get_experience_dashboard_stats(
     state: State<'_, DbPool>,
-) -> Result<ExperienceDashboardStats, String> {
+) -> MyceliumResult<ExperienceDashboardStats> {
     // 1. Monthly Trend (Last 6 months)
     let trend_sql = r#"
         WITH RECURSIVE months AS (
@@ -452,8 +438,7 @@ pub async fn get_experience_dashboard_stats(
 
     let monthly_trend = sqlx::query_as::<_, ExpMonthlyTrend>(trend_sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     // 2. Program Popularity (Top 5)
     let pop_sql = r#"
@@ -471,8 +456,7 @@ pub async fn get_experience_dashboard_stats(
 
     let program_popularity = sqlx::query_as::<_, ExpProgramPopularity>(pop_sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     Ok(ExperienceDashboardStats {
         monthly_trend,

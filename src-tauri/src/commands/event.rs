@@ -1,16 +1,18 @@
+#![allow(non_snake_case)]
 use crate::db::{DbPool, Event};
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::{NaiveDate, Utc};
 use std::sync::atomic::Ordering;
 use tauri::{command, State};
 
 #[command]
-pub async fn get_last_event(state: State<'_, DbPool>) -> Result<Option<Event>, String> {
-    let event = sqlx::query_as::<_, Event>("SELECT * FROM event ORDER BY created_at DESC LIMIT 1")
-        .fetch_optional(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
-    Ok(event)
+pub async fn get_last_event(state: State<'_, DbPool>) -> MyceliumResult<Option<Event>> {
+    Ok(
+        sqlx::query_as::<_, Event>("SELECT * FROM event ORDER BY created_at DESC LIMIT 1")
+            .fetch_optional(&*state)
+            .await?,
+    )
 }
 
 #[command]
@@ -25,7 +27,7 @@ pub async fn create_event(
     start_date: Option<String>,
     end_date: Option<String>,
     memo: Option<String>,
-) -> Result<String, String> {
+) -> MyceliumResult<String> {
     // Generate ID: YYYYMMDD-1XXXX (Global Sequence)
     let now = Utc::now();
     let date_str = now.format("%Y%m%d").to_string(); // YYYYMMDD
@@ -36,8 +38,7 @@ pub async fn create_event(
     )
     .bind(format!("{}%", date_str))
     .fetch_optional(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     let next_val = match last_record {
         Some((last_id,)) => {
@@ -58,14 +59,14 @@ pub async fn create_event(
     let start_date_parsed = match start_date {
         Some(s) if !s.is_empty() => Some(
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-                .map_err(|e| format!("Invalid start date: {}", e))?,
+                .map_err(|e| MyceliumError::Validation(format!("Invalid start date: {}", e)))?,
         ),
         _ => None,
     };
     let end_date_parsed = match end_date {
         Some(s) if !s.is_empty() => Some(
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-                .map_err(|e| format!("Invalid end date: {}", e))?,
+                .map_err(|e| MyceliumError::Validation(format!("Invalid end date: {}", e)))?,
         ),
         _ => None,
     };
@@ -87,8 +88,7 @@ pub async fn create_event(
     .bind(end_date_parsed)
     .bind(memo)
     .execute(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     Ok(event_id)
 }
@@ -97,14 +97,13 @@ pub async fn create_event(
 pub async fn search_events_by_name(
     state: State<'_, DbPool>,
     name: String,
-) -> Result<Vec<Event>, String> {
-    sqlx::query_as::<_, Event>(
+) -> MyceliumResult<Vec<Event>> {
+    Ok(sqlx::query_as::<_, Event>(
         "SELECT * FROM event WHERE event_name ILIKE $1 ORDER BY start_date DESC",
     )
     .bind(format!("%{}%", name))
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())
+    .await?)
 }
 
 #[command]
@@ -120,20 +119,20 @@ pub async fn update_event(
     start_date: Option<String>,
     end_date: Option<String>,
     memo: Option<String>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     // Date parsing
     let start_date_parsed = match start_date {
         Some(s) if !s.is_empty() => Some(
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-                .map_err(|e| format!("Invalid start date: {}", e))?,
+                .map_err(|e| MyceliumError::Validation(format!("Invalid start date: {}", e)))?,
         ),
         _ => None,
     };
     let end_date_parsed = match end_date {
         Some(s) if !s.is_empty() => Some(
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-                .map_err(|e| format!("Invalid end date: {}", e))?,
+                .map_err(|e| MyceliumError::Validation(format!("Invalid end date: {}", e)))?,
         ),
         _ => None,
     };
@@ -162,27 +161,26 @@ pub async fn update_event(
     .bind(memo)
     .bind(event_id)
     .execute(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    .await?;
 
     Ok(())
 }
 
 #[command]
-pub async fn get_all_events(state: State<'_, DbPool>) -> Result<Vec<Event>, String> {
-    sqlx::query_as::<_, Event>("SELECT * FROM event ORDER BY start_date DESC")
-        .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())
+pub async fn get_all_events(state: State<'_, DbPool>) -> MyceliumResult<Vec<Event>> {
+    Ok(
+        sqlx::query_as::<_, Event>("SELECT * FROM event ORDER BY start_date DESC")
+            .fetch_all(&*state)
+            .await?,
+    )
 }
 
 #[command]
-pub async fn delete_event(state: State<'_, DbPool>, event_id: String) -> Result<(), String> {
+pub async fn delete_event(state: State<'_, DbPool>, event_id: String) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM event WHERE event_id = $1")
         .bind(event_id)
         .execute(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
     Ok(())
 }

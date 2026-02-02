@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::DbPool;
+use crate::error::MyceliumResult;
 use chrono::NaiveDate;
 use tauri::{command, State};
 
@@ -30,7 +32,7 @@ pub async fn get_shipments_by_status(
     search: Option<String>,
     start_date: Option<String>,
     end_date: Option<String>,
-) -> Result<Vec<PendingShipment>, String> {
+) -> MyceliumResult<Vec<PendingShipment>> {
     let mut query_string = String::from(
         "SELECT 
             s.sales_id, 
@@ -103,16 +105,16 @@ pub async fn get_shipments_by_status(
         }
     }
 
-    query
-        .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())
+    Ok(query.fetch_all(&*state).await?)
 }
 
 #[command]
-pub async fn get_shipping_base_date(state: State<'_, DbPool>) -> Result<Option<NaiveDate>, String> {
-    sqlx::query_scalar("SELECT MIN(order_date) FROM sales WHERE status IN ('접수', '입금완료')")
+pub async fn get_shipping_base_date(state: State<'_, DbPool>) -> MyceliumResult<Option<NaiveDate>> {
+    Ok(
+        sqlx::query_scalar(
+            "SELECT MIN(order_date) FROM sales WHERE status IN ('접수', '입금완료')",
+        )
         .fetch_one(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())
+        .await?,
+    )
 }

@@ -1,4 +1,6 @@
+#![allow(non_snake_case)]
 use crate::db::{Consultation, DbPool};
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::NaiveDate;
 use std::sync::atomic::Ordering;
@@ -16,7 +18,7 @@ pub async fn create_consultation(
     title: String,
     content: String,
     priority: String,
-) -> Result<i32, String> {
+) -> MyceliumResult<i32> {
     // Basic Sentiment Analysis Rule-based
     let sentiment = if content.contains("화남")
         || content.contains("불만")
@@ -53,8 +55,7 @@ pub async fn create_consultation(
     .bind(priority)
     .bind(sentiment)
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(consult_id.0)
 }
@@ -64,17 +65,22 @@ pub async fn get_consultations(
     state: State<'_, DbPool>,
     start_date: Option<String>,
     end_date: Option<String>,
-) -> Result<Vec<Consultation>, String> {
+) -> MyceliumResult<Vec<Consultation>> {
     // Basic search - non-dynamic for simplicity in Postgres
     let rows = if let (Some(s), Some(e)) = (start_date, end_date) {
-        let sd = NaiveDate::parse_from_str(&s, "%Y-%m-%d").unwrap_or_default();
-        let ed = NaiveDate::parse_from_str(&e, "%Y-%m-%d").unwrap_or_default();
+        let sd = NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+            .map_err(|e| MyceliumError::Validation(format!("Invalid start date: {}", e)))?;
+        let ed = NaiveDate::parse_from_str(&e, "%Y-%m-%d")
+            .map_err(|e| MyceliumError::Validation(format!("Invalid end date: {}", e)))?;
         sqlx::query_as::<_, Consultation>("SELECT * FROM consultations WHERE consult_date BETWEEN $1 AND $2 ORDER BY consult_date DESC, consult_id DESC")
-            .bind(sd).bind(ed).fetch_all(&*state).await
+            .bind(sd).bind(ed).fetch_all(&*state).await?
     } else {
-        sqlx::query_as::<_, Consultation>("SELECT * FROM consultations ORDER BY consult_date DESC, consult_id DESC LIMIT 200")
-            .fetch_all(&*state).await
-    }.map_err(|e| e.to_string())?;
+        sqlx::query_as::<_, Consultation>(
+            "SELECT * FROM consultations ORDER BY consult_date DESC, consult_id DESC LIMIT 200",
+        )
+        .fetch_all(&*state)
+        .await?
+    };
 
     Ok(rows)
 }
@@ -87,8 +93,19 @@ pub async fn update_consultation(
     status: String,
     priority: String,
     follow_up_date: Option<String>,
-) -> Result<(), String> {
-    let f_date = follow_up_date.and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok());
+) -> MyceliumResult<()> {
+    let f_date =
+        if let Some(s) = follow_up_date {
+            if s.is_empty() {
+                None
+            } else {
+                Some(NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|e| {
+                    MyceliumError::Validation(format!("Invalid follow-up date: {}", e))
+                })?)
+            }
+        } else {
+            None
+        };
     DB_MODIFIED.store(true, Ordering::Relaxed);
 
     sqlx::query("UPDATE consultations SET answer=$1, status=$2, priority=$3, follow_up_date=$4 WHERE consult_id=$5")
@@ -98,19 +115,17 @@ pub async fn update_consultation(
         .bind(f_date)
         .bind(consult_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     Ok(())
 }
 
 #[command]
-pub async fn delete_consultation(state: State<'_, DbPool>, consult_id: i32) -> Result<(), String> {
+pub async fn delete_consultation(state: State<'_, DbPool>, consult_id: i32) -> MyceliumResult<()> {
     sqlx::query("DELETE FROM consultations WHERE consult_id=$1")
         .bind(consult_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -126,7 +141,7 @@ pub struct PendingConsultation {
 #[command]
 pub async fn get_top_pending_consultations(
     state: State<'_, DbPool>,
-) -> Result<Vec<PendingConsultation>, String> {
+) -> MyceliumResult<Vec<PendingConsultation>> {
     let sql = r#"
         SELECT 
             consult_id,
@@ -147,8 +162,7 @@ pub async fn get_top_pending_consultations(
         LIMIT 5
     "#;
 
-    sqlx::query_as::<_, PendingConsultation>(sql)
+    Ok(sqlx::query_as::<_, PendingConsultation>(sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }

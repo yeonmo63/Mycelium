@@ -2,6 +2,7 @@ use crate::db::{
     DashboardStats, DbPool, MonthlyCohortStats, ProductSalesStats, ProfitAnalysisResult, Sales,
     TenYearSalesStats,
 };
+use crate::error::{MyceliumError, MyceliumResult};
 use tauri::{command, State};
 
 #[derive(serde::Serialize, sqlx::FromRow)]
@@ -11,7 +12,7 @@ pub struct WeeklySales {
 }
 
 #[command]
-pub async fn get_dashboard_stats(state: State<'_, DbPool>) -> Result<DashboardStats, String> {
+pub async fn get_dashboard_stats(state: State<'_, DbPool>) -> MyceliumResult<DashboardStats> {
     let today = chrono::Local::now().date_naive();
     let stats: DashboardStats = sqlx::query_as(
         r#"
@@ -33,27 +34,27 @@ pub async fn get_dashboard_stats(state: State<'_, DbPool>) -> Result<DashboardSt
     )
     .bind(today)
     .fetch_one(&*state)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     Ok(stats)
 }
 
 #[command]
-pub async fn get_recent_sales(state: State<'_, DbPool>) -> Result<Vec<Sales>, String> {
-    sqlx::query_as::<_, Sales>(
+pub async fn get_recent_sales(state: State<'_, DbPool>) -> MyceliumResult<Vec<Sales>> {
+    let sales = sqlx::query_as::<_, Sales>(
         "SELECT s.*, c.customer_name 
          FROM sales s
          LEFT JOIN customers c ON s.customer_id = c.customer_id
          ORDER BY s.order_date DESC LIMIT 5",
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())
+    .await?;
+
+    Ok(sales)
 }
 
 #[command]
-pub async fn get_weekly_sales_data(state: State<'_, DbPool>) -> Result<Vec<WeeklySales>, String> {
+pub async fn get_weekly_sales_data(state: State<'_, DbPool>) -> MyceliumResult<Vec<WeeklySales>> {
     let today = chrono::Local::now().date_naive();
     let query = r#"
         WITH days AS (
@@ -70,17 +71,18 @@ pub async fn get_weekly_sales_data(state: State<'_, DbPool>) -> Result<Vec<Weekl
         ORDER BY d.day ASC
     "#;
 
-    sqlx::query_as::<_, WeeklySales>(query)
+    let data = sqlx::query_as::<_, WeeklySales>(query)
         .bind(today)
         .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())
+        .await?;
+
+    Ok(data)
 }
 
 #[command]
 pub async fn get_ten_year_sales_stats(
     state: State<'_, DbPool>,
-) -> Result<Vec<TenYearSalesStats>, String> {
+) -> MyceliumResult<Vec<TenYearSalesStats>> {
     let sql = r#"
         WITH RECURSIVE years AS (
             SELECT CAST(TO_CHAR(CURRENT_DATE, 'YYYY') AS INTEGER) - i AS year
@@ -99,8 +101,7 @@ pub async fn get_ten_year_sales_stats(
 
     let stats = sqlx::query_as::<_, TenYearSalesStats>(sql)
         .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
 
     Ok(stats)
 }
@@ -109,9 +110,9 @@ pub async fn get_ten_year_sales_stats(
 pub async fn get_monthly_sales_by_cohort(
     pool: State<'_, DbPool>,
     year: String,
-) -> Result<Vec<MonthlyCohortStats>, String> {
+) -> MyceliumResult<Vec<MonthlyCohortStats>> {
     if year.len() != 4 {
-        return Err("Invalid year format".to_string());
+        return Err(MyceliumError::Validation("Invalid year format".to_string()));
     }
 
     let sql = r#"
@@ -136,8 +137,7 @@ pub async fn get_monthly_sales_by_cohort(
     let stats = sqlx::query_as::<_, MonthlyCohortStats>(sql)
         .bind(year)
         .fetch_all(&*pool)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
 
     Ok(stats)
 }
@@ -146,9 +146,11 @@ pub async fn get_monthly_sales_by_cohort(
 pub async fn get_daily_sales_stats_by_month(
     pool: State<'_, DbPool>,
     year_month: String, // "2024-01"
-) -> Result<Vec<MonthlyCohortStats>, String> {
+) -> MyceliumResult<Vec<MonthlyCohortStats>> {
     if year_month.len() != 7 {
-        return Err("Invalid year_month format (Expected YYYY-MM)".to_string());
+        return Err(MyceliumError::Validation(
+            "Invalid year_month format (Expected YYYY-MM)".to_string(),
+        ));
     }
 
     let sql = r#"
@@ -173,8 +175,7 @@ pub async fn get_daily_sales_stats_by_month(
     let stats = sqlx::query_as::<_, MonthlyCohortStats>(sql)
         .bind(year_month)
         .fetch_all(&*pool)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())?;
+        .await?;
 
     Ok(stats)
 }
@@ -182,7 +183,7 @@ pub async fn get_daily_sales_stats_by_month(
 #[command]
 pub async fn get_top_profit_products(
     state: State<'_, DbPool>,
-) -> Result<Vec<ProfitAnalysisResult>, String> {
+) -> MyceliumResult<Vec<ProfitAnalysisResult>> {
     let today = chrono::Local::now().date_naive();
     let sql = r#"
         SELECT 
@@ -208,17 +209,18 @@ pub async fn get_top_profit_products(
         LIMIT 5
     "#;
 
-    sqlx::query_as::<_, ProfitAnalysisResult>(sql)
+    let results = sqlx::query_as::<_, ProfitAnalysisResult>(sql)
         .bind(today)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?;
+
+    Ok(results)
 }
 
 #[command]
 pub async fn get_top3_products_by_qty(
     state: State<'_, DbPool>,
-) -> Result<Vec<ProductSalesStats>, String> {
+) -> MyceliumResult<Vec<ProductSalesStats>> {
     let today = chrono::Local::now().date_naive();
     let query = r#"
         SELECT 
@@ -237,9 +239,10 @@ pub async fn get_top3_products_by_qty(
         LIMIT 3
     "#;
 
-    sqlx::query_as::<_, ProductSalesStats>(query)
+    let stats = sqlx::query_as::<_, ProductSalesStats>(query)
         .bind(today)
         .fetch_all(&*state)
-        .await
-        .map_err(|e: sqlx::Error| e.to_string())
+        .await?;
+
+    Ok(stats)
 }

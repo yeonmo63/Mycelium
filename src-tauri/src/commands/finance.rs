@@ -1,6 +1,8 @@
+#![allow(non_snake_case)]
 use crate::db::{
     DbPool, Expense, ProductSalesStats, ProfitAnalysisResult, Purchase, TenYearSalesStats, Vendor,
 };
+use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use chrono::NaiveDate;
 use serde::Deserialize;
@@ -31,11 +33,12 @@ pub struct SyncItem {
 }
 
 #[command]
-pub async fn get_vendor_list(state: State<'_, DbPool>) -> Result<Vec<Vendor>, String> {
-    sqlx::query_as::<_, Vendor>("SELECT * FROM vendors ORDER BY vendor_name")
-        .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+pub async fn get_vendor_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Vendor>> {
+    Ok(
+        sqlx::query_as::<_, Vendor>("SELECT * FROM vendors ORDER BY vendor_name")
+            .fetch_all(&*state)
+            .await?,
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,43 +56,41 @@ pub struct VendorInput {
 }
 
 #[command]
-pub async fn save_vendor(state: State<'_, DbPool>, vendor: VendorInput) -> Result<(), String> {
+pub async fn save_vendor(state: State<'_, DbPool>, vendor: VendorInput) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     if let Some(id) = vendor.vendor_id {
         sqlx::query(
             "UPDATE vendors SET vendor_name=$1, business_number=$2, representative=$3, mobile_number=$4, email=$5, address=$6, main_items=$7, memo=$8, is_active=$9 WHERE vendor_id=$10"
         )
         .bind(vendor.vendor_name).bind(vendor.business_number).bind(vendor.representative).bind(vendor.mobile_number).bind(vendor.email).bind(vendor.address).bind(vendor.main_items).bind(vendor.memo).bind(vendor.is_active).bind(id)
-        .execute(&*state).await.map_err(|e| e.to_string())?;
+        .execute(&*state).await?;
     } else {
         sqlx::query(
             "INSERT INTO vendors (vendor_name, business_number, representative, mobile_number, email, address, main_items, memo, is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"
         )
         .bind(vendor.vendor_name).bind(vendor.business_number).bind(vendor.representative).bind(vendor.mobile_number).bind(vendor.email).bind(vendor.address).bind(vendor.main_items).bind(vendor.memo).bind(vendor.is_active.unwrap_or(true))
-        .execute(&*state).await.map_err(|e| e.to_string())?;
+        .execute(&*state).await?;
     }
     Ok(())
 }
 
 #[command]
-pub async fn delete_vendor(state: State<'_, DbPool>, vendor_id: i32) -> Result<(), String> {
+pub async fn delete_vendor(state: State<'_, DbPool>, vendor_id: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM vendors WHERE vendor_id = $1")
         .bind(vendor_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
 #[command]
-pub async fn get_purchase_list(state: State<'_, DbPool>) -> Result<Vec<Purchase>, String> {
-    sqlx::query_as::<_, Purchase>(
+pub async fn get_purchase_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Purchase>> {
+    Ok(sqlx::query_as::<_, Purchase>(
         "SELECT p.*, v.vendor_name FROM purchases p LEFT JOIN vendors v ON p.vendor_id = v.vendor_id ORDER BY p.purchase_date DESC"
     )
     .fetch_all(&*state)
-    .await
-    .map_err(|e| e.to_string())
+    .await?)
 }
 
 #[command]
@@ -97,26 +98,35 @@ pub async fn save_purchase(
     state: State<'_, DbPool>,
     purchase: PurchaseInput,
     inventory_sync_data: Option<Vec<SyncItem>>,
-) -> Result<(), String> {
+) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let mut tx = state.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = state.begin().await?;
 
-    let p_date = purchase
-        .purchase_date
-        .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok());
+    let p_date =
+        if let Some(d) = purchase.purchase_date {
+            if d.is_empty() {
+                None
+            } else {
+                Some(NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(|e| {
+                    MyceliumError::Validation(format!("Invalid purchase date: {}", e))
+                })?)
+            }
+        } else {
+            None
+        };
 
     if let Some(id) = purchase.purchase_id {
         sqlx::query(
             "UPDATE purchases SET vendor_id=$1, purchase_date=$2, item_name=$3, specification=$4, quantity=$5, unit_price=$6, total_amount=$7, payment_status=$8, memo=$9, inventory_synced=$10, material_item_id=$11 WHERE purchase_id=$12"
         )
         .bind(purchase.vendor_id).bind(p_date).bind(&purchase.item_name).bind(&purchase.specification).bind(purchase.quantity).bind(purchase.unit_price).bind(purchase.total_amount).bind(&purchase.payment_status).bind(&purchase.memo).bind(purchase.inventory_synced).bind(purchase.material_item_id).bind(id)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
     } else {
         sqlx::query(
             "INSERT INTO purchases (vendor_id, purchase_date, item_name, specification, quantity, unit_price, total_amount, payment_status, memo, inventory_synced, material_item_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"
         )
         .bind(purchase.vendor_id).bind(p_date).bind(&purchase.item_name).bind(&purchase.specification).bind(purchase.quantity).bind(purchase.unit_price).bind(purchase.total_amount).bind(&purchase.payment_status).bind(&purchase.memo).bind(purchase.inventory_synced).bind(purchase.material_item_id)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+        .execute(&mut *tx).await?;
     }
 
     // Handle Inventory Sync
@@ -128,8 +138,7 @@ pub async fn save_purchase(
             .bind(item.quantity)
             .bind(item.product_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
             // Log entry
             sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo) 
@@ -138,32 +147,31 @@ pub async fn save_purchase(
                 .bind(item.quantity)
                 .bind(format!("매입 연동 입고: {}", purchase.item_name))
                 .execute(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
+                .await?;
         }
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await?;
     Ok(())
 }
 
 #[command]
-pub async fn delete_purchase(state: State<'_, DbPool>, purchase_id: i32) -> Result<(), String> {
+pub async fn delete_purchase(state: State<'_, DbPool>, purchase_id: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM purchases WHERE purchase_id = $1")
         .bind(purchase_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
 #[command]
-pub async fn get_expense_list(state: State<'_, DbPool>) -> Result<Vec<Expense>, String> {
-    sqlx::query_as::<_, Expense>("SELECT * FROM expenses ORDER BY expense_date DESC")
-        .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+pub async fn get_expense_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Expense>> {
+    Ok(
+        sqlx::query_as::<_, Expense>("SELECT * FROM expenses ORDER BY expense_date DESC")
+            .fetch_all(&*state)
+            .await?,
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,36 +185,44 @@ pub struct ExpenseInput {
 }
 
 #[command]
-pub async fn save_expense(state: State<'_, DbPool>, expense: ExpenseInput) -> Result<(), String> {
+pub async fn save_expense(state: State<'_, DbPool>, expense: ExpenseInput) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
-    let e_date = expense
-        .expense_date
-        .and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok());
+    let e_date =
+        if let Some(d) = expense.expense_date {
+            if d.is_empty() {
+                None
+            } else {
+                Some(NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(|e| {
+                    MyceliumError::Validation(format!("Invalid expense date: {}", e))
+                })?)
+            }
+        } else {
+            None
+        };
 
     if let Some(id) = expense.expense_id {
         sqlx::query(
             "UPDATE expenses SET expense_date=$1, category=$2, amount=$3, payment_method=$4, memo=$5 WHERE expense_id=$6"
         )
         .bind(e_date).bind(expense.category).bind(expense.amount).bind(expense.payment_method).bind(expense.memo).bind(id)
-        .execute(&*state).await.map_err(|e| e.to_string())?;
+        .execute(&*state).await?;
     } else {
         sqlx::query(
             "INSERT INTO expenses (expense_date, category, amount, payment_method, memo) VALUES ($1,$2,$3,$4,$5)"
         )
         .bind(e_date).bind(expense.category).bind(expense.amount).bind(expense.payment_method).bind(expense.memo)
-        .execute(&*state).await.map_err(|e| e.to_string())?;
+        .execute(&*state).await?;
     }
     Ok(())
 }
 
 #[command]
-pub async fn delete_expense(state: State<'_, DbPool>, expense_id: i32) -> Result<(), String> {
+pub async fn delete_expense(state: State<'_, DbPool>, expense_id: i32) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     sqlx::query("DELETE FROM expenses WHERE expense_id = $1")
         .bind(expense_id)
         .execute(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
     Ok(())
 }
 
@@ -222,7 +238,7 @@ pub struct MonthlyPL {
 pub async fn get_monthly_pl_report(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<Vec<MonthlyPL>, String> {
+) -> MyceliumResult<Vec<MonthlyPL>> {
     let sales_sql = r#"
         SELECT TO_CHAR(order_date, 'MM')::integer as month, SUM(total_amount)::bigint as amount
         FROM sales WHERE EXTRACT(YEAR FROM order_date) = $1 AND status != '취소' GROUP BY month
@@ -239,18 +255,15 @@ pub async fn get_monthly_pl_report(
     let sales: Vec<(i32, i64)> = sqlx::query_as(sales_sql)
         .bind(year)
         .fetch_all(&*state)
-        .await
-        .unwrap_or_default();
+        .await?;
     let purchases: Vec<(i32, i64)> = sqlx::query_as(purchase_sql)
         .bind(year)
         .fetch_all(&*state)
-        .await
-        .unwrap_or_default();
+        .await?;
     let expenses: Vec<(i32, i64)> = sqlx::query_as(expense_sql)
         .bind(year)
         .fetch_all(&*state)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     let mut report = Vec::new();
     for m in 1..=12 {
@@ -295,16 +308,16 @@ pub struct CostBreakdownItem {
 pub async fn get_cost_breakdown_stats(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<Vec<CostBreakdownItem>, String> {
+) -> MyceliumResult<Vec<CostBreakdownItem>> {
     // 1. Get Top 5 Purchases by Item Name
     let purchase_cat: Vec<(String, i64)> = sqlx::query_as("SELECT item_name, SUM(total_amount)::bigint FROM purchases WHERE EXTRACT(YEAR FROM purchase_date) = $1 GROUP BY item_name ORDER BY 2 DESC LIMIT 5")
         .bind(year)
-        .fetch_all(&*state).await.unwrap_or_default();
+        .fetch_all(&*state).await?;
 
     // 2. Get Top 5 Expenses by Category
     let expense_cat: Vec<(String, i64)> = sqlx::query_as("SELECT category, SUM(amount)::bigint FROM expenses WHERE EXTRACT(YEAR FROM expense_date) = $1 GROUP BY category ORDER BY 2 DESC LIMIT 5")
         .bind(year)
-        .fetch_all(&*state).await.unwrap_or_default();
+        .fetch_all(&*state).await?;
 
     // 3. Merge and Calculate Percentage
     let mut all_items = Vec::new();
@@ -347,7 +360,7 @@ pub struct VendorRankItem {
 pub async fn get_vendor_purchase_ranking(
     state: State<'_, DbPool>,
     year: i32, // Added year param to match frontend call
-) -> Result<Vec<VendorRankItem>, String> {
+) -> MyceliumResult<Vec<VendorRankItem>> {
     let sql = r#"
         SELECT v.vendor_name, SUM(p.total_amount)::bigint as total_amount, COUNT(p.purchase_id) as purchase_count
         FROM purchases p 
@@ -361,8 +374,7 @@ pub async fn get_vendor_purchase_ranking(
     let ranking = sqlx::query_as::<_, VendorRankItem>(sql)
         .bind(year)
         .fetch_all(&*state)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     Ok(ranking)
 }
@@ -371,7 +383,7 @@ pub async fn get_vendor_purchase_ranking(
 pub async fn get_profit_margin_analysis(
     state: State<'_, DbPool>,
     year: i32,
-) -> Result<Vec<ProfitAnalysisResult>, String> {
+) -> MyceliumResult<Vec<ProfitAnalysisResult>> {
     let sql = r#"
         SELECT 
             s.product_name,
@@ -397,8 +409,7 @@ pub async fn get_profit_margin_analysis(
     let analysis = sqlx::query_as::<_, ProfitAnalysisResult>(sql)
         .bind(year)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     Ok(analysis)
 }
@@ -413,7 +424,7 @@ pub struct MembershipSalesStats {
 #[command]
 pub async fn get_membership_sales_analysis(
     state: State<'_, DbPool>,
-) -> Result<Vec<MembershipSalesStats>, String> {
+) -> MyceliumResult<Vec<MembershipSalesStats>> {
     let sql = r#"
         SELECT c.membership_level, COUNT(DISTINCT s.customer_id) as customer_count, SUM(s.total_amount)::bigint as total_amount
         FROM sales s JOIN customers c ON s.customer_id = c.customer_id
@@ -421,8 +432,7 @@ pub async fn get_membership_sales_analysis(
     "#;
     let analysis = sqlx::query_as::<_, MembershipSalesStats>(sql)
         .fetch_all(&*state)
-        .await
-        .unwrap_or_default();
+        .await?;
     Ok(analysis)
 }
 
@@ -430,7 +440,7 @@ pub async fn get_membership_sales_analysis(
 pub async fn get_product_sales_stats(
     pool: State<'_, DbPool>,
     year: Option<String>,
-) -> Result<Vec<ProductSalesStats>, String> {
+) -> MyceliumResult<Vec<ProductSalesStats>> {
     let year_filter = if let Some(ref y) = year {
         if y != "전체조회" {
             format!("AND TO_CHAR(order_date, 'YYYY') = '{}'", y)
@@ -453,10 +463,9 @@ pub async fn get_product_sales_stats(
         year_filter
     );
 
-    sqlx::query_as::<_, ProductSalesStats>(&sql)
+    Ok(sqlx::query_as::<_, ProductSalesStats>(&sql)
         .fetch_all(&*pool)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -472,24 +481,23 @@ pub async fn get_product_monthly_analysis(
     state: State<'_, DbPool>,
     product_name: String,
     year: i32,
-) -> Result<Vec<ProductMonthlyStat>, String> {
+) -> MyceliumResult<Vec<ProductMonthlyStat>> {
     let sql = r#"
         SELECT EXTRACT(MONTH FROM order_date)::integer as month, COUNT(*) as record_count, COALESCE(SUM(quantity), 0)::bigint as total_quantity, COALESCE(SUM(total_amount), 0)::bigint as total_amount
         FROM sales WHERE product_name = $1 AND EXTRACT(YEAR FROM order_date)::integer = $2 AND status != '취소' GROUP BY month ORDER BY month ASC
     "#;
-    sqlx::query_as::<_, ProductMonthlyStat>(sql)
+    Ok(sqlx::query_as::<_, ProductMonthlyStat>(sql)
         .bind(product_name)
         .bind(year)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 #[command]
 pub async fn get_product_10yr_sales_stats(
     state: State<'_, DbPool>,
     product_name: String,
-) -> Result<Vec<TenYearSalesStats>, String> {
+) -> MyceliumResult<Vec<TenYearSalesStats>> {
     let sql = r#"
         WITH recursive years AS (
             SELECT CAST(TO_CHAR(CURRENT_DATE, 'YYYY') AS INTEGER) - i AS year
@@ -498,9 +506,8 @@ pub async fn get_product_10yr_sales_stats(
         SELECT y.year::TEXT as year, COALESCE(COUNT(s.sales_id), 0) as record_count, COALESCE(SUM(s.quantity), 0) as total_quantity, COALESCE(SUM(s.total_amount), 0) as total_amount
         FROM years y LEFT JOIN sales s ON s.product_name = $1 AND EXTRACT(YEAR FROM s.order_date)::integer = y.year AND s.status != '취소' GROUP BY y.year ORDER BY y.year ASC
     "#;
-    sqlx::query_as::<_, TenYearSalesStats>(sql)
+    Ok(sqlx::query_as::<_, TenYearSalesStats>(sql)
         .bind(product_name)
         .fetch_all(&*state)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
