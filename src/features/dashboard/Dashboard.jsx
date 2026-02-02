@@ -19,6 +19,7 @@ const Dashboard = () => {
     const [anniversaries, setAnniversaries] = useState([]);
     const [repurchaseCandidates, setRepurchaseCandidates] = useState([]);
     const [forecastAlerts, setForecastAlerts] = useState([]);
+    const [freshnessAlerts, setFreshnessAlerts] = useState([]);
     const [weatherAdvice, setWeatherAdvice] = useState(null);
     const [topMode, setTopMode] = useState('qty'); // 'qty' | 'profit'
     const [isLoading, setIsLoading] = useState(true);
@@ -93,7 +94,27 @@ const Dashboard = () => {
         // 2. 모달 관련 데이터들
         invoke('get_upcoming_anniversaries', { days: 3 }).then(res => setAnniversaries(res || [])).catch(e => console.error("Anniv error", e));
         invoke('get_repurchase_candidates').then(res => setRepurchaseCandidates(res || [])).catch(e => console.error("Repurchase error", e));
-        invoke('get_inventory_forecast_alerts').then(res => setForecastAlerts(res || [])).catch(e => console.error("Inventory error", e));
+
+        Promise.all([
+            invoke('get_inventory_forecast_alerts'),
+            invoke('get_product_freshness')
+        ]).then(([forecast, fresh]) => {
+            setForecastAlerts(forecast || []);
+
+            // Process Freshness Alerts (> 7 days)
+            const today = new Date();
+            const alerts = (fresh || []).filter(item => {
+                if (!item.last_in_date) return false;
+                if (item.stock_quantity <= 0) return false;
+                const lastDate = new Date(item.last_in_date);
+                const diffTime = Math.abs(today - lastDate);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                item.diffDays = diffDays;
+                return diffDays > 7; // Alert Threshold
+            }).sort((a, b) => b.diffDays - a.diffDays);
+
+            setFreshnessAlerts(alerts);
+        }).catch(e => console.error("Inventory/Freshness error", e));
 
         // 3. 주간 차트 데이터
         invoke('get_weekly_sales_data').then(weeklyRes => {
@@ -470,7 +491,14 @@ const Dashboard = () => {
                     <div>
                         <h3 className="text-slate-500 text-[0.8rem] font-bold uppercase tracking-wider mb-1">지능형 재고 알림</h3>
                         <div className="text-[1.4rem] font-black text-rose-600 tracking-tighter leading-none">
-                            {forecastAlerts.length}건
+                            <div className="flex gap-3 items-end">
+                                <span>{stats?.total_alert_count || (forecastAlerts.length + freshnessAlerts.length)}건</span>
+                                <span className="text-[10px] font-bold text-rose-400 mb-1.5 flex gap-1">
+                                    <span>소진:{forecastAlerts.length}</span>
+                                    <span>/</span>
+                                    <span>신선:{freshnessAlerts.length}</span>
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -680,38 +708,79 @@ const Dashboard = () => {
                             <h3 className="flex items-center gap-2 text-xl font-bold"><span className="material-symbols-rounded">inventory_2</span> 지능형 재고 소모 분석 & 알림</h3>
                             <button onClick={() => setShowInventoryModal(false)} className="material-symbols-rounded bg-white/20 p-1 rounded-full hover:bg-white/30 transition-colors">close</button>
                         </div>
-                        <div className="p-6">
-                            <p className="text-slate-500 text-sm mb-4 leading-relaxed">최근 30일간의 데이터를 바탕으로 재고 소모 속도를 분석했습니다.<br /><b>7일 이내</b> 소모가 예상되거나 안전 재고 미만인 품목입니다.</p>
-                            <table className="w-full text-sm">
-                                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-                                    <tr>
-                                        <th className="p-3 text-left">품목명</th>
-                                        <th className="p-3 text-center">현재고</th>
-                                        <th className="p-3 text-center">평균소모</th>
-                                        <th className="p-3 text-center">예상소진</th>
-                                        <th className="p-3 text-center">태스크</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {forecastAlerts.map((item, i) => (
-                                        <tr key={i}>
-                                            <td className="p-3 text-slate-700">
-                                                <div className="font-bold">{item.product_name}</div>
-                                                <div className="text-[10px] text-slate-400">{item.item_type === 'material' ? '📦 자재' : '🍄 완제품'}</div>
-                                            </td>
-                                            <td className="p-3 text-center font-bold">{item.stock_quantity.toLocaleString()}개</td>
-                                            <td className="p-3 text-center text-slate-500">{item.daily_avg_consumption.toFixed(1)}개/일</td>
-                                            <td className={`p-3 text-center font-black ${item.days_remaining <= 3 ? 'text-rose-500' : 'text-amber-500'}`}>
-                                                {item.days_remaining >= 900 ? '출고 없음' : `${item.days_remaining}일 남음`}
-                                            </td>
-                                            <td className="p-3 text-center font-medium">
-                                                <button onClick={() => navigate(item.item_type === 'material' ? '/finance/purchase' : '/sales/stock')} className="text-indigo-600 font-bold hover:underline">입고등록 →</button>
-                                            </td>
+                        <div className="p-6 overflow-auto max-h-[600px] stylish-scrollbar">
+                            {/* Section 1: Forecasting */}
+                            <div className="mb-8">
+                                <h4 className="text-lg font-black text-rose-600 mb-3 flex items-center gap-2">
+                                    <span className="material-symbols-rounded">trending_down</span> 재고 소진 임박 (Forecast)
+                                </h4>
+                                <p className="text-slate-500 text-sm mb-4 leading-relaxed">최근 30일간의 데이터를 바탕으로, <b>7일 이내</b> 소모가 예상되는 품목입니다.</p>
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-3 text-left">품목명</th>
+                                            <th className="p-3 text-center">현재고</th>
+                                            <th className="p-3 text-center">평균소모</th>
+                                            <th className="p-3 text-center">예상소진</th>
+                                            <th className="p-3 text-center">태스크</th>
                                         </tr>
-                                    ))}
-                                    {forecastAlerts.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">안정권입니다.</td></tr>}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {forecastAlerts.map((item, i) => (
+                                            <tr key={i}>
+                                                <td className="p-3 text-slate-700">
+                                                    <div className="font-bold">{item.product_name}</div>
+                                                    <div className="text-[10px] text-slate-400">{item.item_type === 'material' ? '📦 자재' : '🍄 완제품'}</div>
+                                                </td>
+                                                <td className="p-3 text-center font-bold">{item.stock_quantity.toLocaleString()}개</td>
+                                                <td className="p-3 text-center text-slate-500">{item.daily_avg_consumption.toFixed(1)}개/일</td>
+                                                <td className={`p-3 text-center font-black ${item.days_remaining <= 3 ? 'text-rose-500' : 'text-amber-500'}`}>
+                                                    {item.days_remaining >= 900 ? '출고 없음' : `${item.days_remaining}일 남음`}
+                                                </td>
+                                                <td className="p-3 text-center font-medium">
+                                                    <button onClick={() => navigate(item.item_type === 'material' ? '/finance/purchase' : '/sales/stock')} className="text-indigo-600 font-bold hover:underline">입고등록 →</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {forecastAlerts.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-slate-400 text-xs">소진 임박 품목이 없습니다.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Section 2: Freshness */}
+                            <div>
+                                <h4 className="text-lg font-black text-amber-600 mb-3 flex items-center gap-2">
+                                    <span className="material-symbols-rounded">timer</span> 골든 타임 경과 (Freshness)
+                                </h4>
+                                <p className="text-slate-500 text-sm mb-4 leading-relaxed">입고 후 <b>7일 이상</b> 경과하여 신선도 관리가 필요한 품목입니다.</p>
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-3 text-left">품목명</th>
+                                            <th className="p-3 text-center">현재고</th>
+                                            <th className="p-3 text-center">마지막 입고일</th>
+                                            <th className="p-3 text-center">경과일</th>
+                                            <th className="p-3 text-center">태스크</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {freshnessAlerts.map((item, i) => (
+                                            <tr key={i}>
+                                                <td className="p-3 text-slate-700 font-bold">{item.product_name}</td>
+                                                <td className="p-3 text-center font-bold">{item.stock_quantity.toLocaleString()}개</td>
+                                                <td className="p-3 text-center text-slate-500">{item.last_in_date ? item.last_in_date.substring(0, 10) : '-'}</td>
+                                                <td className="p-3 text-center font-black text-rose-500">
+                                                    +{item.diffDays}일
+                                                </td>
+                                                <td className="p-3 text-center font-medium">
+                                                    <button onClick={() => navigate('/sales/stock')} className="text-indigo-600 font-bold hover:underline">재고관리 →</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {freshnessAlerts.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-slate-400 text-xs">신선도 주의 품목이 없습니다.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>

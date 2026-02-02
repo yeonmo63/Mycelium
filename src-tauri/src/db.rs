@@ -297,6 +297,10 @@ pub struct Product {
     #[sqlx(default)]
     pub material_ratio: Option<f64>,
     #[sqlx(default)]
+    pub aux_material_id: Option<i32>,
+    #[sqlx(default)]
+    pub aux_material_ratio: Option<f64>,
+    #[sqlx(default)]
     pub item_type: Option<String>,
     #[sqlx(default)]
     pub updated_at: Option<NaiveDateTime>,

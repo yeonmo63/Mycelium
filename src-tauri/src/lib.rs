@@ -148,6 +148,7 @@ pub fn run() {
             commands::product::adjust_product_stock,
             commands::product::convert_stock,
             commands::product::get_inventory_logs,
+            commands::product::get_product_freshness,
             commands::product::get_inventory_forecast_alerts,
             commands::logistics::get_shipments_by_status,
             commands::sales::save_general_sales_batch,

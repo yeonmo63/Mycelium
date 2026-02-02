@@ -12,12 +12,40 @@ use tauri::{command, State};
 #[command]
 pub async fn get_product_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Product>> {
     let products = sqlx::query_as::<_, Product>(
-        "SELECT product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, product_code, status FROM products ORDER BY product_name"
+        "SELECT product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status FROM products ORDER BY product_name"
     )
     .fetch_all(&*state)
     .await?;
 
     Ok(products)
+}
+
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct ProductFreshness {
+    pub product_id: i32,
+    pub product_name: String,
+    pub stock_quantity: i32,
+    pub last_in_date: Option<NaiveDateTime>,
+}
+
+#[command]
+pub async fn get_product_freshness(
+    state: State<'_, DbPool>,
+) -> MyceliumResult<Vec<ProductFreshness>> {
+    let rows = sqlx::query_as::<_, ProductFreshness>(
+        r#"
+        SELECT p.product_id, p.product_name, p.stock_quantity, MAX(l.created_at) as last_in_date 
+        FROM products p
+        LEFT JOIN inventory_logs l ON p.product_id = l.product_id AND l.change_quantity > 0
+        WHERE p.status != '단종상품'
+        GROUP BY p.product_id
+        HAVING p.stock_quantity > 0
+        "#,
+    )
+    .fetch_all(&*state)
+    .await?;
+
+    Ok(rows)
 }
 
 #[command]
@@ -144,6 +172,8 @@ pub async fn create_product(
     costPrice: Option<i32>,
     materialId: Option<i32>,
     materialRatio: Option<f64>,
+    auxMaterialId: Option<i32>,
+    auxMaterialRatio: Option<f64>,
     itemType: Option<String>,
     productCode: Option<String>,
 ) -> MyceliumResult<i32> {
@@ -151,8 +181,8 @@ pub async fn create_product(
     let mut tx = state.begin().await?;
 
     let row: (i32,) = sqlx::query_as(
-        "INSERT INTO products (product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, product_code) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING product_id"
+        "INSERT INTO products (product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING product_id"
     )
     .bind(&productName)
     .bind(&specification)
@@ -162,6 +192,8 @@ pub async fn create_product(
     .bind(costPrice.unwrap_or(0))
     .bind(materialId)
     .bind(materialRatio)
+    .bind(auxMaterialId)
+    .bind(auxMaterialRatio)
     .bind(itemType.unwrap_or("product".to_string()))
     .bind(&productCode)
     .fetch_one(&mut *tx)
@@ -200,6 +232,8 @@ pub async fn update_product(
     costPrice: Option<i32>,
     materialId: Option<i32>,
     materialRatio: Option<f64>,
+    auxMaterialId: Option<i32>,
+    auxMaterialRatio: Option<f64>,
     itemType: Option<String>,
     status: Option<String>,
     syncSalesNames: Option<bool>,
@@ -208,6 +242,7 @@ pub async fn update_product(
     let sync = syncSalesNames.unwrap_or(false);
     let cost = costPrice.unwrap_or(0);
     let ratio = materialRatio.unwrap_or(1.0);
+    let aux_ratio = auxMaterialRatio.unwrap_or(1.0);
     let status_val = status.unwrap_or_else(|| "판매중".to_string());
 
     let old: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
@@ -217,15 +252,15 @@ pub async fn update_product(
 
     if let Some(qty) = stockQuantity {
         sqlx::query(
-            "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, stock_quantity = $4, safety_stock = $5, cost_price = $6, material_id = $7, material_ratio = $8, item_type = $9, status = $10 WHERE product_id = $11",
+            "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, stock_quantity = $4, safety_stock = $5, cost_price = $6, material_id = $7, material_ratio = $8, aux_material_id = $9, aux_material_ratio = $10, item_type = $11, status = $12 WHERE product_id = $13",
         )
-        .bind(&productName).bind(&specification).bind(unitPrice).bind(qty).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(productId)
+        .bind(&productName).bind(&specification).bind(unitPrice).bind(qty).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(auxMaterialId).bind(aux_ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(productId)
         .execute(&mut *tx).await?;
     } else {
         sqlx::query(
-            "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, safety_stock = $4, cost_price = $5, material_id = $6, material_ratio = $7, item_type = $8, status = $9 WHERE product_id = $10",
+            "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, safety_stock = $4, cost_price = $5, material_id = $6, material_ratio = $7, aux_material_id = $8, aux_material_ratio = $9, item_type = $10, status = $11 WHERE product_id = $12",
         )
-        .bind(&productName).bind(&specification).bind(unitPrice).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(productId)
+        .bind(&productName).bind(&specification).bind(unitPrice).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(auxMaterialId).bind(aux_ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(productId)
         .execute(&mut *tx).await?;
     }
 
@@ -504,6 +539,7 @@ pub async fn convert_stock(
     materialId: i32,
     productId: i32,
     convertQty: i32,
+    materialDeductQty: Option<i32>,
     memo: String,
 ) -> MyceliumResult<()> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
@@ -520,7 +556,9 @@ pub async fn convert_stock(
         .await?;
 
     let ratio = product.material_ratio.unwrap_or(1.0);
-    let deduct = (convertQty as f64 * ratio).ceil() as i32;
+    // Use user input if provided, otherwise calculate
+    let deduct = materialDeductQty.unwrap_or_else(|| (convertQty as f64 * ratio).ceil() as i32);
+    let expected_deduct = (convertQty as f64 * ratio).ceil() as i32;
 
     if material.stock_quantity.unwrap_or(0) < deduct {
         return Err(MyceliumError::Validation(format!(
@@ -541,6 +579,18 @@ pub async fn convert_stock(
     let p_spec = product.specification;
     let m_deduct = deduct;
 
+    // Calculate Yield/Loss info for memo
+    let yield_info = if deduct != expected_deduct {
+        let diff = deduct - expected_deduct;
+        if diff > 0 {
+            format!("(Loss: {} 추가소모)", diff)
+        } else {
+            format!("(Save: {} 절감)", -diff)
+        }
+    } else {
+        "".to_string()
+    };
+
     sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
         .bind(m_new_qty)
         .bind(materialId)
@@ -553,7 +603,7 @@ pub async fn convert_stock(
         .await?;
 
     sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, $6, $7, 'CONVERT_OUT')")
-    .bind(m_actual_id).bind(&m_name).bind(&m_spec).bind(&m_code).bind(-m_deduct).bind(m_new_qty).bind(format!("가공 전환: {} 제작용 원자재 소모", p_name))
+    .bind(m_actual_id).bind(&m_name).bind(&m_spec).bind(&m_code).bind(-m_deduct).bind(m_new_qty).bind(format!("가공 전환: {} 제작용 원자재 소모 {}", p_name, yield_info))
     .execute(&mut *tx).await?;
 
     let p_code: Option<String> =

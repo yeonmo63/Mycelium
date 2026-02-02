@@ -48,7 +48,9 @@ const SettingsProduct = () => {
         safety: 10,
         type: 'product',
         materialId: null,
-        materialRatio: 1.0
+        materialRatio: 1.0,
+        auxMaterialId: null,
+        auxMaterialRatio: 1.0
     });
 
     // --- Admin Guard Check ---
@@ -98,7 +100,9 @@ const SettingsProduct = () => {
                 safety: product.safety_stock || 10,
                 type: product.item_type || 'product',
                 materialId: product.material_id || null,
-                materialRatio: product.material_ratio || 1.0
+                materialRatio: product.material_ratio || 1.0,
+                auxMaterialId: product.aux_material_id || null,
+                auxMaterialRatio: product.aux_material_ratio || 1.0
             });
         } else {
             setEditingProduct(null);
@@ -110,7 +114,9 @@ const SettingsProduct = () => {
                 safety: 10,
                 type: tabMode,
                 materialId: null,
-                materialRatio: 1.0
+                materialRatio: 1.0,
+                auxMaterialId: null,
+                auxMaterialRatio: 1.0
             });
         }
         setIsModalOpen(true);
@@ -137,6 +143,8 @@ const SettingsProduct = () => {
                 costPrice: formData.cost,
                 materialId: formData.materialId,
                 materialRatio: formData.materialRatio,
+                auxMaterialId: formData.auxMaterialId,
+                auxMaterialRatio: formData.auxMaterialRatio,
                 itemType: formData.type
             };
 
@@ -543,6 +551,35 @@ const SettingsProduct = () => {
                                         <AlertTriangle size={12} className="text-amber-500" />
                                         상품 1개 판매 시 차감될 자재의 배수를 입력하세요
                                     </p>
+                                </div>
+                            )}
+
+                            {formData.type === 'product' && (
+                                <div className="p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200 mt-4">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">부자재 (박스/포장재) 연동</label>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div className="col-span-2">
+                                            <select
+                                                value={formData.auxMaterialId || ''}
+                                                onChange={e => setFormData({ ...formData, auxMaterialId: e.target.value ? Number(e.target.value) : null })}
+                                                className="w-full h-11 px-4 bg-white border-none rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 transition-all ring-1 ring-inset ring-slate-200"
+                                            >
+                                                <option value="">연동 안함</option>
+                                                {materials.map(m => <option key={m.product_id} value={m.product_id}>{m.product_name} {m.specification && `(${m.specification})`}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                value={formData.auxMaterialRatio}
+                                                onChange={e => setFormData({ ...formData, auxMaterialRatio: parseFloat(e.target.value) })}
+                                                placeholder="비율"
+                                                className="w-full h-11 px-4 bg-white border-none rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 transition-all ring-1 ring-inset ring-slate-200 text-right"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-300 font-bold">배</span>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 

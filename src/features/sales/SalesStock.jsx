@@ -12,11 +12,12 @@ const SalesStock = () => {
     const [hideAutoLogs, setHideAutoLogs] = useState(true);
 
     // Stock Conversion State (Processing/Packaging)
-    const [convertModal, setConvertModal] = useState({ open: false, targetId: '', qty: 1 });
+    const [convertModal, setConvertModal] = useState({ open: false, targetId: '', qty: 1, realQty: 0, realAuxQty: 0 });
     // Harvest State (Raw Material In)
     const [harvestModal, setHarvestModal] = useState({ open: false, targetId: '', qty: '', memo: '' });
 
-    const [pendingChanges, setPendingChanges] = useState({}); // { [productId]: value }
+    const [freshnessMap, setFreshnessMap] = useState({}); // { [productId]: '2023-10-01T...' }
+    const [pendingChanges, setPendingChanges] = useState({});
 
     // --- Effects ---
     useEffect(() => {
@@ -30,7 +31,18 @@ const SalesStock = () => {
             const list = await window.__TAURI__.core.invoke('get_product_list');
             setProducts(list || []);
 
-            // 2. Load Logs
+            // 2. Load Freshness Data
+            const freshData = await window.__TAURI__.core.invoke('get_product_freshness');
+            // Convert to map
+            const fMap = {};
+            if (freshData) {
+                freshData.forEach(item => {
+                    fMap[item.product_id] = item.last_in_date;
+                });
+            }
+            setFreshnessMap(fMap);
+
+            // 3. Load Logs
             const logData = await window.__TAURI__.core.invoke('get_inventory_logs', {
                 limit: 100,
                 itemType: tab
@@ -40,6 +52,23 @@ const SalesStock = () => {
             console.error(e);
         }
     };
+
+    // ... (rest of code)
+
+    // Helper to calc days
+    const getFreshnessInfo = (pid) => {
+        const dateStr = freshnessMap[pid];
+        if (!dateStr) return null;
+
+        const lastDate = new Date(dateStr);
+        const today = new Date();
+        const diffTime = Math.abs(today - lastDate);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        return { diffDays, dateStr };
+    };
+
+    // ... (inside render)
 
     // --- Actions ---
     const handleAddStockInput = (pid, val) => {
@@ -124,24 +153,49 @@ const SalesStock = () => {
             showAlert("알림", "자재가 연결된 완제품이 없습니다.\n[환경 설정 > 상품 관리]에서 자재를 먼저 연결해주세요.");
             return;
         }
-        setConvertModal({ open: true, targetId: '', qty: 1 });
+        setConvertModal({ open: true, targetId: '', qty: 1, realQty: 0, realAuxQty: 0 });
     };
 
+    // Auto-calc use when qty changes or product selected
+    useEffect(() => {
+        if (convertModal.open && convertModal.targetId) {
+            const product = products.find(p => p.product_id === Number(convertModal.targetId));
+            const qt = Number(convertModal.qty) || 0;
+
+            // Main Material
+            const ratio = product?.material_ratio || 1.0;
+            const needed = Math.ceil(qt * ratio);
+
+            // Aux Material
+            const auxRatio = product?.aux_material_ratio || 1.0;
+            const auxNeeded = Math.ceil(qt * auxRatio);
+
+            setConvertModal(prev => ({ ...prev, realQty: needed, realAuxQty: auxNeeded }));
+        }
+    }, [convertModal.targetId, convertModal.qty, products]);
+
     const handleConvert = async () => {
-        const { targetId, qty } = convertModal;
+        const { targetId, qty, realQty, realAuxQty } = convertModal;
         if (!targetId) return showAlert("알림", "생산할 품목을 선택해주세요.");
         if (qty <= 0) return showAlert("알림", "수량을 1개 이상 입력해주세요.");
 
         const product = products.find(p => p.product_id === Number(targetId));
         const material = products.find(p => p.product_id === product?.material_id);
+        const aux = products.find(p => p.product_id === product?.aux_material_id); // Find aux if exists
 
         if (!material) {
             return showAlert("오류", "이 완제품에 연결된 자재 정보가 올바르지 않습니다.");
         }
 
-        const needed = Math.ceil(qty * (product.material_ratio || 1.0));
+        const needed = Number(realQty);
         if (material.stock_quantity < needed) {
             if (!await showConfirm("재고 부족", `자재(${material.product_name})가 부족합니다. (필요: ${needed}, 현재: ${material.stock_quantity})\n그래도 진행하시겠습니까?`)) return;
+        }
+
+        // Aux Check
+        const auxNeeded = aux ? Number(realAuxQty) : 0;
+        if (aux && aux.stock_quantity < auxNeeded) {
+            if (!await showConfirm("부자재 부족", `부자재(${aux.product_name})가 부족합니다. (필요: ${auxNeeded}, 현재: ${aux.stock_quantity})\n그래도 진행하시겠습니까?`)) return;
         }
 
         try {
@@ -150,6 +204,8 @@ const SalesStock = () => {
                     materialId: material.product_id,
                     productId: Number(targetId),
                     convertQty: Number(qty),
+                    materialDeductQty: Number(needed),
+                    auxDeductQty: aux ? Number(auxNeeded) : null,
                     memo: '완제품 전환 생산'
                 });
                 await showAlert("완료", "상품화(포장) 처리가 완료되었습니다.");
@@ -258,10 +314,25 @@ const SalesStock = () => {
                                     const isLow = current <= (p.safety_stock || 10);
                                     const hasChange = changeVal !== 0;
 
+                                    // Freshness Logic
+                                    const freshInfo = getFreshnessInfo(p.product_id);
+                                    let freshBadge = null;
+                                    if (current > 0 && freshInfo) {
+                                        const d = freshInfo.diffDays;
+                                        if (d > 7) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-600 animate-pulse">골든타임 경과 ({d}일)</span>;
+                                        else if (d > 3) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-600">판매 권장 ({d}일)</span>;
+                                        else if (d <= 3) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-600">신선 ({d}일)</span>;
+                                    }
+
                                     return (
                                         <tr key={p.product_id} className="hover:bg-slate-50/80 transition-colors group">
                                             <td className="px-2 py-3 text-center text-slate-400 font-mono text-[10px]">{idx + 1}</td>
-                                            <td className="px-2 py-3 font-bold text-slate-700 truncate" title={p.product_name}>{p.product_name}</td>
+                                            <td className="px-2 py-3">
+                                                <div className="flex flex-col justify-center h-full">
+                                                    <div className="font-bold text-slate-700 truncate mb-0.5" title={p.product_name}>{p.product_name}</div>
+                                                    {freshBadge}
+                                                </div>
+                                            </td>
                                             <td className="px-2 py-3 text-center text-slate-500 truncate">{p.specification || '-'}</td>
 
                                             {/* Current Stock */}
@@ -428,34 +499,117 @@ const SalesStock = () => {
                             {convertModal.targetId && (() => {
                                 const p = products.find(x => x.product_id === Number(convertModal.targetId));
                                 const m = products.find(x => x.product_id === p?.material_id);
-                                return m ? (
-                                    <div className="bg-slate-50 p-4 rounded-xl mb-5 border border-slate-200">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-xs font-bold text-slate-500">필요 농산물(원물)</span>
-                                            <span className="text-xs font-black text-slate-700">{m.product_name} <span className="text-slate-400 font-normal">({p.material_ratio}개/EA)</span></span>
+                                const a = products.find(x => x.product_id === p?.aux_material_id);
+
+                                ret = [];
+
+                                if (m) {
+                                    ret.push(
+                                        <div key="main" className="bg-slate-50 p-4 rounded-xl mb-3 border border-slate-200">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-xs font-bold text-slate-500">필요 농산물(원물)</span>
+                                                <span className="text-xs font-black text-slate-700">{m.product_name} <span className="text-slate-400 font-normal">({p.material_ratio}배)</span></span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs font-bold text-slate-500">현재 원물 재고</span>
+                                                <span className={`text-sm font-black ${m.stock_quantity <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{formatCurrency(m.stock_quantity)}개 보유</span>
+                                            </div>
                                         </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold text-slate-500">현재 원물 재고</span>
-                                            <span className={`text-sm font-black ${m.stock_quantity <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{formatCurrency(m.stock_quantity)}개 보유</span>
+                                    );
+                                } else {
+                                    ret.push(
+                                        <div key="err" className="bg-red-50 p-3 rounded-xl mb-5 text-xs text-red-500 font-bold text-center border border-red-100">
+                                            연결된 원자재 정보가 없습니다.
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="bg-red-50 p-3 rounded-xl mb-5 text-xs text-red-500 font-bold text-center border border-red-100">
-                                        연결된 원자재 정보가 없습니다.
-                                    </div>
-                                );
+                                    );
+                                }
+
+                                if (a) {
+                                    ret.push(
+                                        <div key="aux" className="bg-slate-50 p-4 rounded-xl mb-5 border border-slate-200 border-dashed">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-xs font-bold text-slate-500">필요 부자재(박스 등)</span>
+                                                <span className="text-xs font-black text-slate-700">{a.product_name} <span className="text-slate-400 font-normal">({p.aux_material_ratio}배)</span></span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs font-bold text-slate-500">현재 부자재 재고</span>
+                                                <span className={`text-sm font-black ${a.stock_quantity <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{formatCurrency(a.stock_quantity)}개 보유</span>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return ret;
                             })()}
 
                             <div className="mb-6">
                                 <label className="text-xs font-bold text-slate-500 block mb-1.5 ml-1">생산 수량 ({convertModal.targetId && products.find(p => p.product_id === Number(convertModal.targetId))?.specification || 'EA'})</label>
                                 <div className="relative">
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        className="w-full h-14 rounded-xl border border-slate-200 text-center font-black text-2xl text-indigo-600 outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 transition-all placeholder:text-slate-200"
-                                        value={convertModal.qty}
-                                        onChange={e => setConvertModal({ ...convertModal, qty: e.target.value })}
-                                    />
+                                    <div className="flex gap-4">
+                                        <div className="flex-1">
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                className="w-full h-14 rounded-xl border border-slate-200 text-center font-black text-2xl text-indigo-600 outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 transition-all placeholder:text-slate-200"
+                                                value={convertModal.qty}
+                                                onChange={e => setConvertModal({ ...convertModal, qty: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Yield/Loss Analysis Section */}
+                                    {convertModal.targetId && (() => {
+                                        const p = products.find(x => x.product_id === Number(convertModal.targetId));
+                                        const m = products.find(x => x.product_id === p?.material_id);
+                                        const a = products.find(x => x.product_id === p?.aux_material_id);
+                                        if (!p || !m) return null;
+
+                                        // Main Calc
+                                        const theoretical = Math.ceil((Number(convertModal.qty) || 0) * (p.material_ratio || 1.0));
+                                        const actual = Number(convertModal.realQty) || theoretical;
+                                        const diff = actual - theoretical;
+
+                                        // Aux Calc
+                                        const theoreticalAux = a ? Math.ceil((Number(convertModal.qty) || 0) * (p.aux_material_ratio || 1.0)) : 0;
+                                        const actualAux = Number(convertModal.realAuxQty) || theoreticalAux;
+
+                                        return (
+                                            <>
+                                                <div className="mt-6 pt-4 border-t border-slate-100">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <label className="text-xs font-bold text-slate-500">실제 원물 사용량 (조정 가능)</label>
+                                                        {diff > 0 && <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">Loss: {formatCurrency(diff)} 더 씀</span>}
+                                                        {diff < 0 && <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Save: {formatCurrency(-diff)} 아낌</span>}
+                                                        {diff === 0 && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">정량 소모 (Good)</span>}
+                                                    </div>
+                                                    <input
+                                                        type="number"
+                                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-right font-bold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-orange-100 focus:border-orange-300 transition-all"
+                                                        value={convertModal.realQty}
+                                                        onChange={e => setConvertModal({ ...convertModal, realQty: e.target.value })}
+                                                    />
+                                                    <p className="text-[10px] text-slate-400 mt-1.5 text-right">
+                                                        * 이론상 필요량: {formatCurrency(theoretical)} (설정된 비율 기준)
+                                                    </p>
+                                                </div>
+
+                                                {a && (
+                                                    <div className="mt-4 pt-4 border-t border-slate-100">
+                                                        <label className="text-xs font-bold text-slate-500 block mb-2">실제 부자재 사용량 ({a.product_name})</label>
+                                                        <input
+                                                            type="number"
+                                                            className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-right font-bold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition-all"
+                                                            value={convertModal.realAuxQty}
+                                                            onChange={e => setConvertModal({ ...convertModal, realAuxQty: e.target.value })}
+                                                        />
+                                                        <p className="text-[10px] text-slate-400 mt-1.5 text-right">
+                                                            * 이론상 필요량: {formatCurrency(theoreticalAux)} (설정된 비율 기준)
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                             </div>
 
