@@ -510,7 +510,7 @@ const Dashboard = () => {
                     <div>
                         <h3 className="text-slate-500 text-[0.8rem] font-bold uppercase tracking-wider mb-1">AI 재구매 골든 타임</h3>
                         <div className="text-[1.4rem] font-black text-[#4338ca] tracking-tighter leading-none">
-                            {repurchaseCandidates.length}건
+                            {formatCurrency(repurchaseCandidates.length)}건
                         </div>
                     </div>
                 </div>

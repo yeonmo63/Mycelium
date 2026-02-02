@@ -30,6 +30,7 @@ src-tauri/gen/
 
 # SQL and Backups
 *.sql
+!src-tauri/migrations/*.sql
 *.db
 *.sqlite
 *.gz
@@ -43,6 +44,11 @@ backup/
 .env
 .env.*
 .secrets
+
+# Security keys
+*.key
+*.pub
+*.pem
 
 # Temporary files
 *.txt
