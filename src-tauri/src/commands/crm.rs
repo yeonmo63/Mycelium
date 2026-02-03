@@ -248,18 +248,18 @@ pub async fn get_repurchase_candidates(
 ) -> MyceliumResult<Vec<crate::db::RepurchaseCandidate>> {
     let sql = r#"
         WITH stats AS (
-            SELECT customer_id, product_name, COUNT(*) as p_count, MAX(order_date) as last_date,
+            SELECT customer_id, product_id, product_name, specification, COUNT(*) as p_count, MAX(order_date) as last_date,
                    CAST(AVG(next_order_date - order_date) AS INTEGER) as avg_interval
             FROM (
-                SELECT customer_id, product_name, order_date,
-                       LEAD(order_date) OVER(PARTITION BY customer_id, product_name ORDER BY order_date) as next_order_date
+                SELECT customer_id, product_id, product_name, specification, order_date,
+                       LEAD(order_date) OVER(PARTITION BY customer_id, product_id, product_name, specification ORDER BY order_date) as next_order_date
                 FROM sales WHERE status != '취소'
-            ) t WHERE next_order_date IS NOT NULL GROUP BY customer_id, product_name
+            ) t WHERE next_order_date IS NOT NULL GROUP BY customer_id, product_id, product_name, specification
         )
         SELECT s.customer_id, c.customer_name, c.mobile_number, s.last_date as last_order_date,
                s.avg_interval as avg_interval_days,
                (s.avg_interval - (CURRENT_DATE - s.last_date))::integer as predicted_days_remaining,
-               s.product_name as last_product, s.p_count as purchase_count
+               s.product_name || COALESCE(' (' || s.specification || ')', '') as last_product, s.p_count as purchase_count
         FROM stats s JOIN customers c ON s.customer_id = c.customer_id
         WHERE s.avg_interval > 0 AND (s.avg_interval - (CURRENT_DATE - s.last_date)) BETWEEN -5 AND 10
         ORDER BY predicted_days_remaining ASC

@@ -119,7 +119,7 @@ const UserManual = () => {
                 </div>
                 <div>
                     <span className="text-indigo-600 font-black text-xs uppercase tracking-widest block mb-1">Chapter {number}</span>
-                    <h2 className="text-4xl font-black text-slate-800 tracking-tighter">{title}</h2>
+                    <h2 className="text-3xl font-black text-slate-800 tracking-tighter">{title}</h2>
                 </div>
             </div>
         </div>
@@ -220,7 +220,7 @@ const UserManual = () => {
                             </span>
                             Mycelium Enterprise Platform Guidance
                         </div>
-                        <h1 className="text-6xl font-black text-slate-900 tracking-tighter mb-8 leading-[1.05]" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
+                        <h1 className="text-5xl font-black text-slate-900 tracking-tighter mb-8 leading-[1.05]" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
                             Mycelium 운영의 모든 것,<br />
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-600">완벽 가이드북</span>
                         </h1>

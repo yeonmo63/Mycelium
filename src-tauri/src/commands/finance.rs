@@ -384,9 +384,22 @@ pub async fn get_profit_margin_analysis(
     state: State<'_, DbPool>,
     year: i32,
 ) -> MyceliumResult<Vec<ProfitAnalysisResult>> {
+    // 1. Preliminary Sync to recover missing product IDs
+    let _ = sqlx::query(
+        r#"
+        UPDATE sales s SET product_id = p.product_id FROM products p 
+        WHERE s.product_id IS NULL 
+          AND (
+            (TRIM(s.product_name) = TRIM(p.product_name) AND (s.specification IS NOT DISTINCT FROM p.specification))
+            OR (TRIM(s.product_name || ' (' || COALESCE(s.specification,'') || ')') = TRIM(p.product_name))
+            OR (TRIM(s.product_name) = TRIM(p.product_name || ' (' || COALESCE(p.specification,'') || ')'))
+          )
+        "#
+    ).execute(&*state).await;
+
     let sql = r#"
         SELECT 
-            s.product_name,
+            COALESCE(p.product_name, s.product_name) || COALESCE(' (' || s.specification || ')', '') as product_name,
             COUNT(*) as record_count,
             CAST(SUM(s.quantity) AS BIGINT) as total_quantity,
             CAST(SUM(s.total_amount) AS BIGINT) as total_revenue,
@@ -399,10 +412,17 @@ pub async fn get_profit_margin_analysis(
                 ELSE 0.0
             END as margin_rate
         FROM sales s
-        LEFT JOIN products p ON s.product_name = p.product_name
+        LEFT JOIN products p ON (
+            s.product_id = p.product_id 
+            OR (s.product_id IS NULL AND (
+                (TRIM(s.product_name) = TRIM(p.product_name) AND (s.specification IS NOT DISTINCT FROM p.specification))
+                OR (TRIM(s.product_name || ' (' || COALESCE(s.specification,'') || ')') = TRIM(p.product_name))
+                OR (TRIM(s.product_name) = TRIM(p.product_name || ' (' || COALESCE(p.specification,'') || ')'))
+            ))
+        )
         WHERE EXTRACT(YEAR FROM s.order_date) = $1
           AND s.status != '취소'
-        GROUP BY s.product_name
+        GROUP BY 1
         ORDER BY net_profit DESC
     "#;
 
@@ -456,9 +476,9 @@ pub async fn get_product_sales_stats(
         SELECT p.product_id, p.product_name, COALESCE(s.record_count, 0) as record_count, COALESCE(s.total_quantity, 0) as total_quantity, COALESCE(s.total_amount, 0) as total_amount
         FROM (SELECT * FROM products WHERE item_type = 'product') p
         INNER JOIN (
-            SELECT product_name, COUNT(*) as record_count, SUM(quantity) as total_quantity, SUM(total_amount) as total_amount
-            FROM sales WHERE status != '취소' {} GROUP BY product_name
-        ) s ON p.product_name = s.product_name ORDER BY total_amount DESC
+            SELECT product_id, product_name, specification, COUNT(*) as record_count, SUM(quantity) as total_quantity, SUM(total_amount) as total_amount
+            FROM sales WHERE status != '취소' {} GROUP BY product_id, product_name, specification
+        ) s ON (p.product_id = s.product_id OR (s.product_id IS NULL AND p.product_name = s.product_name AND p.specification IS NOT DISTINCT FROM s.specification)) ORDER BY total_amount DESC
         "#,
         year_filter
     );

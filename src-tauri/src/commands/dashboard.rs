@@ -187,11 +187,11 @@ pub async fn get_top_profit_products(
     let today = chrono::Local::now().date_naive();
     let sql = r#"
         SELECT 
-            s.product_name,
+            COALESCE(s.product_name, p.product_name) || COALESCE(' (' || s.specification || ')', '') as product_name,
             COUNT(*) as record_count,
             CAST(SUM(s.quantity) AS BIGINT) as total_quantity,
             CAST(SUM(s.total_amount) AS BIGINT) as total_revenue,
-            CAST(COALESCE(p.cost_price, 0) AS BIGINT) as unit_cost,
+            CAST(COALESCE(MAX(p.cost_price), 0) AS BIGINT) as unit_cost,
             CAST(SUM(s.quantity * COALESCE(p.cost_price, 0)) AS BIGINT) as total_cost,
             CAST(SUM(s.total_amount) - SUM(s.quantity * COALESCE(p.cost_price, 0)) AS BIGINT) as net_profit,
             CASE 
@@ -200,11 +200,11 @@ pub async fn get_top_profit_products(
                 ELSE 0.0
             END as margin_rate
         FROM sales s
-        LEFT JOIN products p ON s.product_name = p.product_name
+        LEFT JOIN products p ON (s.product_id = p.product_id OR (s.product_id IS NULL AND s.product_name = p.product_name AND s.specification IS NOT DISTINCT FROM p.specification))
         WHERE s.order_date >= date_trunc('month', $1)
           AND s.order_date < (date_trunc('month', $1) + interval '1 month')
           AND s.status != '취소'
-        GROUP BY s.product_name, p.cost_price
+        GROUP BY 1
         ORDER BY net_profit DESC
         LIMIT 5
     "#;
@@ -224,17 +224,17 @@ pub async fn get_top3_products_by_qty(
     let today = chrono::Local::now().date_naive();
     let query = r#"
         SELECT 
-            s.product_name, 
+            COALESCE(s.product_name, p.product_name) || COALESCE(' (' || s.specification || ')', '') as product_name,
             MAX(p.product_id) as product_id,
             COUNT(*) as record_count,
             CAST(SUM(s.quantity) AS BIGINT) as total_quantity, 
             CAST(SUM(s.total_amount) AS BIGINT) as total_amount
         FROM sales s
-        LEFT JOIN products p ON s.product_name = p.product_name
+        LEFT JOIN products p ON (s.product_id = p.product_id OR (s.product_id IS NULL AND s.product_name = p.product_name AND s.specification IS NOT DISTINCT FROM p.specification))
         WHERE s.order_date >= date_trunc('month', $1)
         AND s.order_date < (date_trunc('month', $1) + interval '1 month')
         AND s.status != '취소'
-        GROUP BY s.product_name
+        GROUP BY 1
         ORDER BY total_quantity DESC
         LIMIT 3
     "#;
