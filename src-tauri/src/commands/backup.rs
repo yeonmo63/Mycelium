@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
 use crate::db::{
     CompanyInfo, Consultation, Customer, CustomerAddress, CustomerLedger, CustomerLog, DbPool,
-    Event, Expense, ExperienceProgram, InventoryLog, Product, ProductBom, ProductPriceHistory,
-    Sales, Schedule, User, Vendor,
+    Event, Expense, ExperienceProgram, InventoryLog, Product, ProductPriceHistory, Sales, Schedule,
+    User, Vendor,
 };
 use crate::error::{MyceliumError, MyceliumResult};
 use crate::{BACKUP_CANCELLED, DB_MODIFIED, IS_EXITING};
