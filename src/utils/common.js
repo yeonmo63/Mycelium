@@ -13,6 +13,23 @@ export function parseNumber(str) {
     return parseInt(String(str).replace(/,/g, ''), 10) || 0;
 }
 
+export function formatDateTime(date) {
+    if (!date) return '';
+    // Naive ISO strings from backend without 'Z' are treated as UTC by convention in this app
+    const isoStr = (typeof date === 'string' && !date.includes('Z') && !date.includes('+'))
+        ? `${date.replace(' ', 'T')}Z`
+        : date;
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return String(date);
+
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+
+    return `${month}-${day} ${hours}:${minutes}`;
+}
+
 export function formatDate(date) {
     if (!date) return '';
     const d = new Date(date);

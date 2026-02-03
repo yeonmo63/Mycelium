@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
 use crate::db::{
     CompanyInfo, Consultation, Customer, CustomerAddress, CustomerLedger, CustomerLog, DbPool,
-    Event, Expense, ExperienceProgram, InventoryLog, Product, ProductPriceHistory, Sales, Schedule,
-    User, Vendor,
+    Event, Expense, ExperienceProgram, InventoryLog, Product, ProductBom, ProductPriceHistory,
+    Sales, Schedule, User, Vendor,
 };
 use crate::error::{MyceliumError, MyceliumResult};
 use crate::{BACKUP_CANCELLED, DB_MODIFIED, IS_EXITING};
@@ -95,6 +95,15 @@ pub struct SalesClaimBackup {
     pub memo: Option<String>,
     pub created_at: Option<chrono::NaiveDateTime>,
     pub updated_at: Option<chrono::NaiveDateTime>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct ProductBomBackup {
+    pub id: i32,
+    pub product_id: i32,
+    pub material_id: i32,
+    pub ratio: f64,
+    pub created_at: Option<chrono::NaiveDateTime>,
 }
 
 #[command]
@@ -491,7 +500,7 @@ pub async fn check_db_location(state: State<'_, DbPool>) -> MyceliumResult<DbLoc
         .and_then(|r| r.0)
         .unwrap_or_else(|| "localhost".to_string());
 
-    println!("[DB Location] db_host: {}", db_host);
+    // println!("[DB Location] db_host: {}", db_host);
 
     // 2. Check if it's a local connection
     let is_local = db_host.is_empty()
@@ -500,15 +509,15 @@ pub async fn check_db_location(state: State<'_, DbPool>) -> MyceliumResult<DbLoc
         || db_host == "::1"
         || (db_host.starts_with("192.168.") && db_host == get_local_ip().unwrap_or_default());
 
-    println!("[DB Location] is_local: {}", is_local);
+    // println!("[DB Location] is_local: {}", is_local);
 
     // 3. Determine if this is the DB server (Simply based on connectivity for now)
     let is_db_server = is_local;
 
-    println!(
+    /* println!(
         "[DB Location] is_db_server: {}, host: {}",
         is_db_server, db_host
-    );
+    ); */
 
     // 4. Create message (Now allowing backup from all locations)
     let message = if is_db_server {
@@ -641,7 +650,7 @@ async fn backup_database_internal(
     since: Option<chrono::NaiveDateTime>,
     use_compression: bool,
 ) -> MyceliumResult<String> {
-    println!("[Backup] Starting database backup to: {}", path);
+    // println!("[Backup] Starting database backup to: {}", path);
 
     let emit_progress = |processed: i64, total: i64, message: &str| {
         if let Some(ref handle) = app {
@@ -714,6 +723,9 @@ async fn backup_database_internal(
     let count_claims: (i64,) = sqlx::query_as(&count_query("sales_claims"))
         .fetch_one(pool)
         .await?;
+    let count_bom: (i64,) = sqlx::query_as(&count_query("product_bom"))
+        .fetch_one(pool)
+        .await?;
     let count_inventory: (i64,) = sqlx::query_as(&count_query("inventory_logs"))
         .fetch_one(pool)
         .await?;
@@ -780,6 +792,7 @@ async fn backup_database_internal(
         + count_vendors.0
         + count_exp_programs.0
         + count_exp_reservations.0
+        + count_bom.0
         + count_price_history.0
         + count_deletions.0;
 
@@ -1040,6 +1053,15 @@ async fn backup_database_internal(
         count_exp_reservations.0,
         "updated_at"
     );
+    batch_table_internal!(
+        "product_bom",
+        ProductBomBackup,
+        "SELECT * FROM product_bom",
+        "product_bom",
+        "BOM 정보 백업 중",
+        count_bom.0,
+        "created_at"
+    );
 
     batch_table_internal!(
         "product_price_history",
@@ -1178,7 +1200,7 @@ pub async fn restore_database(
 
         emit_progress(0, total_bytes as i64, "기존 데이터 삭제 중 (전체 복구)...");
         println!("[Restore] Truncating tables for full restore...");
-        sqlx::query("TRUNCATE TABLE users, products, customers, customer_addresses, sales, event, schedules, company_info, expenses, purchases, consultations, sales_claims, inventory_logs, customer_ledger, customer_logs, vendors, experience_programs, experience_reservations, product_price_history, deletion_log RESTART IDENTITY CASCADE")
+        sqlx::query("TRUNCATE TABLE users, products, customers, customer_addresses, sales, event, schedules, company_info, expenses, purchases, consultations, sales_claims, inventory_logs, customer_ledger, customer_logs, vendors, experience_programs, experience_reservations, product_bom, product_price_history, deletion_log RESTART IDENTITY CASCADE")
             .execute(&mut *tx)
             .await
             .map_err(|e| {
@@ -1356,10 +1378,10 @@ pub async fn restore_database(
 
     // PRODUCTS
     restore_table!("products", Product, "상품 정보 복구 중", p, t, {
-        sqlx::query("INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, item_type, product_code, status, updated_at) 
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) 
+        sqlx::query("INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status, updated_at) 
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) 
              ON CONFLICT (product_id) DO UPDATE SET product_name=EXCLUDED.product_name, status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
-            .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.item_type).bind(p.product_code).bind(p.status).bind(p.updated_at)
+            .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.aux_material_id).bind(p.aux_material_ratio).bind(p.item_type).bind(p.product_code).bind(p.status).bind(p.updated_at)
             .execute(&mut **t).await?;
     });
 
@@ -1547,6 +1569,20 @@ pub async fn restore_database(
         {
             sqlx::query("INSERT INTO experience_reservations (reservation_id, program_id, customer_id, guest_name, guest_contact, reservation_date, reservation_time, participant_count, total_amount, status, payment_status, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (reservation_id) DO UPDATE SET status=EXCLUDED.status, updated_at=EXCLUDED.updated_at")
             .bind(r.reservation_id).bind(r.program_id).bind(r.customer_id).bind(r.guest_name).bind(r.guest_contact).bind(r.reservation_date).bind(r.reservation_time).bind(r.participant_count).bind(r.total_amount).bind(r.status).bind(r.payment_status).bind(r.memo).bind(r.created_at).bind(r.updated_at)
+            .execute(&mut **t).await?;
+        }
+    );
+
+    // PRODUCT_BOM
+    restore_table!(
+        "product_bom",
+        ProductBomBackup,
+        "BOM 정보 복구 중",
+        b,
+        t,
+        {
+            sqlx::query("INSERT INTO product_bom (id, product_id, material_id, ratio, created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING")
+            .bind(b.id).bind(b.product_id).bind(b.material_id).bind(b.ratio).bind(b.created_at)
             .execute(&mut **t).await?;
         }
     );

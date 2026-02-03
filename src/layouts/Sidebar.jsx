@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 const MenuItem = ({ to, icon, label, end = false }) => (
@@ -68,7 +68,29 @@ const MenuGroup = ({ id, icon, label, children, activePrefix, expanded, onToggle
 
 const Sidebar = () => {
     const [expandedMenus, setExpandedMenus] = useState({});
+    const [companyName, setCompanyName] = useState('Mycelium');
     const location = useLocation();
+
+    useEffect(() => {
+        const loadCompanyName = async () => {
+            try {
+                if (window.__TAURI__) {
+                    const info = await window.__TAURI__.core.invoke('get_company_info');
+                    if (info && info.company_name) {
+                        setCompanyName(info.company_name);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load company name:", err);
+            }
+        };
+        loadCompanyName();
+
+        // Listen for potential updates (if any)
+        const handleUpdate = () => loadCompanyName();
+        window.addEventListener('company-info-changed', handleUpdate);
+        return () => window.removeEventListener('company-info-changed', handleUpdate);
+    }, []);
 
     const toggleMenu = (key) => {
         setExpandedMenus(prev => {
@@ -89,8 +111,8 @@ const Sidebar = () => {
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
                         <span className="material-symbols-rounded text-white text-2xl">agriculture</span>
                     </div>
-                    <h2 className="text-xl font-black tracking-tight text-white">
-                        Mycelium
+                    <h2 className="text-xl font-black tracking-tight text-white truncate" title={companyName}>
+                        {companyName}
                     </h2>
                 </div>
             </div>

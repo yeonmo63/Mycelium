@@ -687,3 +687,23 @@ pub struct ProductHistoryItem {
     pub new_value: Option<String>,
     pub change_amount: i32,
 }
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ProductBom {
+    pub id: i32,
+    pub product_id: i32,
+    pub material_id: i32,
+    pub ratio: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ProductBomJoin {
+    pub id: i32,
+    pub product_id: i32,
+    pub material_id: i32,
+    pub ratio: f64,
+    pub product_name: String, // Joined material name
+    pub specification: Option<String>,
+    pub stock_quantity: i32, // Current stock of material
+    pub item_type: Option<String>,
+}

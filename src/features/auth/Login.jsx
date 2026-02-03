@@ -7,9 +7,24 @@ const Login = ({ onLoginSuccess }) => {
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [companyName, setCompanyName] = useState('Mycelium');
 
     useEffect(() => {
         sessionStorage.clear();
+
+        const loadCompanyName = async () => {
+            try {
+                if (window.__TAURI__) {
+                    const info = await invoke('get_company_info');
+                    if (info && info.company_name) {
+                        setCompanyName(info.company_name);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load company name:", err);
+            }
+        };
+        loadCompanyName();
     }, []);
 
     const handleLogin = async (e) => {
@@ -125,7 +140,7 @@ const Login = ({ onLoginSuccess }) => {
                             color: '#fff',
                             marginBottom: '12px',
                             letterSpacing: '-0.02em',
-                        }}>Mycelium</h1>
+                        }}>{companyName}</h1>
                         <p style={{ color: '#94a3b8', fontSize: '15px', fontWeight: '500' }}>Intelligence Center Login</p>
                     </div>
 
@@ -258,7 +273,7 @@ const Login = ({ onLoginSuccess }) => {
                         fontWeight: '500'
                     }}>
                         <p style={{ opacity: 0.8 }}>Authorized Personnel Only</p>
-                        <p style={{ marginTop: '12px', opacity: 0.5, fontSize: '12px', letterSpacing: '0.05em' }}>© 2024 MYCELIUM CORP.</p>
+                        <p style={{ marginTop: '12px', opacity: 0.5, fontSize: '12px', letterSpacing: '0.05em' }}>© 2024 {companyName.toUpperCase()}.</p>
                     </div>
                 </div>
             </div>

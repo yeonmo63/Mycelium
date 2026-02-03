@@ -379,6 +379,17 @@ pub async fn delete_product(state: State<'_, DbPool>, productId: i32) -> Myceliu
         return Err(MyceliumError::Validation("HAS_HISTORY".to_string()));
     }
 
+    // Check if used as a material in any BOM
+    let bom_usage: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM product_bom WHERE material_id = $1")
+            .bind(productId)
+            .fetch_one(&*state)
+            .await?;
+
+    if bom_usage.0 > 0 {
+        return Err(MyceliumError::Validation("USED_AS_BOM".to_string()));
+    }
+
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let mut tx = state.begin().await?;
 
@@ -631,7 +642,7 @@ pub async fn adjust_product_stock(
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let mut tx = state.begin().await?;
 
-    let product: Product = sqlx::query_as("SELECT product_id, product_name, specification, product_code, stock_quantity FROM products WHERE product_id = $1")
+    let product: Product = sqlx::query_as("SELECT product_id, product_name, specification, product_code, stock_quantity, unit_price FROM products WHERE product_id = $1")
         .bind(productId).fetch_one(&mut *tx).await?;
 
     let new_qty = product.stock_quantity.unwrap_or(0) + changeQty;
@@ -713,4 +724,150 @@ pub async fn get_inventory_forecast_alerts(
     Ok(sqlx::query_as::<_, InventoryAlert>(sql)
         .fetch_all(&*state)
         .await?)
+}
+#[derive(serde::Deserialize)]
+pub struct BomItemInput {
+    pub material_id: i32,
+    pub ratio: f64,
+}
+
+#[derive(serde::Deserialize)]
+pub struct BomDeductionInput {
+    pub material_id: i32,
+    pub quantity: i32,
+}
+
+#[command]
+pub async fn get_product_bom(
+    pool: State<'_, DbPool>,
+    productId: i32,
+) -> MyceliumResult<Vec<crate::db::ProductBomJoin>> {
+    let sql = r#"
+        SELECT b.id, b.product_id, b.material_id, b.ratio, 
+               p.product_name, p.specification, p.stock_quantity, p.item_type
+        FROM product_bom b
+        JOIN products p ON b.material_id = p.product_id
+        WHERE b.product_id = $1
+    "#;
+
+    let rows = sqlx::query_as::<_, crate::db::ProductBomJoin>(sql)
+        .bind(productId)
+        .fetch_all(&*pool)
+        .await?;
+
+    Ok(rows)
+}
+
+#[command]
+pub async fn save_product_bom(
+    pool: State<'_, DbPool>,
+    productId: i32,
+    bomList: Vec<BomItemInput>,
+) -> MyceliumResult<()> {
+    // DB_MODIFIED.store(true, Ordering::Relaxed); // Optional unless strictly needed
+    let mut tx = pool.begin().await?;
+
+    // 1. Delete existing BOM
+    sqlx::query("DELETE FROM product_bom WHERE product_id = $1")
+        .bind(productId)
+        .execute(&mut *tx)
+        .await?;
+
+    // 2. Insert new items
+    for item in bomList {
+        sqlx::query("INSERT INTO product_bom (product_id, material_id, ratio) VALUES ($1, $2, $3)")
+            .bind(productId)
+            .bind(item.material_id)
+            .bind(item.ratio)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+#[command]
+pub async fn convert_stock_bom(
+    pool: State<'_, DbPool>,
+    productId: i32,
+    produceQty: i32,
+    deductions: Vec<BomDeductionInput>,
+    memo: String,
+) -> MyceliumResult<()> {
+    DB_MODIFIED.store(true, Ordering::Relaxed);
+    let mut tx = pool.begin().await?;
+
+    // 1. Get Product Info
+    let product: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
+        .bind(productId)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    // 2. Main Product Stock Increase
+    let p_new_qty = product.stock_quantity.unwrap_or(0) + produceQty;
+    sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
+        .bind(p_new_qty)
+        .bind(productId)
+        .execute(&mut *tx)
+        .await?;
+
+    let p_code = product.product_code;
+
+    // Log for Product Increase
+    sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '입고', $5, $6, $7, 'CONVERT_IN')")
+        .bind(productId)
+        .bind(&product.product_name)
+        .bind(&product.specification)
+        .bind(&p_code)
+        .bind(produceQty)
+        .bind(p_new_qty)
+        .bind(format!("가공 완료(BOM): {}", memo))
+        .execute(&mut *tx)
+        .await?;
+
+    // 3. Deductions (Materials)
+    for deduct in deductions {
+        if deduct.quantity <= 0 {
+            continue;
+        }
+
+        let material: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
+            .bind(deduct.material_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        if material.stock_quantity.unwrap_or(0) < deduct.quantity {
+            // Rollback is implicit on error
+            return Err(MyceliumError::Validation(format!(
+                "자재 재고 부족: {} (필요: {}, 현재: {})",
+                material.product_name,
+                deduct.quantity,
+                material.stock_quantity.unwrap_or(0)
+            )));
+        }
+
+        let m_new_qty = material.stock_quantity.unwrap_or(0) - deduct.quantity;
+
+        sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
+            .bind(m_new_qty)
+            .bind(deduct.material_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Log for Material Decrease
+        sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, $6, $7, 'CONVERT_OUT')")
+            .bind(deduct.material_id)
+            .bind(&material.product_name)
+            .bind(&material.specification)
+            .bind(&material.product_code)
+            .bind(-deduct.quantity) // Negative for decrease
+            .bind(m_new_qty)
+            .bind(format!("가공 소모: {} 생산", product.product_name))
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
 }

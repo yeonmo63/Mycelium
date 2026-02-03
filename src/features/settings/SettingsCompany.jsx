@@ -94,6 +94,7 @@ const SettingsCompany = () => {
                 item: formData.item || null,
                 memo: formData.memo || null
             });
+            window.dispatchEvent(new Event('company-info-changed'));
             await showAlert('저장 완료', '업체 정보가 저장되었습니다.');
         } catch (err) {
             showAlert('저장 실패', '오류가 발생했습니다: ' + err);

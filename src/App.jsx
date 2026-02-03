@@ -124,7 +124,6 @@ function AppContent() {
         }
 
         const status = await invoke('check_setup_status');
-        console.log('Setup status:', status);
         setIsConfigured(status);
 
         // Remove splash screen from DOM instantly

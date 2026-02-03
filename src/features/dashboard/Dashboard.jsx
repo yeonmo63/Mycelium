@@ -79,11 +79,9 @@ const Dashboard = () => {
     }, [weeklyData]);
 
     const loadDashboardData = async () => {
-        console.log("Dashboard: Starting data load...");
 
         // 1. 핵심 통계
         invoke('get_dashboard_stats').then(res => {
-            console.log("Dashboard: Stats received", res);
             setStats(res);
             setIsLoading(false);
         }).catch(err => {
@@ -118,7 +116,6 @@ const Dashboard = () => {
 
         // 3. 주간 차트 데이터
         invoke('get_weekly_sales_data').then(weeklyRes => {
-            console.log("Dashboard: Weekly charts received", weeklyRes);
             setWeeklyData(weeklyRes || []);
             setIsChartLoading(false);
         }).catch(e => {
@@ -141,7 +138,6 @@ const Dashboard = () => {
 
         // 5. 날씨 및 마케팅 조언
         invoke('get_weather_marketing_advice').then(weatherRes => {
-            console.log("Dashboard: Weather received", weatherRes);
             setWeatherAdvice(weatherRes);
             setIsWeatherLoading(false);
         }).catch(e => {

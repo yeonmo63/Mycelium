@@ -281,6 +281,9 @@ pub fn run() {
             commands::sales::delete_sales_claim,
             commands::sales::update_sales_claim,
             commands::sales::get_sale_detail,
+            commands::product::get_product_bom,
+            commands::product::save_product_bom,
+            commands::product::convert_stock_bom,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

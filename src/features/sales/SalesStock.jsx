@@ -1,18 +1,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { formatCurrency } from '../../utils/common';
+import { formatCurrency, formatDateTime } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
 
 const SalesStock = () => {
     const { showAlert, showConfirm } = useModal();
     // --- State ---
-    const [tab, setTab] = useState('product'); // 'product' | 'material'
+    const [tab, setTab] = useState('product'); // 'product' | 'raw_material' | 'aux_material'
     const [products, setProducts] = useState([]);
     const [logs, setLogs] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [hideAutoLogs, setHideAutoLogs] = useState(true);
 
     // Stock Conversion State (Processing/Packaging)
-    const [convertModal, setConvertModal] = useState({ open: false, targetId: '', qty: 1, realQty: 0, realAuxQty: 0 });
+    const [convertModal, setConvertModal] = useState({
+        open: false,
+        sourceMaterialId: '', // Filter source
+        targetId: '',
+        qty: 1,
+        deductions: [], // Array of { materialId, name, ratio, stock, tQty (theory), rQty (real), type }
+        loading: false
+    });
     // Harvest State (Raw Material In)
     const [harvestModal, setHarvestModal] = useState({ open: false, targetId: '', qty: '', memo: '' });
 
@@ -114,10 +121,10 @@ const SalesStock = () => {
 
     // --- Harvest Logic (New) ---
     const openHarvestModal = () => {
-        // Filter only materials
-        const materials = products.filter(p => (p.item_type || 'product') === 'material');
+        // Filter only materials (raw or legacy material)
+        const materials = products.filter(p => p.item_type === 'raw_material' || p.item_type === 'material');
         if (materials.length === 0) {
-            showAlert("알림", "등록된 농산물(원물)이 없습니다.\n[환경 설정 > 상품 관리]에서 '원자재' 타입으로 품목을 등록해주세요.");
+            showAlert("알림", "등록된 농산물(원물)이 없습니다.\n[환경 설정 > 상품 관리]에서 '원물(농산물)' 타입으로 품목을 등록해주세요.");
             return;
         }
         setHarvestModal({ open: true, targetId: materials[0].product_id, qty: '', memo: '' });
@@ -147,65 +154,190 @@ const SalesStock = () => {
 
 
     // --- Conversion Logic ---
+    // --- Conversion Logic ---
     const openConvertModal = () => {
-        const targets = products.filter(p => p.material_id);
-        if (targets.length === 0) {
-            showAlert("알림", "자재가 연결된 완제품이 없습니다.\n[환경 설정 > 상품 관리]에서 자재를 먼저 연결해주세요.");
-            return;
-        }
-        setConvertModal({ open: true, targetId: '', qty: 1, realQty: 0, realAuxQty: 0 });
+        // Show modal reset
+        setConvertModal({ open: true, sourceMaterialId: '', targetId: '', qty: 1, deductions: [], loading: false });
     };
 
-    // Auto-calc use when qty changes or product selected
+    // Load BOM when target changes
     useEffect(() => {
-        if (convertModal.open && convertModal.targetId) {
-            const product = products.find(p => p.product_id === Number(convertModal.targetId));
-            const qt = Number(convertModal.qty) || 0;
+        if (!convertModal.open || !convertModal.targetId) return;
 
-            // Main Material
-            const ratio = product?.material_ratio || 1.0;
-            const needed = Math.ceil(qt * ratio);
+        const loadBOM = async () => {
+            setConvertModal(prev => ({ ...prev, loading: true }));
+            try {
+                const targetId = Number(convertModal.targetId);
+                let bomList = [];
 
-            // Aux Material
-            const auxRatio = product?.aux_material_ratio || 1.0;
-            const auxNeeded = Math.ceil(qt * auxRatio);
+                // 1. Try Fetch BOM
+                if (window.__TAURI__) {
+                    const boms = await window.__TAURI__.core.invoke('get_product_bom', { productId: targetId });
+                    if (boms && boms.length > 0) {
+                        bomList = boms.map(b => ({
+                            materialId: b.material_id,
+                            name: b.product_name,
+                            ratio: b.ratio,
+                            stock: b.stock_quantity,
+                            type: b.item_type === 'aux_material' ? 'aux' : 'raw'
+                        }));
+                    }
+                }
 
-            setConvertModal(prev => ({ ...prev, realQty: needed, realAuxQty: auxNeeded }));
-        }
-    }, [convertModal.targetId, convertModal.qty, products]);
+                // 2. Legacy Fallback
+                if (bomList.length === 0) {
+                    const product = products.find(p => p.product_id === targetId);
+                    if (product) {
+                        if (product.material_id) {
+                            const m = products.find(x => x.product_id === product.material_id);
+                            if (m) {
+                                bomList.push({
+                                    materialId: product.material_id,
+                                    name: m.product_name,
+                                    ratio: product.material_ratio || 1.0,
+                                    stock: m.stock_quantity || 0,
+                                    type: 'raw' // legacy default
+                                });
+                            }
+                        }
+                        if (product.aux_material_id) {
+                            const a = products.find(x => x.product_id === product.aux_material_id);
+                            if (a) {
+                                bomList.push({
+                                    materialId: product.aux_material_id,
+                                    name: a.product_name,
+                                    ratio: product.aux_material_ratio || 1.0,
+                                    stock: a.stock_quantity || 0,
+                                    type: 'aux'
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 3. Force include Source Material if selected in Step 1 but not in BOM
+                if (convertModal.sourceMaterialId) {
+                    const sid = Number(convertModal.sourceMaterialId);
+                    if (!bomList.find(b => b.materialId === sid)) {
+                        const smat = products.find(p => p.product_id === sid);
+                        if (smat) {
+                            bomList.push({
+                                materialId: sid,
+                                name: smat.product_name,
+                                ratio: 0, // No default ratio known
+                                stock: smat.stock_quantity || 0,
+                                type: 'raw'
+                            });
+                        }
+                    }
+                }
+
+                // 4. Init Deductions based on Qty 1
+                const qty = Number(convertModal.qty) || 1;
+                const deductions = bomList.map(b => ({
+                    ...b,
+                    tQty: Math.ceil(qty * b.ratio),
+                    rQty: Math.ceil(qty * b.ratio)
+                }));
+
+                setConvertModal(prev => ({ ...prev, deductions, loading: false }));
+            } catch (e) {
+                console.error(e);
+                setConvertModal(prev => ({ ...prev, loading: false }));
+            }
+        };
+        loadBOM();
+    }, [convertModal.targetId, convertModal.open]);
+
+    // Recalculate when Qty changes
+    const handleQtyChange = (newQty) => {
+        const qty = Number(newQty);
+        setConvertModal(prev => ({
+            ...prev,
+            qty: newQty,
+            deductions: prev.deductions.map(d => {
+                const needs = Math.ceil(qty * d.ratio);
+                const isPrimarySource = prev.sourceMaterialId && d.materialId === Number(prev.sourceMaterialId);
+                // If it's the primary source but has no ratio (forced), keep current rQty to prevent it becoming 0
+                return {
+                    ...d,
+                    tQty: needs,
+                    rQty: (isPrimarySource && (d.ratio || 0) <= 0) ? d.rQty : needs
+                };
+            })
+        }));
+    };
+
+    const handleDeductionChange = (idx, val) => {
+        setConvertModal(prev => {
+            const next = [...prev.deductions];
+            const newVal = Number(val);
+            next[idx].rQty = newVal;
+
+            // If this is the primary source material, update produce qty
+            if (prev.sourceMaterialId && next[idx].materialId === Number(prev.sourceMaterialId)) {
+                const ratio = next[idx].ratio || 1;
+                const newProduceQty = ratio > 0 ? Math.floor(newVal / ratio) : prev.qty;
+
+                // Update all other deductions based on new produce qty
+                const updatedDeductions = next.map((d, i) => {
+                    const needs = Math.ceil(newProduceQty * d.ratio);
+                    return { ...d, tQty: needs, rQty: i === idx ? newVal : needs };
+                });
+
+                return { ...prev, qty: newProduceQty, deductions: updatedDeductions };
+            }
+
+            return { ...prev, deductions: next };
+        });
+    };
+
+    const handleSourceQtySub = (val) => {
+        const sourceQty = Number(val);
+        const sourceMaterial = convertModal.deductions.find(d => d.materialId === Number(convertModal.sourceMaterialId));
+        if (!sourceMaterial) return;
+
+        const ratio = sourceMaterial.ratio || 1;
+        const newProduceQty = ratio > 0 ? Math.floor(sourceQty / ratio) : convertModal.qty;
+
+        setConvertModal(prev => ({
+            ...prev,
+            qty: newProduceQty,
+            deductions: prev.deductions.map(d => {
+                const needs = Math.ceil(newProduceQty * d.ratio);
+                // Keep the manually entered source qty for the source material
+                return {
+                    ...d,
+                    tQty: needs,
+                    rQty: d.materialId === Number(prev.sourceMaterialId) ? sourceQty : needs
+                };
+            })
+        }));
+    };
 
     const handleConvert = async () => {
-        const { targetId, qty, realQty, realAuxQty } = convertModal;
+        const { targetId, qty, deductions } = convertModal;
         if (!targetId) return showAlert("알림", "생산할 품목을 선택해주세요.");
-        if (qty <= 0) return showAlert("알림", "수량을 1개 이상 입력해주세요.");
+        if (Number(qty) <= 0) return showAlert("알림", "수량을 1개 이상 입력해주세요.");
 
-        const product = products.find(p => p.product_id === Number(targetId));
-        const material = products.find(p => p.product_id === product?.material_id);
-        const aux = products.find(p => p.product_id === product?.aux_material_id); // Find aux if exists
-
-        if (!material) {
-            return showAlert("오류", "이 완제품에 연결된 자재 정보가 올바르지 않습니다.");
-        }
-
-        const needed = Number(realQty);
-        if (material.stock_quantity < needed) {
-            if (!await showConfirm("재고 부족", `자재(${material.product_name})가 부족합니다. (필요: ${needed}, 현재: ${material.stock_quantity})\n그래도 진행하시겠습니까?`)) return;
-        }
-
-        // Aux Check
-        const auxNeeded = aux ? Number(realAuxQty) : 0;
-        if (aux && aux.stock_quantity < auxNeeded) {
-            if (!await showConfirm("부자재 부족", `부자재(${aux.product_name})가 부족합니다. (필요: ${auxNeeded}, 현재: ${aux.stock_quantity})\n그래도 진행하시겠습니까?`)) return;
+        // Check Stock
+        for (const d of deductions) {
+            if (d.stock < d.rQty) {
+                if (!await showConfirm("재고 부족", `${d.name} 재고가 부족합니다. (필요: ${d.rQty}, 보유: ${d.stock})\n그래도 진행하시겠습니까?`)) return;
+            }
         }
 
         try {
             if (window.__TAURI__) {
-                await window.__TAURI__.core.invoke('convert_stock', {
-                    materialId: material.product_id,
+                const deductInputs = deductions.map(d => ({
+                    material_id: d.materialId,
+                    quantity: d.rQty
+                }));
+
+                await window.__TAURI__.core.invoke('convert_stock_bom', {
                     productId: Number(targetId),
-                    convertQty: Number(qty),
-                    materialDeductQty: Number(needed),
-                    auxDeductQty: aux ? Number(auxNeeded) : null,
+                    produceQty: Number(qty),
+                    deductions: deductInputs,
                     memo: '완제품 전환 생산'
                 });
                 await showAlert("완료", "상품화(포장) 처리가 완료되었습니다.");
@@ -219,7 +351,16 @@ const SalesStock = () => {
 
     // --- Derived ---
     const filteredProducts = useMemo(() => {
-        let list = products.filter(p => (p.item_type || 'product') === tab);
+        let list = products;
+        if (tab === 'raw_material') {
+            list = list.filter(p => p.item_type === 'raw_material' || p.item_type === 'material');
+        } else if (tab === 'aux_material') {
+            list = list.filter(p => p.item_type === 'aux_material');
+        } else {
+            // product
+            list = list.filter(p => !p.item_type || p.item_type === 'product');
+        }
+
         if (searchQuery) list = list.filter(p => p.product_name.toLowerCase().includes(searchQuery.toLowerCase()));
         return list;
     }, [products, tab, searchQuery]);
@@ -255,27 +396,33 @@ const SalesStock = () => {
                     {/* Toolbar */}
                     <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white z-10">
                         {/* Tabs */}
+                        {/* Tabs */}
                         <div className="flex gap-2">
                             <div className="flex bg-slate-100 p-1 rounded-xl">
                                 <button onClick={() => setTab('product')} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${tab === 'product' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                                    <span className="material-symbols-rounded text-base">potted_plant</span> 판매 상품(완제품)
+                                    <span className="material-symbols-rounded text-base">potted_plant</span> 완제품 (Product)
                                 </button>
-                                <button onClick={() => setTab('material')} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${tab === 'material' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                                    <span className="material-symbols-rounded text-base">compost</span> 농산물(원물)
+                                <button onClick={() => setTab('raw_material')} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${tab === 'raw_material' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                    <span className="material-symbols-rounded text-base">spa</span> 원물 (농산물)
+                                </button>
+                                <button onClick={() => setTab('aux_material')} className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${tab === 'aux_material' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                    <span className="material-symbols-rounded text-base">layers</span> 부자재 (포장재)
                                 </button>
                             </div>
 
                             {/* Action Buttons based on Tab */}
-                            {tab === 'product' && (
-                                <button onClick={openConvertModal} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-200 flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 animate-in fade-in zoom-in duration-300">
-                                    <span className="material-symbols-rounded text-base">inventory_2</span> 상품화 (포장/소분)
-                                </button>
-                            )}
-                            {tab === 'material' && (
-                                <button onClick={openHarvestModal} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200 flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 animate-in fade-in zoom-in duration-300">
-                                    <span className="material-symbols-rounded text-base">spa</span> 수확 입고 (Harvest)
-                                </button>
-                            )}
+                            <div className="flex gap-2">
+                                {(tab === 'product' || tab === 'raw_material') && (
+                                    <button onClick={openConvertModal} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-200 flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 animate-in fade-in zoom-in duration-300">
+                                        <span className="material-symbols-rounded text-base">inventory_2</span> 상품화 (포장/소분)
+                                    </button>
+                                )}
+                                {tab === 'raw_material' && (
+                                    <button onClick={openHarvestModal} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-200 flex items-center gap-1.5 transition-all hover:scale-[1.02] active:scale-95 animate-in fade-in zoom-in duration-300">
+                                        <span className="material-symbols-rounded text-base">spa</span> 수확 입고 (농산물)
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {/* Search */}
@@ -296,7 +443,9 @@ const SalesStock = () => {
                             <thead className="sticky top-0 bg-slate-50/95 backdrop-blur z-10 shadow-sm text-slate-500 uppercase font-bold tracking-wider">
                                 <tr>
                                     <th className="px-2 py-3 text-center w-[5%] border-b border-slate-100">No</th>
-                                    <th className="px-2 py-3 w-[20%] border-b border-slate-100">{tab === 'material' ? '농산물명' : '상품명'}</th>
+                                    <th className="px-2 py-3 w-[25%] border-b border-slate-100">
+                                        {tab === 'raw_material' ? '품목명 (원물)' : tab === 'aux_material' ? '자재명 (부자재)' : '상품명 (완제품)'}
+                                    </th>
                                     <th className="px-2 py-3 text-center w-[12%] border-b border-slate-100">규격</th>
                                     <th className="px-2 py-3 text-right w-[13%] border-b border-slate-100 bg-indigo-50/30 text-indigo-900">현재고</th>
                                     <th className="px-2 py-3 w-[12%] border-b border-slate-100 bg-orange-50/30 text-orange-900 border-l border-orange-100/50">수량 조정</th>
@@ -314,14 +463,19 @@ const SalesStock = () => {
                                     const isLow = current <= (p.safety_stock || 10);
                                     const hasChange = changeVal !== 0;
 
-                                    // Freshness Logic
+                                    // Freshness Logic (Only for products and raw materials)
                                     const freshInfo = getFreshnessInfo(p.product_id);
                                     let freshBadge = null;
-                                    if (current > 0 && freshInfo) {
-                                        const d = freshInfo.diffDays;
-                                        if (d > 7) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-600 animate-pulse">골든타임 경과 ({d}일)</span>;
+                                    const isMaterial = p.item_type === 'raw_material' || p.item_type === 'material';
+                                    const isProduct = !p.item_type || p.item_type === 'product';
+
+                                    if (current > 0 && freshInfo && (isMaterial || isProduct)) {
+                                        const d = freshInfo.diffDays - 1; // Adjust displayed day count if needed, but keeping it consistent
+                                        const displayDays = d < 0 ? 0 : d;
+
+                                        if (d > 7) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-600 animate-pulse">{isMaterial ? '수확' : '생산'} 후 {d}일 경과</span>;
                                         else if (d > 3) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-600">판매 권장 ({d}일)</span>;
-                                        else if (d <= 3) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-600">신선 ({d}일)</span>;
+                                        else freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-600">신선 ({d}일)</span>;
                                     }
 
                                     return (
@@ -398,7 +552,7 @@ const SalesStock = () => {
                     <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                         <h3 className="font-bold text-slate-700 text-sm flex items-center gap-2">
                             <span className="material-symbols-rounded text-base text-amber-500">history</span>
-                            최근 {tab === 'material' ? '농산물 ' : '상품 '} 변동
+                            최근 {tab === 'material' ? '자재 ' : '상품 '} 변동
                         </h3>
                         <div className="flex items-center gap-2">
                             <label className="flex items-center gap-1.5 cursor-pointer group">
@@ -422,7 +576,6 @@ const SalesStock = () => {
                                 {filteredLogs.map((log, idx) => {
                                     const isPlus = log.change_quantity > 0;
                                     const isMinus = log.change_quantity < 0;
-                                    const dateStr = log.created_at ? log.created_at.substring(5, 16).replace('T', ' ') : '-';
 
                                     return (
                                         <div key={idx} className="p-3 hover:bg-slate-50 transition-colors flex gap-3 items-start">
@@ -447,7 +600,7 @@ const SalesStock = () => {
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between items-center mt-0.5">
-                                                    <span className="text-[10px] text-slate-400 font-mono">{dateStr}</span>
+                                                    <span className="text-[10px] text-slate-400 font-mono">{formatDateTime(log.created_at)}</span>
                                                     <span className="text-[10px] text-slate-500 font-mono">재고: {formatCurrency(log.current_stock)}</span>
                                                 </div>
                                                 {log.memo && (
@@ -475,141 +628,159 @@ const SalesStock = () => {
                             <h3 className="text-lg font-black flex items-center gap-2 relative z-10">
                                 <span className="material-symbols-rounded">inventory_2</span> 상품화 (포장/소분)
                             </h3>
-                            <p className="text-xs text-white/80 mt-1 relative z-10 font-medium">농산물(원물)을 차감하고 완제품 재고를 생성합니다.</p>
+                            <p className="text-xs text-white/80 mt-1 relative z-10 font-medium">농산물(원물) 및 부자재를 소모하여 완제품을 생산합니다.</p>
                         </div>
 
                         <div className="p-6">
-                            <div className="mb-5">
-                                <label className="text-xs font-bold text-slate-500 block mb-1.5 ml-1">생산할 품목 (완제품)</label>
+                            <div className="mb-4">
+                                <label className="text-xs font-bold text-slate-500 block mb-1.5 ml-1 italic text-emerald-600">Step 1. 사용될 원재료 (Source Material)</label>
                                 <div className="relative">
                                     <select
-                                        className="w-full h-11 pl-3 pr-8 rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 appearance-none transition-all"
-                                        value={convertModal.targetId}
-                                        onChange={e => setConvertModal({ ...convertModal, targetId: e.target.value })}
+                                        className="w-full h-11 pl-3 pr-8 rounded-xl border border-emerald-200 bg-emerald-50/30 text-sm font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-300 appearance-none transition-all"
+                                        value={convertModal.sourceMaterialId}
+                                        onChange={e => {
+                                            const sid = e.target.value;
+                                            setConvertModal(prev => ({
+                                                ...prev,
+                                                sourceMaterialId: sid,
+                                                targetId: '', // Reset target when source changes
+                                                deductions: []
+                                            }));
+                                        }}
                                     >
-                                        <option value="">-- 품목을 선택해주세요 --</option>
-                                        {products.filter(p => p.material_id).map(p => (
-                                            <option key={p.product_id} value={p.product_id}>{p.product_name} ({p.specification})</option>
-                                        ))}
+                                        <option value="">-- 원재료를 선택하세요 --</option>
+                                        {products
+                                            .filter(p => p.item_type === 'raw_material' || p.item_type === 'material')
+                                            .map(p => (
+                                                <option key={p.product_id} value={p.product_id}>{p.product_name} ({p.specification || '원본'})</option>
+                                            ))
+                                        }
                                     </select>
-                                    <span className="material-symbols-rounded absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+                                    <span className="material-symbols-rounded absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 pointer-events-none">spa</span>
                                 </div>
                             </div>
 
-                            {convertModal.targetId && (() => {
-                                const p = products.find(x => x.product_id === Number(convertModal.targetId));
-                                const m = products.find(x => x.product_id === p?.material_id);
-                                const a = products.find(x => x.product_id === p?.aux_material_id);
+                            <div className="mb-5">
+                                <label className="text-xs font-bold text-slate-500 block mb-1.5 ml-1 italic text-indigo-600">Step 2. 생산할 품목 (Final Product)</label>
+                                <div className="relative">
+                                    <select
+                                        className="w-full h-11 pl-3 pr-8 rounded-xl border border-indigo-200 bg-indigo-50/30 text-sm font-bold text-indigo-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 appearance-none transition-all"
+                                        value={convertModal.targetId}
+                                        onChange={e => setConvertModal({ ...convertModal, targetId: e.target.value })}
+                                        disabled={!convertModal.sourceMaterialId}
+                                    >
+                                        <option value="">-- 완제품을 선택하세요 --</option>
+                                        {products
+                                            .filter(p => !p.item_type || p.item_type === 'product') // Only products
+                                            .map(p => (
+                                                <option key={p.product_id} value={p.product_id}>{p.product_name} ({p.specification})</option>
+                                            ))
+                                        }
+                                    </select>
+                                    <span className="material-symbols-rounded absolute right-3 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none">inventory_2</span>
+                                </div>
+                                {!convertModal.sourceMaterialId && <p className="text-[10px] text-slate-400 mt-1 ml-1">* 원재료를 먼저 선택해 주세요.</p>}
+                            </div>
 
-                                ret = [];
+                            {convertModal.targetId && (
+                                <div className="mt-4 mb-6">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-xs font-bold text-slate-500">
+                                            자재 소모 및 생산 설정
+                                        </label>
+                                        {convertModal.loading && <span className="text-[10px] text-indigo-500 animate-pulse">로딩중...</span>}
+                                    </div>
 
-                                if (m) {
-                                    ret.push(
-                                        <div key="main" className="bg-slate-50 p-4 rounded-xl mb-3 border border-slate-200">
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="text-xs font-bold text-slate-500">필요 농산물(원물)</span>
-                                                <span className="text-xs font-black text-slate-700">{m.product_name} <span className="text-slate-400 font-normal">({p.material_ratio}배)</span></span>
+                                    {/* Primary Source Input */}
+                                    {convertModal.sourceMaterialId && convertModal.deductions.find(d => d.materialId === Number(convertModal.sourceMaterialId)) && (
+                                        <div className="mb-4 p-4 bg-emerald-50 rounded-xl border border-emerald-100 shadow-inner">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <label className="text-[10px] font-black text-emerald-700 uppercase tracking-wider italic">Step 3. 투입할 원물 수량</label>
+                                                <span className="text-[10px] font-bold text-emerald-600">현재고: {formatCurrency(convertModal.deductions.find(d => d.materialId === Number(convertModal.sourceMaterialId))?.stock || 0)}</span>
                                             </div>
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-xs font-bold text-slate-500">현재 원물 재고</span>
-                                                <span className={`text-sm font-black ${m.stock_quantity <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{formatCurrency(m.stock_quantity)}개 보유</span>
+                                            <div className="flex items-center gap-3">
+                                                <input
+                                                    type="number"
+                                                    className="flex-1 h-12 bg-white rounded-lg border-2 border-emerald-200 text-center font-black text-xl text-emerald-700 outline-none focus:border-emerald-500 transition-all"
+                                                    value={convertModal.deductions.find(d => d.materialId === Number(convertModal.sourceMaterialId))?.rQty || ''}
+                                                    onChange={e => handleSourceQtySub(e.target.value)}
+                                                    placeholder="0"
+                                                />
+                                                <span className="text-sm font-black text-emerald-600">{products.find(p => p.product_id === Number(convertModal.sourceMaterialId))?.specification || '단위'}</span>
                                             </div>
+                                            <p className="text-[9px] text-emerald-500 mt-2 ml-1">* 원물을 투입한 만큼 완제품 생산량이 자동 계산됩니다.</p>
                                         </div>
-                                    );
-                                } else {
-                                    ret.push(
-                                        <div key="err" className="bg-red-50 p-3 rounded-xl mb-5 text-xs text-red-500 font-bold text-center border border-red-100">
-                                            연결된 원자재 정보가 없습니다.
-                                        </div>
-                                    );
-                                }
+                                    )}
 
-                                if (a) {
-                                    ret.push(
-                                        <div key="aux" className="bg-slate-50 p-4 rounded-xl mb-5 border border-slate-200 border-dashed">
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="text-xs font-bold text-slate-500">필요 부자재(박스 등)</span>
-                                                <span className="text-xs font-black text-slate-700">{a.product_name} <span className="text-slate-400 font-normal">({p.aux_material_ratio}배)</span></span>
+                                    <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                                        {convertModal.deductions.length === 0 ? (
+                                            <div className="p-4 text-center text-xs text-slate-400">
+                                                연결된 자재(레시피)가 없습니다.
                                             </div>
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-xs font-bold text-slate-500">현재 부자재 재고</span>
-                                                <span className={`text-sm font-black ${a.stock_quantity <= 0 ? 'text-red-500' : 'text-blue-600'}`}>{formatCurrency(a.stock_quantity)}개 보유</span>
-                                            </div>
-                                        </div>
-                                    );
-                                }
+                                        ) : (
+                                            <div className="divide-y divide-slate-100">
+                                                {convertModal.deductions.map((d, idx) => {
+                                                    // Hide the primary source from this list as it's shown above? 
+                                                    // No, let's keep it but maybe it's cleaner to show other materials here.
+                                                    const isPrimarySource = d.materialId === Number(convertModal.sourceMaterialId);
+                                                    const diff = d.rQty - d.tQty;
+                                                    const isShort = d.stock < d.rQty;
 
-                                return ret;
-                            })()}
+                                                    if (isPrimarySource) return null; // Already shown in the highlight box
+
+                                                    return (
+                                                        <div key={idx} className="p-3">
+                                                            <div className="flex justify-between items-start mb-2">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className={`w-2 h-2 rounded-full ${d.type === 'aux' ? 'bg-orange-400' : 'bg-emerald-500'}`}></span>
+                                                                    <span className="text-xs font-black text-slate-700">{d.name}</span>
+                                                                    <span className="text-[10px] text-slate-400">({d.ratio}배)</span>
+                                                                </div>
+                                                                <span className={`text-[10px] font-bold ${isShort ? 'text-red-500' : 'text-blue-600'}`}>
+                                                                    보유: {formatCurrency(d.stock)}
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="flex-1 flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 h-9">
+                                                                    <span className="text-[10px] text-slate-400 shrink-0">소모</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        className="w-full text-right font-bold text-sm outline-none text-slate-700"
+                                                                        value={d.rQty}
+                                                                        onChange={e => handleDeductionChange(idx, e.target.value)}
+                                                                    />
+                                                                </div>
+                                                                {diff !== 0 && (
+                                                                    <div className={`text-[10px] font-bold px-2 py-1 rounded-full ${diff > 0 ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-600'}`}>
+                                                                        {diff > 0 ? `+${diff} Loss` : `${diff} Save`}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="mb-6">
-                                <label className="text-xs font-bold text-slate-500 block mb-1.5 ml-1">생산 수량 ({convertModal.targetId && products.find(p => p.product_id === Number(convertModal.targetId))?.specification || 'EA'})</label>
+                                <label className="text-xs font-bold text-slate-500 block mb-1.5 ml-1 italic text-indigo-600">Step 4. 결과 완제품 생산량</label>
                                 <div className="relative">
                                     <div className="flex gap-4">
                                         <div className="flex-1">
                                             <input
                                                 type="number"
                                                 min="1"
-                                                className="w-full h-14 rounded-xl border border-slate-200 text-center font-black text-2xl text-indigo-600 outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 transition-all placeholder:text-slate-200"
+                                                className="w-full h-14 rounded-xl border-2 border-indigo-200 bg-white text-center font-black text-2xl text-indigo-600 outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-500 transition-all placeholder:text-slate-200"
                                                 value={convertModal.qty}
-                                                onChange={e => setConvertModal({ ...convertModal, qty: e.target.value })}
+                                                onChange={e => handleQtyChange(e.target.value)}
                                             />
                                         </div>
                                     </div>
-
-                                    {/* Yield/Loss Analysis Section */}
-                                    {convertModal.targetId && (() => {
-                                        const p = products.find(x => x.product_id === Number(convertModal.targetId));
-                                        const m = products.find(x => x.product_id === p?.material_id);
-                                        const a = products.find(x => x.product_id === p?.aux_material_id);
-                                        if (!p || !m) return null;
-
-                                        // Main Calc
-                                        const theoretical = Math.ceil((Number(convertModal.qty) || 0) * (p.material_ratio || 1.0));
-                                        const actual = Number(convertModal.realQty) || theoretical;
-                                        const diff = actual - theoretical;
-
-                                        // Aux Calc
-                                        const theoreticalAux = a ? Math.ceil((Number(convertModal.qty) || 0) * (p.aux_material_ratio || 1.0)) : 0;
-                                        const actualAux = Number(convertModal.realAuxQty) || theoreticalAux;
-
-                                        return (
-                                            <>
-                                                <div className="mt-6 pt-4 border-t border-slate-100">
-                                                    <div className="flex justify-between items-center mb-2">
-                                                        <label className="text-xs font-bold text-slate-500">실제 원물 사용량 (조정 가능)</label>
-                                                        {diff > 0 && <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">Loss: {formatCurrency(diff)} 더 씀</span>}
-                                                        {diff < 0 && <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Save: {formatCurrency(-diff)} 아낌</span>}
-                                                        {diff === 0 && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">정량 소모 (Good)</span>}
-                                                    </div>
-                                                    <input
-                                                        type="number"
-                                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-right font-bold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-orange-100 focus:border-orange-300 transition-all"
-                                                        value={convertModal.realQty}
-                                                        onChange={e => setConvertModal({ ...convertModal, realQty: e.target.value })}
-                                                    />
-                                                    <p className="text-[10px] text-slate-400 mt-1.5 text-right">
-                                                        * 이론상 필요량: {formatCurrency(theoretical)} (설정된 비율 기준)
-                                                    </p>
-                                                </div>
-
-                                                {a && (
-                                                    <div className="mt-4 pt-4 border-t border-slate-100">
-                                                        <label className="text-xs font-bold text-slate-500 block mb-2">실제 부자재 사용량 ({a.product_name})</label>
-                                                        <input
-                                                            type="number"
-                                                            className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-right font-bold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition-all"
-                                                            value={convertModal.realAuxQty}
-                                                            onChange={e => setConvertModal({ ...convertModal, realAuxQty: e.target.value })}
-                                                        />
-                                                        <p className="text-[10px] text-slate-400 mt-1.5 text-right">
-                                                            * 이론상 필요량: {formatCurrency(theoreticalAux)} (설정된 비율 기준)
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </>
-                                        );
-                                    })()}
+                                    <p className="text-[9px] text-indigo-400 mt-2 ml-1 text-center">* 생산량을 직접 입력하면 그에 필요한 자재량이 자동 계산됩니다.</p>
                                 </div>
                             </div>
 
@@ -644,7 +815,7 @@ const SalesStock = () => {
                                         value={harvestModal.targetId}
                                         onChange={e => setHarvestModal({ ...harvestModal, targetId: e.target.value })}
                                     >
-                                        {products.filter(p => (p.item_type || 'product') === 'material').map(p => (
+                                        {products.filter(p => p.item_type === 'raw_material' || p.item_type === 'material').map(p => (
                                             <option key={p.product_id} value={p.product_id}>{p.product_name} ({p.specification || '규격없음'})</option>
                                         ))}
                                     </select>
