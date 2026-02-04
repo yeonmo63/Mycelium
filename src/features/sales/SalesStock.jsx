@@ -11,6 +11,7 @@ const SalesStock = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [logSearchQuery, setLogSearchQuery] = useState('');
     const [hideAutoLogs, setHideAutoLogs] = useState(true);
+    const [auxSubTab, setAuxSubTab] = useState('ALL'); // 'ALL' | '박스/포장' | '라벨/스티커' | '생산재' | '기타 소모품'
 
     // Stock Conversion State (Processing/Packaging)
     const [convertModal, setConvertModal] = useState({
@@ -86,6 +87,29 @@ const SalesStock = () => {
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         return { diffDays, dateStr };
+    };
+
+    const getSubTag = (product) => {
+        if (product.item_type !== 'aux_material' && product.item_type !== 'raw_material' && product.item_type !== 'material') return null;
+
+        // 1. If explicit category exists, use it
+        if (product.category) {
+            const cat = product.category;
+            if (cat === '박스/포장') return { label: '박스', color: 'bg-orange-100 text-orange-700 border-orange-200' };
+            if (cat === '라벨/스티커') return { label: '라벨', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+            if (cat === '비닐/봉투') return { label: '봉투', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+            if (cat === '생산재') return { label: '생산재', color: 'bg-purple-100 text-purple-700 border-purple-200' };
+            return { label: cat.replace(' 기타', ''), color: 'bg-slate-100 text-slate-700 border-slate-200' };
+        }
+
+        // 2. Fallback to name-based matching
+        const name = product.product_name;
+        if (name.includes('박스') || name.includes('상자')) return { label: '박스', color: 'bg-orange-100 text-orange-700 border-orange-200' };
+        if (name.includes('스티커') || name.includes('라벨')) return { label: '라벨', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+        if (name.includes('비닐') || name.includes('봉투')) return { label: '봉투', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+        if (name.includes('배지') || name.includes('종균')) return { label: '생산재', color: 'bg-purple-100 text-purple-700 border-purple-200' };
+        if (name.includes('테이프') || name.includes('끈')) return { label: '기타', color: 'bg-slate-100 text-slate-700 border-slate-200' };
+        return { label: '자재', color: 'bg-amber-100 text-amber-700 border-amber-200' };
     };
 
     // ... (inside render)
@@ -196,9 +220,9 @@ const SalesStock = () => {
 
     // --- Conversion Logic ---
     // --- Conversion Logic ---
-    const openConvertModal = () => {
+    const openConvertModal = (sourceId = '') => {
         // Show modal reset
-        setConvertModal({ open: true, sourceMaterialId: '', targetId: '', qty: 1, deductions: [], loading: false });
+        setConvertModal({ open: true, sourceMaterialId: sourceId ? String(sourceId) : '', targetId: '', qty: 1, deductions: [], loading: false });
     };
 
     // Load BOM when target changes
@@ -397,6 +421,15 @@ const SalesStock = () => {
             list = list.filter(p => p.item_type === 'harvest_item');
         } else if (tab === 'aux_material') {
             list = list.filter(p => p.item_type === 'aux_material' || p.item_type === 'raw_material' || p.item_type === 'material');
+            if (auxSubTab !== 'ALL') {
+                list = list.filter(p => {
+                    if (auxSubTab === '박스/포장') return p.category === '박스/포장' || p.product_name.includes('박스') || p.product_name.includes('상자');
+                    if (auxSubTab === '라벨/스티커') return p.category === '라벨/스티커' || p.product_name.includes('스티커') || p.product_name.includes('라벨');
+                    if (auxSubTab === '생산재') return p.category === '생산재' || p.product_name.includes('배지') || p.product_name.includes('종균');
+                    if (auxSubTab === '기타 소모품') return p.category === '기타 소모품' || (!p.category && !p.product_name.includes('박스') && !p.product_name.includes('스티커') && !p.product_name.includes('배지'));
+                    return true;
+                });
+            }
         } else {
             // product
             list = list.filter(p => !p.item_type || p.item_type === 'product');
@@ -404,7 +437,7 @@ const SalesStock = () => {
 
         if (searchQuery) list = list.filter(p => p.product_name.toLowerCase().includes(searchQuery.toLowerCase()));
         return list;
-    }, [products, tab, searchQuery]);
+    }, [products, tab, searchQuery, auxSubTab]);
 
     const filteredLogs = useMemo(() => {
         let list = logs;
@@ -540,14 +573,35 @@ const SalesStock = () => {
                         </div>
 
                         {/* Search */}
-                        <div className="relative group w-64">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-rounded text-lg group-focus-within:text-indigo-500 transition-colors">search</span>
-                            <input
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                                className="pl-10 pr-4 h-10 w-full bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition-all placeholder:text-slate-400"
-                                placeholder="품목명 검색..."
-                            />
+                        <div className="flex items-center gap-4">
+                            {tab === 'aux_material' && (
+                                <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-200 animate-in slide-in-from-right-4 duration-300">
+                                    {[
+                                        { id: 'ALL', label: '전체' },
+                                        { id: '박스/포장', label: '📦 박스' },
+                                        { id: '라벨/스티커', label: '🏷️ 라벨' },
+                                        { id: '생산재', label: '🧪 생산재' },
+                                        { id: '기타 소모품', label: '🔧 기타' }
+                                    ].map(sub => (
+                                        <button
+                                            key={sub.id}
+                                            onClick={() => setAuxSubTab(sub.id)}
+                                            className={`px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${auxSubTab === sub.id ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                        >
+                                            {sub.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="relative group w-64">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-rounded text-lg group-focus-within:text-indigo-500 transition-colors">search</span>
+                                <input
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    className="pl-10 pr-4 h-10 w-full bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 transition-all placeholder:text-slate-400"
+                                    placeholder="품목명 검색..."
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -581,9 +635,35 @@ const SalesStock = () => {
                                         const d = freshInfo.diffDays - 1; // Adjust displayed day count if needed, but keeping it consistent
                                         const displayDays = d < 0 ? 0 : d;
 
-                                        if (d > 7) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-600 animate-pulse">{isMaterial ? '수확' : '생산'} 후 {d}일 경과</span>;
-                                        else if (d > 3) freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-orange-100 text-orange-600">판매 권장 ({d}일)</span>;
-                                        else freshBadge = <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-600">신선 ({d}일)</span>;
+                                        if (d >= 7) {
+                                            freshBadge = (
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <div className="flex-1 h-1 bg-red-100 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-red-500 w-full animate-pulse"></div>
+                                                    </div>
+                                                    <span className="shrink-0 text-[10px] font-black text-red-600 bg-red-50 px-1 rounded border border-red-100">경과 {d}일</span>
+                                                </div>
+                                            );
+                                        } else if (d >= 3) {
+                                            const pct = Math.min((d / 7) * 100, 100);
+                                            freshBadge = (
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <div className="flex-1 h-1 bg-orange-100 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-orange-500" style={{ width: `${pct}%` }}></div>
+                                                    </div>
+                                                    <span className="shrink-0 text-[10px] font-black text-orange-600 bg-orange-50 px-1 rounded border border-orange-100">판매권장 ({d}일)</span>
+                                                </div>
+                                            );
+                                        } else {
+                                            freshBadge = (
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <div className="flex-1 h-1 bg-emerald-100 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-emerald-500" style={{ width: '20%' }}></div>
+                                                    </div>
+                                                    <span className="shrink-0 text-[10px] font-black text-emerald-600 bg-emerald-50 px-1 rounded border border-emerald-100">신선 ({d}일)</span>
+                                                </div>
+                                            );
+                                        }
                                     }
 
                                     return (
@@ -591,7 +671,14 @@ const SalesStock = () => {
                                             <td className="px-2 py-3 text-center text-slate-400 font-mono text-[10px]">{idx + 1}</td>
                                             <td className="px-2 py-3">
                                                 <div className="flex flex-col justify-center h-full">
-                                                    <div className="font-bold text-slate-700 truncate mb-0.5" title={p.product_name}>{p.product_name}</div>
+                                                    <div className="flex items-center gap-2 mb-0.5">
+                                                        <span className="font-bold text-slate-700 truncate" title={p.product_name}>{p.product_name}</span>
+                                                        {tab === 'aux_material' && getSubTag(p) && (
+                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border uppercase shrink-0 ${getSubTag(p).color}`}>
+                                                                {getSubTag(p).label}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     {freshBadge}
                                                 </div>
                                             </td>
@@ -610,12 +697,23 @@ const SalesStock = () => {
 
                                             {/* Action Btn */}
                                             <td className="px-2 py-3 text-center">
-                                                <button
-                                                    onClick={() => openAdjustModal(p)}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-50 text-orange-600 font-bold text-[10px] hover:bg-orange-100 transition-all active:scale-95 shadow-sm border border-orange-100"
-                                                >
-                                                    <span className="material-symbols-rounded text-base">edit_note</span> 재고 조정
-                                                </button>
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {(tab === 'harvest_item' || tab === 'aux_material') && (
+                                                        <button
+                                                            onClick={() => openConvertModal(p.product_id)}
+                                                            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 font-bold text-[10px] hover:bg-indigo-100 transition-all active:scale-95 shadow-sm border border-indigo-100 group-hover:scale-105"
+                                                            title="해당 품목을 사용하여 상품으로 전환"
+                                                        >
+                                                            <span className="material-symbols-rounded text-base">inventory_2</span> 상품화
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => openAdjustModal(p)}
+                                                        className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-orange-50 text-orange-600 font-bold text-[10px] hover:bg-orange-100 transition-all active:scale-95 shadow-sm border border-orange-100"
+                                                    >
+                                                        <span className="material-symbols-rounded text-base">edit_note</span> 조정
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -751,7 +849,7 @@ const SalesStock = () => {
             {/* Conversion Modal (Product Tab) */}
             {convertModal.open && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setConvertModal({ ...convertModal, open: false })}></div>
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
                     <div className="bg-white rounded-2xl w-full max-w-[400px] shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 text-white relative overflow-hidden">
                             <span className="material-symbols-rounded absolute -right-6 -top-6 text-[120px] text-white/10 pointer-events-none">inventory_2</span>
@@ -928,7 +1026,7 @@ const SalesStock = () => {
             {/* Harvest Modal (Material / Product Tab) */}
             {harvestModal.open && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={() => setHarvestModal({ ...harvestModal, open: false })}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
                     <div className="bg-white rounded-2xl w-full max-w-[480px] shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
                         <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-6 text-white relative overflow-hidden shrink-0">
                             <span className="material-symbols-rounded absolute -right-6 -top-6 text-[120px] text-white/10 pointer-events-none">spa</span>
@@ -951,9 +1049,9 @@ const SalesStock = () => {
                                                         value={item.targetId}
                                                         onChange={e => updateHarvestItem(item.id, 'targetId', e.target.value)}
                                                     >
-                                                        {products.filter(p => p.item_type === 'harvest_item' || !p.item_type || p.item_type === 'product').map(p => (
+                                                        {products.filter(p => p.item_type === 'harvest_item').map(p => (
                                                             <option key={p.product_id} value={p.product_id}>
-                                                                [{p.item_type === 'harvest_item' ? '농산물' : '완제품'}] {p.product_name} ({p.specification || '규격없음'})
+                                                                📦 {p.product_name} ({p.specification || '규격없음'})
                                                             </option>
                                                         ))}
                                                     </select>
@@ -1020,7 +1118,7 @@ const SalesStock = () => {
             {/* Manual Adjust Modal */}
             {adjustModal.open && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={() => setAdjustModal({ ...adjustModal, open: false })}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
                     <div className="bg-white rounded-[2rem] w-full max-w-[400px] shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="bg-gradient-to-r from-orange-500 to-amber-600 p-6 text-white relative">
                             <span className="material-symbols-rounded absolute -right-6 -top-6 text-[120px] text-white/10 pointer-events-none">edit_note</span>

@@ -17,7 +17,8 @@ import {
     Lock,
     History,
     TrendingUp,
-    ArrowRight
+    ArrowRight,
+    ChevronDown
 } from 'lucide-react';
 
 const SettingsProduct = () => {
@@ -29,6 +30,8 @@ const SettingsProduct = () => {
     const [allProducts, setAllProducts] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [tabMode, setTabMode] = useState('product'); // 'product' | 'material'
+    const [subTab, setSubTab] = useState('ALL'); // 'ALL' | '박스/포장' | '라벨/스티커' | '비닐/봉투' | '생산재' | '기타 소모품'
+    const [collapsedCats, setCollapsedCats] = useState(new Set());
     const [showDiscontinued, setShowDiscontinued] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -105,7 +108,9 @@ const SettingsProduct = () => {
                 safety: 10,
                 type: tabMode,
                 bomList: [],
-                sync: false
+                sync: false,
+                productCode: '',
+                category: ''
             };
 
             if (product) {
@@ -153,7 +158,9 @@ const SettingsProduct = () => {
                     safety: product.safety_stock || 10,
                     type: product.item_type || 'product',
                     bomList: initialBoms,
-                    sync: false
+                    sync: false,
+                    productCode: product.product_code || '',
+                    category: product.category || ''
                 };
             }
 
@@ -271,7 +278,9 @@ const SettingsProduct = () => {
                 materialRatio: firstRaw ? Number(firstRaw.ratio) : 1.0,
                 auxMaterialId: firstAux ? Number(firstAux.materialId) : null,
                 auxMaterialRatio: firstAux ? Number(firstAux.ratio) : 1.0,
-                itemType: formData.type
+                itemType: formData.type,
+                productCode: formData.productCode || null,
+                category: formData.category || null
             };
 
             let productId;
@@ -281,6 +290,7 @@ const SettingsProduct = () => {
                     productId,
                     ...payload,
                     stockQuantity: null,
+                    status: formData.status,
                     syncSalesNames: formData.sync || false
                 });
             } else {
@@ -371,17 +381,25 @@ const SettingsProduct = () => {
             filtered = filtered.filter(p => p.status !== '단종상품');
         }
 
-        // Search filter
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            filtered = filtered.filter(p => p.product_name.toLowerCase().includes(q));
+        if (searchQuery) {
+            filtered = filtered.filter(p =>
+                p.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (p.product_code && p.product_code.toLowerCase().includes(searchQuery.toLowerCase()))
+            );
+        }
+
+        if (subTab !== 'ALL' && (tabMode === 'aux_material')) {
+            filtered = filtered.filter(p => {
+                if (subTab === '기타 소모품') return !p.category || p.category === '기타 소모품';
+                return p.category === subTab;
+            });
         }
 
         return filtered;
-    }, [allProducts, tabMode, searchQuery, showDiscontinued]);
+    }, [allProducts, tabMode, searchQuery, showDiscontinued, subTab]);
 
-    const rawMaterials = useMemo(() => allProducts.filter(p => p.item_type === 'material' || p.item_type === 'raw_material' || p.item_type === 'harvest_item'), [allProducts]);
-    const auxMaterials = useMemo(() => allProducts.filter(p => p.item_type === 'aux_material'), [allProducts]);
+    const rawMaterials = useMemo(() => allProducts.filter(p => p.item_type === 'harvest_item'), [allProducts]);
+    const auxMaterials = useMemo(() => allProducts.filter(p => p.item_type === 'aux_material' || p.item_type === 'raw_material' || p.item_type === 'material'), [allProducts]);
 
     const suggestedRecipeSource = useMemo(() => {
         if (editingProduct || !formData.name || formData.name.length < 2 || formData.bomList.length > 0) return null;
@@ -424,7 +442,7 @@ const SettingsProduct = () => {
                             <span className="w-6 h-1 bg-indigo-600 rounded-full"></span>
                             <span className="text-[9px] font-black tracking-[0.2em] text-indigo-600 uppercase">System Settings</span>
                         </div>
-                        <h1 className="text-3xl font-black text-slate-600 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
+                        <h1 className="text-3xl font-black text-slate-800 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
                             상품/자재 마스터 <span className="text-slate-300 font-light ml-1 text-xl">Product & Material Master</span>
                         </h1>
                     </div>
@@ -443,7 +461,7 @@ const SettingsProduct = () => {
                     </div>
                     <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-2xl flex items-start gap-3">
                         <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-100">
-                            <TrendingUp size={16} />
+                            <TrendingUp size={16} /> 농산물 (수확물)
                         </div>
                         <div>
                             <h4 className="text-xs font-black text-emerald-900 mb-0.5">농산물 (수확물)</h4>
@@ -472,7 +490,7 @@ const SettingsProduct = () => {
                             {/* Segmented Control */}
                             <div className="flex p-1 bg-slate-100 rounded-2xl w-full md:w-auto">
                                 <button
-                                    onClick={() => setTabMode('product')}
+                                    onClick={() => { setTabMode('product'); setSubTab('ALL'); }}
                                     className={`flex-1 md:flex-none px-4 py-2.5 rounded-[1.25rem] font-black text-xs transition-all flex items-center justify-center gap-2
                                         ${tabMode === 'product' ? 'bg-white text-indigo-600 shadow-lg shadow-indigo-500/10' : 'text-slate-400 hover:text-slate-600'}
                                     `}
@@ -480,7 +498,7 @@ const SettingsProduct = () => {
                                     <Package size={14} /> 완제품
                                 </button>
                                 <button
-                                    onClick={() => setTabMode('harvest_item')}
+                                    onClick={() => { setTabMode('harvest_item'); setSubTab('ALL'); }}
                                     className={`flex-1 md:flex-none px-4 py-2.5 rounded-[1.25rem] font-black text-xs transition-all flex items-center justify-center gap-2
                                         ${tabMode === 'harvest_item' ? 'bg-white text-emerald-600 shadow-lg shadow-emerald-500/10' : 'text-slate-400 hover:text-slate-600'}
                                     `}
@@ -488,7 +506,7 @@ const SettingsProduct = () => {
                                     <TrendingUp size={14} /> 농산물 (수확물)
                                 </button>
                                 <button
-                                    onClick={() => setTabMode('aux_material')}
+                                    onClick={() => { setTabMode('aux_material'); setSubTab('ALL'); }}
                                     className={`flex-1 md:flex-none px-4 py-2.5 rounded-[1.25rem] font-black text-xs transition-all flex items-center justify-center gap-2
                                         ${tabMode === 'aux_material' ? 'bg-white text-orange-600 shadow-lg shadow-orange-500/10' : 'text-slate-400 hover:text-slate-600'}
                                     `}
@@ -524,7 +542,7 @@ const SettingsProduct = () => {
                                     onClick={() => openModal()}
                                     className={`h-12 px-6 rounded-2xl font-black text-sm flex items-center gap-2 text-white shadow-lg transition-all active:scale-[0.98]
                                         ${tabMode === 'product' ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-200' :
-                                            tabMode === 'raw_material' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-200' :
+                                            tabMode === 'harvest_item' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-200' :
                                                 'bg-orange-500 hover:bg-orange-400 shadow-orange-200'}
                                     `}
                                 >
@@ -532,6 +550,26 @@ const SettingsProduct = () => {
                                 </button>
                             </div>
                         </div>
+                        {tabMode === 'aux_material' && (
+                            <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-200 animate-in slide-in-from-left-4 duration-300 mt-4">
+                                {[
+                                    { id: 'ALL', label: '전체' },
+                                    { id: '박스/포장', label: '📦 박스/포장' },
+                                    { id: '라벨/스티커', label: '🏷️ 라벨/스티커' },
+                                    { id: '비닐/봉투', label: '🛍️ 비닐/봉투' },
+                                    { id: '생산재', label: '🧪 생산재' },
+                                    { id: '기타 소모품', label: '🔧 기타' }
+                                ].map(sub => (
+                                    <button
+                                        key={sub.id}
+                                        onClick={() => setSubTab(sub.id)}
+                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${subTab === sub.id ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                    >
+                                        {sub.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Table Card */}
@@ -542,21 +580,22 @@ const SettingsProduct = () => {
                                     <tr>
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[5%] min-w-[50px]">No.</th>
                                         <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[8%] min-w-[70px] text-center">유형</th>
-                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-left w-[30%] min-w-[200px]">항목명</th>
-                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[12%] min-w-[100px]">규격</th>
+                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[8%] min-w-[70px] text-center">분류</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-left w-[25%] min-w-[200px]">항목명</th>
+                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%] min-w-[100px]">규격</th>
                                         {tabMode === 'product' && (
-                                            <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[15%] min-w-[120px]">판매가격</th>
+                                            <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[12%] min-w-[120px]">판매가격</th>
                                         )}
-                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[10%] min-w-[80px]">안전재고</th>
-                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[10%] min-w-[80px]">현재재고</th>
-                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[8%] min-w-[70px]">상태</th>
+                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[8%] min-w-[80px]">안전재고</th>
+                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[8%] min-w-[80px]">현재재고</th>
+                                        <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[6%] min-w-[70px]">상태</th>
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%] min-w-[160px]">관리</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
                                     {filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan="8" className="py-32 text-center">
+                                            <td colSpan="10" className="py-32 text-center">
                                                 <div className="flex flex-col items-center justify-center gap-3">
                                                     <div className="w-16 h-16 bg-slate-50 rounded-3xl flex items-center justify-center text-slate-200">
                                                         <Search size={32} />
@@ -573,13 +612,23 @@ const SettingsProduct = () => {
                                                     <td className="px-8 py-4 text-center text-xs font-black text-slate-300 group-hover:text-slate-400">{idx + 1}</td>
                                                     <td className="px-6 py-4 text-center">
                                                         <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border
-                                                            ${p.item_type === 'raw_material' || p.item_type === 'material' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                                            ${p.item_type === 'harvest_item' || p.item_type === 'raw_material' || p.item_type === 'material' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                                                                 p.item_type === 'aux_material' ? 'bg-orange-50 text-orange-600 border-orange-100' :
                                                                     'bg-indigo-50 text-indigo-600 border-indigo-100'}
                                                         `}>
-                                                            {p.item_type === 'raw_material' || p.item_type === 'material' ? '원물' :
-                                                                p.item_type === 'aux_material' ? '부자재' : '완제품'}
+                                                            {p.item_type === 'harvest_item' ? '농산물' :
+                                                                (p.item_type === 'raw_material' || p.item_type === 'material') ? '원물' :
+                                                                    p.item_type === 'aux_material' ? '부자재' : '완제품'}
                                                         </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        {p.category ? (
+                                                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+                                                                {p.category}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] font-bold text-slate-300 italic">-</span>
+                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4 font-black text-sm text-slate-700">{p.product_name}</td>
                                                     <td className="px-6 py-4 text-center text-xs font-bold text-slate-400 bg-slate-50/30">{p.specification || '-'}</td>
@@ -646,7 +695,7 @@ const SettingsProduct = () => {
             {/* Modal */}
             {isModalOpen && (
                 <div className="absolute inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300" onClick={!isLoading ? closeModal : undefined}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300"></div>
                     <div className="relative bg-white w-[560px] rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 ring-1 ring-slate-900/10">
                         {/* Loading Overlay */}
                         {isLoading && (
@@ -742,6 +791,36 @@ const SettingsProduct = () => {
                                             disabled={isLoading}
                                         />
                                     </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">상품 코드</label>
+                                        <input
+                                            type="text"
+                                            value={formData.productCode}
+                                            onChange={e => setFormData({ ...formData, productCode: e.target.value })}
+                                            className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm focus:ring-2 focus:ring-indigo-500 transition-all ring-1 ring-inset ring-slate-200"
+                                            placeholder="없음"
+                                        />
+                                    </div>
+                                    {(formData.type === 'aux_material' || formData.type === 'raw_material' || formData.type === 'material') && (
+                                        <div className="space-y-1">
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">상세 카테고리</label>
+                                            <select
+                                                value={formData.category}
+                                                onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                                className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm focus:ring-2 focus:ring-indigo-500 transition-all ring-1 ring-inset ring-slate-200"
+                                            >
+                                                <option value="">미지정</option>
+                                                <option value="박스/포장">📦 박스/포장</option>
+                                                <option value="라벨/스티커">🏷️ 라벨/스티커</option>
+                                                <option value="비닐/봉투">🛍️ 비닐/봉투</option>
+                                                <option value="생산재">🧪 생산재 (배지/원료)</option>
+                                                <option value="기타 소모품">🔧 기타 소모품</option>
+                                            </select>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3">
@@ -894,16 +973,16 @@ const SettingsProduct = () => {
                                         <div className="bg-emerald-50/50 rounded-2xl border border-emerald-100/50 p-4">
                                             <div className="flex justify-between items-center mb-2">
                                                 <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
-                                                    <Layers size={14} /> 필요 원재료 (농산물/자재)
+                                                    <TrendingUp size={14} /> 농산물 (수확물)
                                                 </span>
                                                 <button type="button" onClick={() => handleAddBom('raw')} disabled={isLoading} className="text-[10px] font-black bg-white border border-emerald-200 text-emerald-600 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50">
-                                                    + 원물 추가
+                                                    + 농산물 추가
                                                 </button>
                                             </div>
                                             <div className="space-y-2">
                                                 {formData.bomList.filter(b => b.type === 'raw').length === 0 && (
                                                     <div className="text-center py-4 bg-white/50 rounded-xl border border-dashed border-emerald-200/50 text-xs text-emerald-400">
-                                                        연결된 원물이 없습니다.
+                                                        연결된 농산물이 없습니다.
                                                     </div>
                                                 )}
                                                 {formData.bomList.filter(b => b.type === 'raw').map(bom => (
@@ -948,42 +1027,94 @@ const SettingsProduct = () => {
                                                     + 부자재 추가
                                                 </button>
                                             </div>
-                                            <div className="space-y-2">
-                                                {formData.bomList.filter(b => b.type === 'aux').length === 0 && (
-                                                    <div className="text-center py-4 bg-white/50 rounded-xl border border-dashed border-orange-200/50 text-xs text-orange-400">
-                                                        연결된 부자재가 없습니다.
-                                                    </div>
-                                                )}
-                                                {formData.bomList.filter(b => b.type === 'aux').map(bom => (
-                                                    <div key={bom.key} className="flex gap-2 items-center animate-in slide-in-from-left-2 duration-200">
-                                                        <div className="flex-1">
-                                                            <select
-                                                                value={bom.materialId}
-                                                                onChange={e => handleBomChange(bom.key, 'materialId', e.target.value)}
-                                                                className="w-full h-10 px-3 bg-white border-none rounded-xl font-bold text-xs focus:ring-2 focus:ring-orange-500 transition-all ring-1 ring-inset ring-orange-200 disabled:opacity-70"
-                                                                disabled={isLoading}
+                                            {(() => {
+                                                const auxBoms = formData.bomList.filter(b => b.type === 'aux');
+                                                if (auxBoms.length === 0) {
+                                                    return (
+                                                        <div className="text-center py-4 bg-white/50 rounded-xl border border-dashed border-orange-200/50 text-xs text-orange-400">
+                                                            연결된 부자재가 없습니다.
+                                                        </div>
+                                                    );
+                                                }
+
+                                                // Grouping logic
+                                                const grouped = auxBoms.reduce((acc, b) => {
+                                                    const p = allProducts.find(x => x.product_id === Number(b.materialId));
+                                                    const cat = p?.category || '미지정';
+                                                    if (!acc[cat]) acc[cat] = [];
+                                                    acc[cat].push(b);
+                                                    return acc;
+                                                }, {});
+
+                                                return Object.entries(grouped).sort((a, b) => a[0] === '미지정' ? 1 : b[0] === '미지정' ? -1 : 0).map(([cat, items]) => {
+                                                    const isCollapsed = collapsedCats.has(cat);
+                                                    const toggle = () => {
+                                                        const next = new Set(collapsedCats);
+                                                        if (next.has(cat)) next.delete(cat);
+                                                        else next.add(cat);
+                                                        setCollapsedCats(next);
+                                                    };
+
+                                                    return (
+                                                        <div key={cat} className="space-y-2 mb-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={toggle}
+                                                                className="w-full flex justify-between items-center px-3 py-2 bg-white/60 hover:bg-white rounded-xl border border-orange-100 transition-all group"
                                                             >
-                                                                <option value="">부자재 선택...</option>
-                                                                {auxMaterials.map(m => <option key={m.product_id} value={m.product_id}>{m.product_name} {m.specification && `(${m.specification})`}</option>)}
-                                                            </select>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`transition-transform duration-300 ${isCollapsed ? '-rotate-90' : ''}`}>
+                                                                        <ChevronDown size={14} className="text-orange-400" />
+                                                                    </span>
+                                                                    <span className="text-[11px] font-black text-orange-700">{cat}</span>
+                                                                    <span className="text-[10px] font-bold text-orange-300 bg-orange-50 px-1.5 py-0.5 rounded-full">{items.length}</span>
+                                                                </div>
+                                                                {isCollapsed && (
+                                                                    <div className="flex gap-1 overflow-hidden max-w-[200px]">
+                                                                        {items.map(it => {
+                                                                            const mp = allProducts.find(x => x.product_id === Number(it.materialId));
+                                                                            return <span key={it.key} className="text-[9px] text-orange-400 whitespace-nowrap">· {mp?.product_name || '...'}</span>;
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </button>
+                                                            {!isCollapsed && (
+                                                                <div className="space-y-2 pl-2 animate-in slide-in-from-top-2 duration-300">
+                                                                    {items.map(bom => (
+                                                                        <div key={bom.key} className="flex gap-2 items-center">
+                                                                            <div className="flex-1">
+                                                                                <select
+                                                                                    value={bom.materialId}
+                                                                                    onChange={e => handleBomChange(bom.key, 'materialId', e.target.value)}
+                                                                                    className="w-full h-10 px-3 bg-white border-none rounded-xl font-bold text-xs focus:ring-2 focus:ring-orange-500 transition-all ring-1 ring-inset ring-orange-200 disabled:opacity-70"
+                                                                                    disabled={isLoading}
+                                                                                >
+                                                                                    <option value="">부자재 선택...</option>
+                                                                                    {auxMaterials.map(m => <option key={m.product_id} value={m.product_id}>{m.product_name} {m.specification && `(${m.specification})`}</option>)}
+                                                                                </select>
+                                                                            </div>
+                                                                            <div className="w-24 relative">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.1"
+                                                                                    value={bom.ratio}
+                                                                                    onChange={e => handleBomChange(bom.key, 'ratio', e.target.value)}
+                                                                                    className="w-full h-10 px-3 bg-white border-none rounded-xl font-bold text-xs focus:ring-2 focus:ring-orange-500 transition-all ring-1 ring-inset ring-orange-200 text-right pr-8 disabled:opacity-70"
+                                                                                    disabled={isLoading}
+                                                                                />
+                                                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-orange-300 font-bold">배</span>
+                                                                            </div>
+                                                                            <button type="button" onClick={() => handleRemoveBom(bom.key)} disabled={isLoading} className="w-10 h-10 flex items-center justify-center text-orange-300 hover:text-rose-500 transition-colors disabled:opacity-50">
+                                                                                <Trash2 size={16} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                        <div className="w-24 relative">
-                                                            <input
-                                                                type="number"
-                                                                step="0.1"
-                                                                value={bom.ratio}
-                                                                onChange={e => handleBomChange(bom.key, 'ratio', e.target.value)}
-                                                                className="w-full h-10 px-3 bg-white border-none rounded-xl font-bold text-xs focus:ring-2 focus:ring-orange-500 transition-all ring-1 ring-inset ring-orange-200 text-right pr-8 disabled:opacity-70"
-                                                                disabled={isLoading}
-                                                            />
-                                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-orange-300 font-bold">배</span>
-                                                        </div>
-                                                        <button type="button" onClick={() => handleRemoveBom(bom.key)} disabled={isLoading} className="w-10 h-10 flex items-center justify-center text-orange-300 hover:text-rose-500 transition-colors disabled:opacity-50">
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                                    );
+                                                });
+                                            })()}
                                         </div>
                                     </div>
                                 )}
@@ -1022,7 +1153,7 @@ const SettingsProduct = () => {
             {
                 showHistoryModal && (
                     <div className="absolute inset-0 z-[110] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setShowHistoryModal(false)}></div>
+                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300"></div>
                         <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 ring-1 ring-slate-900/10">
                             <div className="px-8 py-6 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between">
                                 <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">

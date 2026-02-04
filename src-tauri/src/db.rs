@@ -56,6 +56,11 @@ pub async fn init_database(pool: &DbPool) -> MyceliumResult<()> {
     // 4. Stock Management Trigger
     // Moved to migrations/20260202173000_init_full_schema.sql, so we don't need it here.
 
+    // 5. Ensure 'category' column exists (Auto-Fix for user)
+    sqlx::query("ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(50)")
+        .execute(pool)
+        .await?;
+
     Ok(())
 }
 
@@ -308,6 +313,8 @@ pub struct Product {
     pub product_code: Option<String>,
     #[sqlx(default)]
     pub status: Option<String>, // '판매중', '단종상품'
+    #[sqlx(default)]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
