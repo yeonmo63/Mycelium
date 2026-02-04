@@ -1,13 +1,19 @@
 #![allow(non_snake_case)]
 use crate::db::{init_pool, CompanyInfo, User};
+
 use crate::error::{MyceliumError, MyceliumResult};
 use crate::DB_MODIFIED;
 use bcrypt::{hash, verify, DEFAULT_COST};
+use futures_util::stream::{FuturesUnordered, StreamExt};
+use regex::Regex;
 use serde_json::{json, Value};
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use tauri::{command, AppHandle, Manager, State};
+use tokio::net::TcpStream;
+use tokio::time::{timeout, Duration};
 
 #[derive(Default)]
 pub struct SetupState {
@@ -37,6 +43,99 @@ pub fn get_db_url(app: &AppHandle) -> Result<String, String> {
         }
     }
     Err("Configuration file (config.json) missing or database_url not set".to_string())
+}
+
+/// Detect the local IP address of this machine
+pub fn get_local_ip() -> Option<String> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok()?.ip().to_string().into()
+}
+
+/// Scan the current subnet for an open PostgreSQL port (default 5432)
+pub async fn scan_network_for_postgres(port: u16) -> Option<String> {
+    let local_ip = get_local_ip()?;
+    let ip: Ipv4Addr = local_ip.parse().ok()?;
+    let octets = ip.octets();
+
+    let mut futures = FuturesUnordered::new();
+    for i in 1..255 {
+        let ip_to_check = Ipv4Addr::new(octets[0], octets[1], octets[2], i);
+        let addr = SocketAddr::new(IpAddr::V4(ip_to_check), port);
+
+        futures.push(async move {
+            match timeout(Duration::from_millis(200), TcpStream::connect(&addr)).await {
+                Ok(Ok(_)) => Some(ip_to_check.to_string()),
+                _ => None,
+            }
+        });
+    }
+
+    while let Some(res) = futures.next().await {
+        if let Some(found_ip) = res {
+            return Some(found_ip);
+        }
+    }
+    None
+}
+
+/// Helper to update the database_url's IP in config.json if it has changed
+pub async fn update_db_ip_in_config(app: &AppHandle) -> MyceliumResult<()> {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let config_path = config_dir.join("config.json");
+        if config_path.exists() {
+            if let Ok(content) = fs::read_to_string(&config_path) {
+                if let Ok(mut config_data) = serde_json::from_str::<Value>(&content) {
+                    if let Some(url) = config_data.get("database_url").and_then(|v| v.as_str()) {
+                        let re = Regex::new(r"^(postgres://[^:]+:[^@]*@)([^:/]+)((?::\d+)?)(.*)$")
+                            .unwrap();
+                        if let Some(caps) = re.captures(url) {
+                            let prefix = &caps[1];
+                            let host = &caps[2];
+                            let port_str = &caps[3];
+                            let suffix = &caps[4];
+
+                            let port = if port_str.is_empty() {
+                                5432
+                            } else {
+                                port_str[1..].parse().unwrap_or(5432)
+                            };
+
+                            // 1. Try existing host first to avoid scanning if unnecessary
+                            if timeout(
+                                Duration::from_millis(150),
+                                TcpStream::connect(format!("{}:{}", host, port)),
+                            )
+                            .await
+                            .is_ok()
+                            {
+                                return Ok(());
+                            }
+
+                            // 2. Scan network if existing one is down
+                            if let Some(new_ip) = scan_network_for_postgres(port).await {
+                                let new_url = format!("{}{}{}{}", prefix, new_ip, port_str, suffix);
+                                config_data["database_url"] = Value::String(new_url);
+                                if let Ok(config_str) = serde_json::to_string_pretty(&config_data) {
+                                    let _ = fs::write(&config_path, config_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[command]
+pub async fn refresh_database_ip(app: AppHandle) -> MyceliumResult<String> {
+    update_db_ip_in_config(&app).await?;
+    match get_db_url(&app) {
+        Ok(url) => Ok(url),
+        Err(_) => Ok("".to_string()),
+    }
 }
 
 /// Helper to retrieve the Gemini API Key ONLY from config.json (Security Enforced)

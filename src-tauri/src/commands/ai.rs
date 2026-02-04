@@ -20,6 +20,37 @@ pub struct NaverItem {
     pub postdate: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OnlineMention {
+    pub source: String,
+    pub text: String,
+    pub date: String,
+    pub link: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnalyzedMention {
+    pub original_text: String,
+    pub sentiment_label: String, // 'pos', 'neg', 'neu'
+    pub sentiment_score: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SentimentKeyword {
+    pub text: String,
+    pub weight: i32,
+    pub sentiment_type: String, // 'pos', 'neg', 'neu'
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OnlineAnalysisResult {
+    pub analyzed_mentions: Vec<AnalyzedMention>,
+    pub total_score: i32,
+    pub verdict: String,
+    pub summary: String,
+    pub keywords: Vec<SentimentKeyword>,
+}
+
 #[command]
 pub async fn fetch_naver_search(app: AppHandle, query: String) -> MyceliumResult<Vec<NaverItem>> {
     let (client_id, client_secret) = get_naver_keys(&app);
@@ -374,8 +405,67 @@ pub async fn get_ai_behavior_strategy(
 }
 
 #[command]
-pub async fn analyze_online_sentiment(_state: State<'_, DbPool>) -> MyceliumResult<String> {
-    Ok("Sentiment Analysis Stub".to_string())
+pub async fn analyze_online_sentiment(
+    app: AppHandle,
+    mentions: Vec<OnlineMention>,
+) -> MyceliumResult<OnlineAnalysisResult> {
+    let api_key = get_gemini_api_key(&app).ok_or_else(|| {
+        MyceliumError::Internal("Gemini API 키가 설정되지 않았습니다.".to_string())
+    })?;
+
+    if mentions.is_empty() {
+        return Ok(OnlineAnalysisResult {
+            analyzed_mentions: vec![],
+            total_score: 50,
+            verdict: "데이터 없음".to_string(),
+            summary: "수집된 온라인 데이터가 없어 분석을 진행할 수 없습니다.".to_string(),
+            keywords: vec![],
+        });
+    }
+
+    let mut context = String::new();
+    for (i, m) in mentions.iter().enumerate() {
+        context.push_str(&format!("{}. [{}] {}\n", i + 1, m.date, m.text));
+    }
+
+    let prompt = format!(
+        "Analyze the following social media mentions about our company and provide a detailed reputation analysis.\n\n\
+        Mentions:\n{}\n\n\
+        Output must be a JSON object with strictly the following structure:\n\
+        {{\n\
+        \"analyzed_mentions\": [\n\
+            {{\"original_text\": \"...\", \"sentiment_label\": \"pos|neg|neu\", \"sentiment_score\": 0-100}},\n\
+            ...\n\
+        ],\n\
+        \"total_score\": 0-100,\n\
+        \"verdict\": \"Short summary phrase (e.g. Very positive (Stable))\",\n\
+        \"summary\": \"Brief paragraph summary of overall sentiment and key points.\",\n\
+        \"keywords\": [\n\
+            {{\"text\": \"keyword\", \"weight\": 1-10, \"sentiment_type\": \"pos|neg|neu\"}},\n\
+            ...\n\
+        ]\n\
+        }}\n\n\
+        Guidelines:\n\
+        - sentiment_label must be one of: 'pos', 'neg', 'neu'.\n\
+        - sentiment_score: higher is more positive.\n\
+        - keywords: identify 5-10 key themes mentioned in the text.\n\
+        - count of analyzed_mentions must MUST match the input count ({}).\n\
+        - Use Korean for summary and verdict.\n\
+        - Return ONLY JSON.",
+        context,
+        mentions.len()
+    );
+
+    let json_str = call_gemini_ai_internal(&api_key, &prompt).await?;
+
+    let result: OnlineAnalysisResult = serde_json::from_str(&json_str).map_err(|e| {
+        MyceliumError::Internal(format!(
+            "AI 결과 파싱 실패: {}\nResult was: {}",
+            e, json_str
+        ))
+    })?;
+
+    Ok(result)
 }
 
 #[command]

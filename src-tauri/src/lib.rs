@@ -3,7 +3,8 @@ pub mod commands;
 pub mod db;
 pub mod error;
 
-use commands::config::{get_db_url, SetupState};
+use commands::config::{get_db_url, update_db_ip_in_config, SetupState};
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
 
@@ -16,7 +17,10 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let app_handle = app.app_handle().clone();
+            let _ =
+                tauri::async_runtime::block_on(async { update_db_ip_in_config(&app_handle).await });
             let db_url = get_db_url(&app_handle).ok();
+
             let mut is_configured = false;
 
             if let Some(url) = db_url {
@@ -285,6 +289,7 @@ pub fn run() {
             commands::product::get_product_bom,
             commands::product::save_product_bom,
             commands::product::convert_stock_bom,
+            commands::config::refresh_database_ip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

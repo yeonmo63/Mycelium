@@ -130,6 +130,10 @@ const OnlineReputation = () => {
 
         } catch (e) {
             console.error("Analysis Error:", e);
+            const errorMsg = typeof e === 'string' ? e : e.message || String(e);
+            if (errorMsg !== 'AI_QUOTA_EXCEEDED') {
+                showAlert('분석 실패', `평판 분석 중 오류가 발생했습니다: ${errorMsg}`);
+            }
         } finally {
             setIsLoading(false);
         }
