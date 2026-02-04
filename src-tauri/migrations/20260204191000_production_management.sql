@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS harvest_records (
     grade VARCHAR(50),
     traceability_code VARCHAR(100), -- Lot Number for barcodes
     memo TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Triggers for updated_at
@@ -76,3 +77,4 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_production_spaces_modtime BEFORE UPDATE ON production_spaces FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 CREATE TRIGGER update_production_batches_modtime BEFORE UPDATE ON production_batches FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 CREATE TRIGGER update_farming_logs_modtime BEFORE UPDATE ON farming_logs FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
+CREATE TRIGGER update_harvest_records_modtime BEFORE UPDATE ON harvest_records FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
