@@ -812,32 +812,7 @@ const Dashboard = () => {
                     </div>
 
                     {/* Second Row */}
-                    {/* Intelligence Hub Area */}
-                    <div className="bg-white rounded-2xl py-4 px-4 min-[2000px]:py-6 min-[2000px]:px-6 border border-slate-100 shadow-sm relative overflow-hidden flex flex-col justify-between h-full min-h-[140px] min-[2000px]:min-h-[180px]">
-                        <div className="flex justify-between items-start mb-2">
-                            <h3 className="text-slate-500 text-[0.85rem] font-bold flex items-center gap-2">
-                                <span className="material-symbols-rounded text-indigo-600 bg-indigo-50 p-1.5 rounded-lg text-lg min-[2000px]:text-2xl">insights</span>
-                                Intelligence Hub
-                            </h3>
-                            <span className="bg-indigo-50 text-indigo-500 text-[9px] font-black px-2 py-0.5 rounded-full border border-indigo-100 uppercase tracking-tighter">Strategic</span>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            <button onClick={handleAIBriefing} className="w-full bg-slate-50 hover:bg-slate-100 p-2.5 rounded-xl text-left transition-all group flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-700">AI 일일 브리핑</span>
-                                <span className="material-symbols-rounded text-sm text-slate-300 group-hover:text-indigo-500 transition-colors">arrow_forward</span>
-                            </button>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => handleBusinessReport('weekly')} className="bg-slate-50 hover:bg-indigo-50 p-2.5 rounded-xl text-left transition-all group flex flex-col">
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight group-hover:text-indigo-400">Analysis</span>
-                                    <span className="text-xs font-black text-slate-700 group-hover:text-indigo-600">주간 성과</span>
-                                </button>
-                                <button onClick={() => handleBusinessReport('monthly')} className="bg-slate-50 hover:bg-emerald-50 p-2.5 rounded-xl text-left transition-all group flex flex-col">
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight group-hover:text-emerald-400">Executive</span>
-                                    <span className="text-xs font-black text-slate-700 group-hover:text-emerald-600">월간 분석</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+
 
                     <div className="bg-white rounded-[28px] py-5 px-6 min-[2000px]:py-8 min-[2000px]:px-8 border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] relative overflow-hidden group hover:border-indigo-200 hover:shadow-[0_20px_40px_rgba(79,70,229,0.08)] transition-all duration-500 h-full min-h-[140px] min-[2000px]:min-h-[180px] flex flex-col justify-between">
                         <div className="flex justify-between items-start">
@@ -921,6 +896,31 @@ const Dashboard = () => {
                             <h3 className="text-slate-500 text-[0.8rem] font-bold uppercase tracking-wider mb-1">AI 재구매 골든 타임</h3>
                             <div className="text-[1.4rem] font-black text-[#4338ca] tracking-tighter leading-none">
                                 {formatCurrency(repurchaseCandidates.length)}건
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Intelligence Hub Area (Moved to Last Position) */}
+                    <div className="bg-white rounded-[28px] py-5 px-6 min-[2000px]:py-8 min-[2000px]:px-8 border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] relative overflow-hidden flex flex-col justify-between h-full min-h-[140px] min-[2000px]:min-h-[180px] group transition-all duration-500 hover:border-indigo-200">
+                        <div className="flex justify-between items-start">
+                            <h3 className="text-slate-500 text-[0.8rem] font-bold flex items-center gap-2 uppercase tracking-wider">
+                                <span className="material-symbols-rounded text-indigo-600 bg-indigo-50 p-1.5 rounded-lg text-lg">insights</span>
+                                지능형 분석
+                            </h3>
+                            <span className="bg-indigo-50 text-indigo-500 text-[9px] font-black px-2 py-0.5 rounded-full border border-indigo-100 uppercase tracking-tighter">AI 분석</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <button onClick={handleAIBriefing} className="w-full bg-slate-50 hover:bg-slate-100 p-1.5 rounded-xl text-left transition-all group flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-700 ml-1">AI 일일 브리핑</span>
+                                <span className="material-symbols-rounded text-sm text-slate-300 group-hover:text-indigo-500 transition-colors">arrow_forward</span>
+                            </button>
+                            <div className="grid grid-cols-2 gap-1">
+                                <button onClick={() => handleBusinessReport('weekly')} className="bg-slate-50 hover:bg-indigo-50 p-1.5 rounded-xl text-center transition-all group">
+                                    <span className="text-[11px] font-black text-slate-700 group-hover:text-indigo-600">주간 성과</span>
+                                </button>
+                                <button onClick={() => handleBusinessReport('monthly')} className="bg-slate-50 hover:bg-emerald-50 p-1.5 rounded-xl text-center transition-all group">
+                                    <span className="text-[11px] font-black text-slate-700 group-hover:text-emerald-600">월간 분석</span>
+                                </button>
                             </div>
                         </div>
                     </div>

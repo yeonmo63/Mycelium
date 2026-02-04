@@ -396,12 +396,86 @@ pub async fn test_gemini_connection(_app: AppHandle) -> MyceliumResult<String> {
     Ok("Connection OK".to_string())
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BehaviorAnalysisResult {
+    pub overall_health_score: i32,
+    pub summary: String,
+    pub behavioral_trends: Vec<String>,
+    pub warning_signals: Vec<String>,
+    pub strategic_advice: String,
+}
+
 #[command]
 pub async fn get_ai_behavior_strategy(
-    _state: State<'_, DbPool>,
+    app: AppHandle,
+    state: State<'_, DbPool>,
     _customer_id: Option<String>,
-) -> MyceliumResult<String> {
-    Ok("Behavior Strategy Stub".to_string())
+) -> MyceliumResult<BehaviorAnalysisResult> {
+    let api_key = get_gemini_api_key(&app).ok_or_else(|| {
+        MyceliumError::Internal("Gemini API 키가 설정되지 않았습니다.".to_string())
+    })?;
+
+    // 1. Fetch Recent Logs
+    let inv_logs: Vec<crate::db::InventoryLog> =
+        sqlx::query_as("SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 50")
+            .fetch_all(&*state)
+            .await?;
+
+    let cust_logs: Vec<crate::db::CustomerLog> =
+        sqlx::query_as("SELECT * FROM customer_logs ORDER BY changed_at DESC LIMIT 50")
+            .fetch_all(&*state)
+            .await?;
+
+    let mut context =
+        String::from("최근 시스템 로그 기반 비즈니스 진단 데이터:\n\n[재고 변동 로그]\n");
+    for log in inv_logs {
+        context.push_str(&format!(
+            "- {}: {} | 수량변동: {} | 현재고: {} | 사유: {}\n",
+            log.created_at.map(|t| t.to_string()).unwrap_or_default(),
+            log.product_name,
+            log.change_quantity,
+            log.current_stock,
+            log.memo.unwrap_or_default()
+        ));
+    }
+
+    context.push_str("\n[고객 정보 변경 로그]\n");
+    for log in cust_logs {
+        context.push_str(&format!(
+            "- {}: 고객ID {} | 필드: {} | {} -> {}\n",
+            log.changed_at.map(|t| t.to_string()).unwrap_or_default(),
+            log.customer_id,
+            log.field_name,
+            log.old_value.unwrap_or_default(),
+            log.new_value.unwrap_or_default()
+        ));
+    }
+
+    let prompt = format!(
+        "당신은 스마트 농장 'Mycelium'의 비즈니스 데이터 분석가입니다. 아래의 최근 로그 데이터를 바탕으로 시스템의 전반적인 상태와 마케팅 전략을 제안해 주세요.\n\n\
+        {}\n\n\
+        [작성 지침]\n\
+        1. JSON 형식으로만 응답하세요.\n\
+        2. 구조:\n\
+        {{\n\
+          \"overall_health_score\": 0-100,\n\
+          \"summary\": \"전체적인 요약\",\n\
+          \"behavioral_trends\": [\"트렌드1\", \"트렌드2\", ...],\n\
+          \"warning_signals\": [\"위험신호1\", \"위험신호2\", ...],\n\
+          \"strategic_advice\": \"AI의 전략적 조언\"\n\
+        }}\n\
+        3. 한국어로 전문적이고 통찰력 있게 분석하세요.\n\
+        4. 데이터가 부족하면 현재 로그에서 유추할 수 있는 최선의 분석을 제공하세요.",
+        context
+    );
+
+    let json_str = call_gemini_ai_internal(&api_key, &prompt).await?;
+
+    let result: BehaviorAnalysisResult = serde_json::from_str(&json_str).map_err(|e| {
+        MyceliumError::Internal(format!("AI 분석 파싱 실패: {}\n결과: {}", e, json_str))
+    })?;
+
+    Ok(result)
 }
 
 #[command]

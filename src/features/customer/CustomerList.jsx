@@ -429,7 +429,7 @@ const CustomerList = () => {
                                                     try {
                                                         await window.__TAURI__.core.invoke('set_default_customer_address', { customerId: customer.customer_id, addressId: addr.address_id });
                                                         loadAddresses(customer.customer_id);
-                                                        const fresh = await window.__TAURI__.core.invoke('get_customer', { id: customer.customer_id });
+                                                        const fresh = await window.__TAURI__.core.invoke('get_customer', { customerId: customer.customer_id });
                                                         if (fresh) loadCustomer(fresh);
                                                     } catch (e) { showAlert("오류", "설정 실패"); }
                                                 }} disabled={mode === 'view' || !customer} className="w-3.5 h-3.5 text-indigo-600" />

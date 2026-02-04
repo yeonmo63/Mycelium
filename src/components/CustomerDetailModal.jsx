@@ -21,7 +21,7 @@ const CustomerDetailModal = ({ customerId, onClose }) => {
         setIsLoading(true);
         try {
             const [c, addr, sales] = await Promise.all([
-                invoke('get_customer', { id: customerId }),
+                invoke('get_customer', { customerId }),
                 invoke('get_customer_addresses', { customerId }),
                 invoke('get_sales_by_customer_id', { customerId })
             ]);

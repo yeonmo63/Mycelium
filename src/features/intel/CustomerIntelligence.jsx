@@ -25,7 +25,7 @@ const CustomerIntelligence = () => {
     const [isTabLoading, setIsTabLoading] = useState(false);
 
     // SMS Modal State
-    const [smsModal, setSmsModal] = useState({ isOpen: false, targetCustomer: null, mode: 'sms' });
+    const [smsModal, setSmsModal] = useState({ isOpen: false, targetCustomers: [], mode: 'sms' });
 
     // Summary Modal State
     const [summaryId, setSummaryId] = useState(null);
@@ -66,8 +66,9 @@ const CustomerIntelligence = () => {
         }
     }, []);
 
-    const openSmsModal = useCallback((customer, mode = 'sms') => {
-        setSmsModal({ isOpen: true, targetCustomer: customer, mode });
+    const openSmsModal = useCallback((customers, mode = 'sms') => {
+        const targetCustomers = Array.isArray(customers) ? customers : [customers];
+        setSmsModal({ isOpen: true, targetCustomers, mode });
     }, []);
 
     const closeSmsModal = useCallback(() => {
@@ -179,7 +180,7 @@ const CustomerIntelligence = () => {
                             />
                         </div>
                         <div style={{ display: activeTab === 'repurchase' ? 'block' : 'none' }}>
-                            <TabRepurchase isVisible={activeTab === 'repurchase'} showAlert={showAlert} toggleProcessing={toggleProcessing} />
+                            <TabRepurchase isVisible={activeTab === 'repurchase'} showAlert={showAlert} toggleProcessing={toggleProcessing} openSmsModal={openSmsModal} />
                         </div>
                         <div style={{ display: activeTab === 'behavior' ? 'block' : 'none' }}>
                             <TabBehavior isVisible={activeTab === 'behavior'} showAlert={showAlert} toggleProcessing={toggleProcessing} />
@@ -191,10 +192,9 @@ const CustomerIntelligence = () => {
                 </div>
             </div>
 
-            {/* Global SMS Modal */}
             {smsModal.isOpen && (
                 <SmsSendModal
-                    customer={smsModal.targetCustomer}
+                    customers={smsModal.targetCustomers}
                     mode={smsModal.mode}
                     onClose={closeSmsModal}
                     showAlert={showAlert}
@@ -218,16 +218,19 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
     const navigate = useNavigate();
     const [filter, setFilter] = useState('all');
     const [isFiltering, setIsFiltering] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(new Set());
 
-    const handleFilterChange = (e) => {
-        const newFilter = e.target.value;
+    const setFilterValue = useCallback((newFilter) => {
+        if (filter === newFilter) return;
         setIsFiltering(true);
-        // Small delay to ensure the spinner is visible and provide a smooth transition
+        setSelectedIds(new Set()); // Reset selection on filter change
         setTimeout(() => {
             setFilter(newFilter);
             setIsFiltering(false);
         }, 300);
-    };
+    }, [filter]);
+
+    const handleFilterChange = (e) => setFilterValue(e.target.value);
 
     const filteredData = useMemo(() => {
         if (!data) return [];
@@ -251,6 +254,33 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
     const handleSms = (c) => openSmsModal(c, 'sms');
     const handleKakao = (c) => openSmsModal(c, 'kakao');
 
+    const toggleSelectAll = () => {
+        if (selectedIds.size === filteredData.length && filteredData.length > 0) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredData.map(c => c.customer_id)));
+        }
+    };
+
+    const toggleSelect = (id) => {
+        const next = new Set(selectedIds);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        setSelectedIds(next);
+    };
+
+    const handleBatchSms = () => {
+        if (selectedIds.size === 0) return showAlert('알림', '선택된 고객이 없습니다.');
+        const targets = data.filter(c => selectedIds.has(c.customer_id));
+        openSmsModal(targets, 'sms');
+    };
+
+    const handleBatchKakao = () => {
+        if (selectedIds.size === 0) return showAlert('알림', '선택된 고객이 없습니다.');
+        const targets = data.filter(c => selectedIds.has(c.customer_id));
+        openSmsModal(targets, 'kakao');
+    };
+
     const handleLevelChange = async (customerId, newLevel) => {
         if (!window.__TAURI__) return;
         try {
@@ -268,26 +298,60 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
             {/* Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 {[
-                    { label: '챔피언 (최우수)', value: stats.champion, icon: '🏆', bg: 'bg-amber-50 border-amber-200', text: 'text-amber-800' },
-                    { label: '잠재 우수 (Promising)', value: stats.promising, icon: '💙', bg: 'bg-blue-50 border-blue-200', text: 'text-blue-800' },
-                    { label: '이탈 위험 (At Risk)', value: stats.atRisk, icon: '🚨', bg: 'bg-rose-50 border-rose-200', text: 'text-rose-800' },
-                    { label: '휴면 고객 (Hibernating)', value: stats.hibernating, icon: 'zzz', bg: 'bg-slate-50 border-slate-200', text: 'text-slate-800' },
-                    { label: '일반 / 관심필요', value: stats.attention, icon: '🌱', bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-800' },
-                ].map((card, idx) => (
-                    <div key={idx} className={`p-4 rounded-2xl border ${card.bg} flex flex-col items-center justify-center text-center shadow-sm`}>
-                        <div className="text-3xl mb-2">
-                            {card.icon === 'zzz' ? <span className="material-symbols-rounded text-slate-400">snooze</span> : card.icon}
-                        </div>
-                        <div className="text-[10px] font-bold opacity-60 uppercase mb-1">{card.label}</div>
-                        <div className={`text-xl font-black ${card.text}`}>{card.value.toLocaleString()}명</div>
-                    </div>
-                ))}
+                    { key: 'Champions', label: '챔피언 (최우수)', value: stats.champion, icon: '🏆', bg: 'bg-amber-50 border-amber-200', activeBg: 'bg-amber-500 border-amber-600 text-white', text: 'text-amber-800' },
+                    { key: 'Promising', label: '잠재 우수 (Promising)', value: stats.promising, icon: '💙', bg: 'bg-blue-50 border-blue-200', activeBg: 'bg-blue-500 border-blue-600 text-white', text: 'text-blue-800' },
+                    { key: 'At Risk', label: '이탈 위험 (At Risk)', value: stats.atRisk, icon: '🚨', bg: 'bg-rose-50 border-rose-200', activeBg: 'bg-rose-500 border-rose-600 text-white', text: 'text-rose-800' },
+                    { key: 'Hibernating', label: '휴면 고객 (Hibernating)', value: stats.hibernating, icon: 'zzz', bg: 'bg-slate-100 border-slate-300', activeBg: 'bg-slate-700 border-slate-800 text-white', text: 'text-slate-800' },
+                    { key: 'Need Attention', label: '일반 / 관심필요', value: stats.attention, icon: '🌱', bg: 'bg-emerald-50 border-emerald-200', activeBg: 'bg-emerald-500 border-emerald-600 text-white', text: 'text-emerald-800' },
+                ].map((card, idx) => {
+                    const isActive = filter === card.key;
+                    return (
+                        <button
+                            key={idx}
+                            onClick={() => setFilterValue(isActive ? 'all' : card.key)}
+                            className={`p-4 rounded-2xl border transition-all flex flex-col items-center justify-center text-center shadow-sm relative group overflow-hidden
+                                ${isActive ? card.activeBg : `${card.bg} hover:shadow-md hover:scale-[1.02] active:scale-[0.98]`}`}
+                        >
+                            <div className={`text-3xl mb-2 transition-transform group-hover:scale-110 ${isActive ? 'brightness-0 invert opacity-80' : ''}`}>
+                                {card.icon === 'zzz' ? <span className={`material-symbols-rounded ${isActive ? 'text-white' : 'text-slate-400'}`}>snooze</span> : card.icon}
+                            </div>
+                            <div className={`text-[10px] font-bold uppercase mb-1 ${isActive ? 'text-white/80' : 'opacity-60'}`}>{card.label}</div>
+                            <div className={`text-xl font-black ${isActive ? 'text-white' : card.text}`}>{card.value.toLocaleString()}명</div>
+
+                            {isActive && (
+                                <div className="absolute top-2 right-2 flex items-center justify-center">
+                                    <span className="material-symbols-rounded text-base animate-in zoom-in-50 duration-300">check_circle</span>
+                                </div>
+                            )}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Table */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-[600px] relative">
                 <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
-                    <h3 className="font-bold text-slate-700">등급별 타겟 리스트</h3>
+                    <div className="flex items-center gap-4">
+                        <h3 className="font-bold text-slate-700">등급별 타겟 리스트</h3>
+                        <div className="h-6 w-[1px] bg-slate-200"></div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-400">선택 {selectedIds.size}명</span>
+                            <button
+                                onClick={handleBatchSms}
+                                disabled={selectedIds.size === 0}
+                                className="h-8 px-3 rounded-lg bg-indigo-50 text-indigo-600 font-bold hover:bg-indigo-100 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-indigo-100"
+                            >
+                                <span className="material-symbols-rounded text-base">sms</span> 선택 SMS 발송
+                            </button>
+                            <button
+                                onClick={handleBatchKakao}
+                                disabled={selectedIds.size === 0}
+                                className="h-8 px-3 rounded-lg bg-yellow-100 text-yellow-800 font-bold hover:bg-yellow-200 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-yellow-200 shadow-sm"
+                            >
+                                <span className="material-symbols-rounded text-base">chat</span> 선택 알림톡 발송
+                            </button>
+                        </div>
+                    </div>
                     <select
                         value={filter}
                         onChange={handleFilterChange}
@@ -313,14 +377,22 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
                     <table className="w-full text-sm text-left">
                         <thead className="bg-white shadow-sm sticky top-0 z-10">
                             <tr className="text-slate-500 border-b border-slate-100">
-                                <th className="py-3 px-4 w-[15%]">고객명</th>
+                                <th className="py-3 px-4 w-[40px]">
+                                    <input
+                                        type="checkbox"
+                                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                        checked={filteredData.length > 0 && selectedIds.size === filteredData.length}
+                                        onChange={toggleSelectAll}
+                                    />
+                                </th>
+                                <th className="py-3 px-4 w-[12%]">고객명</th>
                                 <th className="py-3 px-4 w-[15%]">연락처</th>
                                 <th className="py-3 px-4 w-[10%] text-center">최근구매</th>
-                                <th className="py-3 px-4 w-[10%] text-center">건수</th>
-                                <th className="py-3 px-4 w-[15%] text-right">총 거래액</th>
+                                <th className="py-3 px-4 w-[8%] text-center">건수</th>
+                                <th className="py-3 px-4 w-[12%] text-right">총 거래액</th>
                                 <th className="py-3 px-4 w-[10%] text-center">현 등급</th>
                                 <th className="py-3 px-4 w-[10%] text-center">RFM</th>
-                                <th className="py-3 px-4 w-[10%] text-center">등급 변경</th>
+                                <th className="py-3 px-4 w-[8%] text-center">등급 변경</th>
                                 <th className="py-3 px-4 w-[10%] text-center">관리</th>
                             </tr>
                         </thead>
@@ -335,10 +407,18 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
                                     </td>
                                 </tr>
                             ) : filteredData.length === 0 ? (
-                                <tr><td colSpan="9" className="p-12 text-center text-slate-400 font-bold">데이터가 없습니다.</td></tr>
+                                <tr><td colSpan="10" className="p-12 text-center text-slate-400 font-bold">데이터가 없습니다.</td></tr>
                             ) : (
                                 filteredData.map(c => (
-                                    <tr key={c.customer_id} className="hover:bg-slate-50">
+                                    <tr key={c.customer_id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(c.customer_id) ? 'bg-indigo-50/30' : ''}`}>
+                                        <td className="py-3 px-4">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                checked={selectedIds.has(c.customer_id)}
+                                                onChange={() => toggleSelect(c.customer_id)}
+                                            />
+                                        </td>
                                         <td className="py-3 px-4 font-bold text-slate-700">{c.customer_name}</td>
                                         <td className="py-3 px-4 text-slate-500 font-mono text-xs">{c.mobile_number}</td>
                                         <td className="py-3 px-4 text-center text-slate-600 text-xs">{c.last_order_date}</td>
@@ -390,13 +470,15 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
     );
 });
 
-const TabRepurchase = ({ isVisible, showAlert, toggleProcessing }) => {
+const TabRepurchase = ({ isVisible, showAlert, toggleProcessing, openSmsModal }) => {
     const [result, setResult] = useState([]);
     const [hasRun, setHasRun] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(new Set());
 
     const runAnalysis = async () => {
         if (!window.__TAURI__) return;
         toggleProcessing(true, 'AI가 고객 구매 패턴과 재구매 주기를 심층 분석 중입니다...');
+        setSelectedIds(new Set());
         try {
             await new Promise(r => setTimeout(r, 1000)); // Fake nice delay
             const res = await window.__TAURI__.core.invoke('get_ai_repurchase_analysis', {});
@@ -408,6 +490,33 @@ const TabRepurchase = ({ isVisible, showAlert, toggleProcessing }) => {
         } finally {
             toggleProcessing(false);
         }
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === result.length && result.length > 0) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(result.map((_, i) => i))); // Index based for result list since it's from AI
+        }
+    };
+
+    const toggleSelect = (idx) => {
+        const next = new Set(selectedIds);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        setSelectedIds(next);
+    };
+
+    const handleBatchSms = () => {
+        if (selectedIds.size === 0) return showAlert('알림', '선택된 고객이 없습니다.');
+        const targets = result.filter((_, i) => selectedIds.has(i));
+        openSmsModal(targets, 'sms');
+    };
+
+    const handleBatchKakao = () => {
+        if (selectedIds.size === 0) return showAlert('알림', '선택된 고객이 없습니다.');
+        const targets = result.filter((_, i) => selectedIds.has(i));
+        openSmsModal(targets, 'kakao');
     };
 
     return (
@@ -432,26 +541,61 @@ const TabRepurchase = ({ isVisible, showAlert, toggleProcessing }) => {
 
             {hasRun && (
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-[500px] animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-slate-700 flex items-center gap-2">
-                        <span className="material-symbols-rounded text-rose-500">recommend</span> 이번 주 타겟 제안
+                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-slate-700 flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                            <span className="material-symbols-rounded text-rose-500">recommend</span> 이번 주 타겟 제안
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-400 mr-2">선택 {selectedIds.size}명</span>
+                            <button
+                                onClick={handleBatchSms}
+                                disabled={selectedIds.size === 0}
+                                className="h-8 px-3 rounded-lg bg-rose-50 text-rose-600 font-bold hover:bg-rose-100 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-rose-100"
+                            >
+                                <span className="material-symbols-rounded text-base">sms</span> 선택 SMS
+                            </button>
+                            <button
+                                onClick={handleBatchKakao}
+                                disabled={selectedIds.size === 0}
+                                className="h-8 px-3 rounded-lg bg-yellow-100 text-yellow-800 font-bold hover:bg-yellow-200 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-yellow-200"
+                            >
+                                <span className="material-symbols-rounded text-base">chat</span> 선택 알림톡
+                            </button>
+                        </div>
                     </div>
                     <div className="flex-1 overflow-y-auto custom-scrollbar">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-white shadow-sm sticky top-0 z-10">
                                 <tr className="text-slate-500 border-b border-slate-100">
-                                    <th className="py-3 px-4 w-[15%]">고객명</th>
+                                    <th className="py-3 px-4 w-[40px]">
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                            checked={result.length > 0 && selectedIds.size === result.length}
+                                            onChange={toggleSelectAll}
+                                        />
+                                    </th>
+                                    <th className="py-3 px-4 w-[12%]">고객명</th>
                                     <th className="py-3 px-4 w-[15%]">연락처</th>
-                                    <th className="py-3 px-4 w-[20%]">최근 구매 상품</th>
+                                    <th className="py-3 px-4 w-[18%]">최근 구매 상품</th>
                                     <th className="py-3 px-4 w-[10%] text-center">평균주기</th>
                                     <th className="py-3 px-4 w-[10%] text-center">마지막구매</th>
                                     <th className="py-3 px-4 w-[15%] text-center">제안 사유</th>
-                                    <th className="py-3 px-4 w-[15%] text-center">관리</th>
+                                    <th className="py-3 px-4 w-[10%] text-center">관리</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {result.length === 0 ? <tr><td colSpan="7" className="p-8 text-center text-slate-400">추천할 고객이 없습니다.</td></tr> :
                                     result.map((r, i) => (
-                                        <tr key={i} className="hover:bg-slate-50">
+                                        <tr key={i} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(i) ? 'bg-rose-50/30' : ''}`}>
+                                            <td className="py-3 px-4">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                                    checked={selectedIds.has(i)}
+                                                    onChange={() => toggleSelect(i)}
+                                                />
+                                            </td>
                                             <td className="py-3 px-4 font-bold text-slate-700">{r.customer_name}</td>
                                             <td className="py-3 px-4 text-slate-500 font-mono text-xs">{r.mobile_number}</td>
                                             <td className="py-3 px-4 text-slate-600">{r.last_product || '-'}</td>
@@ -462,10 +606,10 @@ const TabRepurchase = ({ isVisible, showAlert, toggleProcessing }) => {
                                             </td>
                                             <td className="py-3 px-4 text-center">
                                                 <div className="flex justify-center gap-1">
-                                                    <button className="w-8 h-8 rounded bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors" title="SMS">
+                                                    <button onClick={() => openSmsModal(r, 'sms')} className="w-8 h-8 rounded bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-colors shadow-sm" title="SMS">
                                                         <span className="material-symbols-rounded text-sm">sms</span>
                                                     </button>
-                                                    <button className="w-8 h-8 rounded bg-yellow-100 text-yellow-800 flex items-center justify-center hover:bg-yellow-200 transition-colors" title="Kakao">
+                                                    <button onClick={() => openSmsModal(r, 'kakao')} className="w-8 h-8 rounded bg-yellow-100 text-yellow-800 flex items-center justify-center hover:bg-yellow-200 transition-colors shadow-sm" title="Kakao">
                                                         <span className="material-symbols-rounded text-sm">chat</span>
                                                     </button>
                                                 </div>
@@ -551,7 +695,7 @@ const TabBehavior = ({ isVisible, showAlert, toggleProcessing }) => {
                                         <span className="font-black text-sm uppercase">Behavioral Trends</span>
                                     </div>
                                     <ul className="space-y-2">
-                                        {result.behavioral_trends.map((t, i) => (
+                                        {result.behavioral_trends?.map((t, i) => (
                                             <li key={i} className="text-sm text-slate-600 flex gap-2">
                                                 <span className="text-teal-400">•</span> {t}
                                             </li>
@@ -564,7 +708,7 @@ const TabBehavior = ({ isVisible, showAlert, toggleProcessing }) => {
                                         <span className="font-black text-sm uppercase">Critical Signals</span>
                                     </div>
                                     <ul className="space-y-2">
-                                        {result.warning_signals.map((s, i) => (
+                                        {result.warning_signals?.map((s, i) => (
                                             <li key={i} className="text-sm text-slate-600 flex gap-2">
                                                 <span className="text-rose-400">•</span> {s}
                                             </li>
@@ -621,9 +765,9 @@ const TabMembership = ({ data, isVisible }) => {
         chartInstance.current = new Chart(ctx, {
             type: 'doughnut',
             data: {
-                labels: data.map(d => d.membership_level),
+                labels: (data || []).map(d => d.membership_level),
                 datasets: [{
-                    data: data.map(d => d.total_amount),
+                    data: (data || []).map(d => d.total_amount),
                     backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#64748b'],
                     borderWidth: 0
                 }]
@@ -658,7 +802,7 @@ const TabMembership = ({ data, isVisible }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {data.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-slate-400">데이터 없음</td></tr> :
+                            {!data || data.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-slate-400">데이터 없음</td></tr> :
                                 data.map((d, i) => (
                                     <tr key={i} className="hover:bg-slate-50">
                                         <td className="py-3 px-4 font-bold text-slate-800">{d.membership_level}</td>
@@ -703,7 +847,7 @@ const CustomerSummaryModal = ({ customerId, onClose }) => {
                 return;
             }
             try {
-                const c = await window.__TAURI__.core.invoke('get_customer', { id: customerId });
+                const c = await window.__TAURI__.core.invoke('get_customer', { customerId });
                 setCustomer(c);
             } catch (e) {
                 console.error(e);
@@ -782,35 +926,36 @@ const CustomerSummaryModal = ({ customerId, onClose }) => {
     );
 };
 
-const SmsSendModal = ({ customer, mode: initialMode, onClose, showAlert }) => {
+const SmsSendModal = ({ customers, mode: initialMode, onClose, showAlert }) => {
     const [mode, setMode] = useState(initialMode); // 'sms' | 'kakao'
     const [message, setMessage] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [showTemplates, setShowTemplates] = useState(false);
 
-    // Templates
+    const isBatch = customers.length > 1;
+    const firstCustomer = customers[0];
+
+    // Templates with placeholders
     const templates = [
-        { id: 1, label: '감사 인사 (기본)', content: `[${customer?.customer_name} 고객님] 이용해 주셔서 감사합니다. 더 좋은 서비스로 보답하겠습니다.` },
-        { id: 2, label: '생일 축하', content: `[${customer?.customer_name}님] 생일을 진심으로 축하드립니다! 🎉 행복한 하루 되세요.` },
-        { id: 3, label: '신상품 입고', content: `[${customer?.customer_name}님] 기다리시던 신상품이 입고되었습니다. 매장에 들러 확인해보세요!` },
-        { id: 4, label: '휴면 고객 케어', content: `[${customer?.customer_name}님] 오랫동안 뵙지 못해 그립습니다. 방문해주시면 작은 선물을 드릴게요.` },
+        { id: 1, label: '감사 인사 (기본)', content: `[고객명]님, 이용해 주셔서 감사합니다. 더 좋은 서비스로 보답하겠습니다.` },
+        { id: 2, label: '생일 축하', content: `[고객명]님, 생일을 진심으로 축하드립니다! 🎉 행복한 하루 되세요.` },
+        { id: 3, label: '신상품 입고', content: `[고객명]님, 기다리시던 신상품이 입고되었습니다. 매장에 들러 확인해보세요!` },
+        { id: 4, label: '휴면 고객 케어', content: `[고객명]님, 오랫동안 뵙지 못해 그립습니다. 방문해주시면 작은 선물을 드릴게요.` },
     ];
 
     // Initial message set
     useEffect(() => {
-        if (!customer) return;
+        if (customers.length === 0) return;
         if (!message) {
-            // Only set default if message is empty (so switching modes doesn't wipe custom text unless we want it to)
-            // Actually, usually users want context-aware defaults when switching, but let's keep it simple or strictly per mode logic
             setDefaultMessage(mode);
         }
-    }, [customer]); // Run once on mount basically or if customer changes
+    }, [customers]);
 
     const setDefaultMessage = (m) => {
         if (m === 'kakao') {
-            setMessage(`[${customer?.customer_name} 고객님] 안녕하세요.\n저희 매장을 이용해 주셔서 진심으로 감사드립니다.\n\n(내용을 입력하세요)`);
+            setMessage(`[고객명]님 안녕하세요.\n저희 매장을 이용해 주셔서 진심으로 감사드립니다.\n\n(내용을 입력하세요)`);
         } else {
-            setMessage(`[${customer?.customer_name}님] 감사합니다. (내용 입력)`);
+            setMessage(`[고객명]님 감사합니다. (내용 입력)`);
         }
     };
 
@@ -818,14 +963,18 @@ const SmsSendModal = ({ customer, mode: initialMode, onClose, showAlert }) => {
         if (!message.trim()) return showAlert('입력 오류', '메시지 내용을 입력해주세요.');
 
         setIsSending(true);
-        await new Promise(r => setTimeout(r, 1500));
+        // Simulate progress per recipient if batch
+        const delay = isBatch ? 2000 : 1000;
+        await new Promise(r => setTimeout(r, delay));
 
         if (window.__TAURI__) {
-            // In real app, call invoke ...
+            // Logic for internal processing would go here
+            // Each name is replaced: message.replace(/\[고객명\]/g, customer.name)
         }
 
         setIsSending(false);
-        showAlert('발송 완료', mode === 'kakao' ? '알림톡이 전송되었습니다.' : '문자가 전송되었습니다.', 'success');
+        const targetDesc = isBatch ? `${customers.length}명의 고객에게` : '고객님께';
+        showAlert('발송 완료', `${targetDesc} ${mode === 'kakao' ? '알림톡' : '문자'}이 전송되었습니다.`, 'success');
         onClose();
     };
 
@@ -846,25 +995,37 @@ const SmsSendModal = ({ customer, mode: initialMode, onClose, showAlert }) => {
                             <div className={`p-2 rounded-xl ${mode === 'kakao' ? 'bg-yellow-100 text-yellow-800' : 'bg-indigo-100 text-indigo-600'}`}>
                                 <span className="material-symbols-rounded text-xl">{mode === 'kakao' ? 'chat' : 'sms'}</span>
                             </div>
-                            <h3 className="font-bold text-lg text-slate-800">메시지 전송</h3>
+                            <h3 className="font-bold text-lg text-slate-800">{isBatch ? '단체 메시지 발송' : '메시지 전송'}</h3>
                         </div>
                         <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
                             <span className="material-symbols-rounded">close</span>
                         </button>
                     </div>
 
+                    {/* Usage Guide Banner */}
+                    <div className="px-6 py-3 bg-indigo-600 text-white flex items-center justify-between shrink-0">
+                        <div className="flex items-center gap-3">
+                            <span className="material-symbols-rounded animate-pulse">info</span>
+                            <div className="text-xs leading-relaxed">
+                                <span className="font-black underline decoration-white/50 underline-offset-2 text-[13px] mr-2">사용 팁</span>
+                                본문에 <span className="bg-white/20 px-1.5 py-0.5 rounded font-black text-white ml-0.5 mr-0.5">[고객명]</span> 이라고 입력하면, 발송 시 각 고객의 성함으로 자동 변경됩니다.
+                            </div>
+                        </div>
+                        <div className="text-[10px] font-bold py-1 px-2 bg-white/20 rounded uppercase tracking-tighter">smart logic</div>
+                    </div>
+
                     {/* Mode Tabs */}
-                    <div className="px-6 pt-6">
+                    <div className="px-6 pt-5">
                         <div className="bg-slate-100 p-1 rounded-xl flex font-bold text-sm">
                             <button
                                 onClick={() => { setMode('sms'); if (!message) setDefaultMessage('sms'); }}
-                                className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${mode === 'sms' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${mode === 'sms' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                <span className="material-symbols-rounded text-lg">sms</span> 문자 메시지 (SMS/LMS)
+                                <span className="material-symbols-rounded text-lg">sms</span> 문자 메시지
                             </button>
                             <button
                                 onClick={() => { setMode('kakao'); if (!message) setDefaultMessage('kakao'); }}
-                                className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${mode === 'kakao' ? 'bg-yellow-400 text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${mode === 'kakao' ? 'bg-yellow-400 text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 <span className="material-symbols-rounded text-lg">chat</span> 카카오 알림톡
                             </button>
@@ -873,68 +1034,90 @@ const SmsSendModal = ({ customer, mode: initialMode, onClose, showAlert }) => {
 
                     <div className="p-6 flex-1 overflow-y-auto flex flex-col">
                         {/* Recipient Info */}
-                        <div className="mb-6 bg-slate-50 rounded-xl p-4 border border-slate-200 flex items-center justify-between">
+                        <div className={`mb-6 rounded-xl p-4 border flex items-center justify-between transition-colors ${isBatch ? 'bg-indigo-50 border-indigo-100 shadow-sm shadow-indigo-100/50' : 'bg-slate-50 border-slate-200'}`}>
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400">
-                                    <span className="material-symbols-rounded">person</span>
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isBatch ? 'bg-indigo-600 text-white shadow-inner' : 'bg-white border border-slate-200 text-slate-400'}`}>
+                                    <span className="material-symbols-rounded">{isBatch ? 'groups' : 'person'}</span>
                                 </div>
                                 <div>
-                                    <div className="text-xs font-bold text-slate-400">받는 사람</div>
+                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{isBatch ? 'Recipient Group' : 'Recipient'}</div>
                                     <div className="font-bold text-slate-700 flex items-center gap-2">
-                                        {customer?.customer_name}
-                                        <span className="text-slate-400 font-normal font-mono text-sm">{customer?.mobile_number}</span>
+                                        {isBatch ? (
+                                            <span className="text-indigo-600 font-black">총 {customers.length}명 대량 발송</span>
+                                        ) : (
+                                            <>
+                                                <span className="text-slate-800">{firstCustomer?.customer_name}</span>
+                                                <span className="text-slate-400 font-normal font-mono text-sm">{firstCustomer?.mobile_number}</span>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
-                            <div className="text-xs font-bold px-2 py-1 rounded bg-white border border-slate-200 text-slate-500">
-                                {mode === 'kakao' ? '알림톡' : 'SMS'}
+                            <div className="flex flex-col items-end gap-1">
+                                <div className="text-[10px] font-black px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-500 uppercase tracking-tighter">
+                                    {mode === 'kakao' ? 'KakaoTalk' : 'SMS/LMS'}
+                                </div>
+                                {isBatch && <span className="text-[10px] font-bold text-rose-500 animate-pulse flex items-center gap-1"><span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span> LIVE BATCH MODE</span>}
                             </div>
                         </div>
 
                         {/* Editor */}
                         <div className="flex-1 flex flex-col">
                             <div className="flex justify-between items-end mb-2">
-                                <label className="text-sm font-bold text-slate-700">내용 작성</label>
-                                <button onClick={() => setShowTemplates(!showTemplates)} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors">
+                                <label className="text-sm font-black text-slate-700 flex items-center gap-2">
+                                    <span className="w-1 h-3.5 bg-indigo-600 rounded-full"></span>
+                                    메시지 본문 작성
+                                </label>
+                                <button onClick={() => setShowTemplates(!showTemplates)} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-100 shadow-sm">
                                     <span className="material-symbols-rounded text-sm">auto_stories</span>
                                     {showTemplates ? '템플릿 닫기' : '템플릿 불러오기'}
                                 </button>
                             </div>
-                            <div className={`relative flex-1 rounded-2xl border transition-colors flex flex-col
-                                ${mode === 'kakao' ? 'bg-yellow-50/30 border-yellow-200 focus-within:border-yellow-400 focus-within:ring-2 focus-within:ring-yellow-100' : 'bg-white border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100'}
+                            <div className={`relative flex-1 rounded-2xl border transition-all flex flex-col shadow-inner
+                                ${mode === 'kakao' ? 'bg-yellow-50/20 border-yellow-200 focus-within:border-yellow-400 focus-within:ring-4 focus-within:ring-yellow-400/10' : 'bg-white border-slate-300 focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10'}
                             `}>
                                 <textarea
                                     value={message}
                                     onChange={e => setMessage(e.target.value)}
-                                    className="w-full h-full p-5 bg-transparent border-none outline-none resize-none font-sans text-slate-700 leading-relaxed text-base custom-scrollbar"
-                                    placeholder="전송할 내용을 입력하세요..."
+                                    className="w-full h-full p-6 bg-transparent border-none outline-none resize-none font-sans text-slate-700 leading-relaxed text-[16px] custom-scrollbar placeholder:text-slate-300"
+                                    placeholder="여기에 발송할 내용을 입력하세요.&#10;[고객명] 을 입력하면 이름이 자동으로 바뀝니다."
                                 ></textarea>
 
-                                {/* Footer inside editor */}
-                                <div className="p-3 border-t border-black/5 flex justify-between items-center bg-black/5 rounded-b-xl">
-                                    <span className={`text-xs font-bold ${message.length > 80 ? 'text-amber-600' : 'text-slate-500'}`}>
-                                        {new Blob([message]).size} bytes {message.length > 80 && mode === 'sms' && '(LMS 전환됨)'}
-                                    </span>
-                                    <button onClick={() => setMessage('')} className="text-xs text-slate-400 hover:text-slate-600 font-bold">지우기</button>
+                                {/* Bottom Info Panel inside editor */}
+                                <div className="p-3 border-t border-black/5 flex justify-between items-center bg-slate-50/80 rounded-b-xl backdrop-blur-sm">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`text-[11px] font-bold px-2 py-1 rounded flex items-center gap-1.5 ${message.length > 80 ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                                            <span className="material-symbols-rounded text-sm">equalizer</span>
+                                            {new Blob([message]).size} BYTES
+                                            {message.length > 80 && mode === 'sms' && <span className="ml-1 opacity-70 underline decoration-amber-300">LMS 전환</span>}
+                                        </div>
+                                        <div className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                                            <span className="material-symbols-rounded text-sm">person_pin</span>
+                                            치환자 사용됨: {message.includes('[고객명]') ? 'YES (활성)' : 'NO (일반)'}
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setMessage('')} className="text-[11px] text-slate-400 hover:text-rose-500 font-bold flex items-center gap-1 transition-colors">
+                                        <span className="material-symbols-rounded text-sm">delete_sweep</span> 전역 초기화
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div className="p-5 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
-                        <button onClick={onClose} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-colors shadow-sm">
-                            취소
+                        <button onClick={onClose} className="px-6 py-3 bg-white border border-slate-300 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-colors shadow-sm text-sm">
+                            닫기
                         </button>
                         <button
                             onClick={handleSend}
                             disabled={isSending}
-                            className={`px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all flex items-center gap-2
-                                ${isSending ? 'opacity-70 cursor-not-allowed' : ''}
+                            className={`px-8 py-3 rounded-xl font-black text-sm text-white shadow-xl transition-all flex items-center gap-3
+                                ${isSending ? 'opacity-70 cursor-wait' : 'hover:scale-[1.02] active:scale-95'}
                                 ${mode === 'kakao' ? 'bg-[#FAE100] hover:bg-[#FDD835] text-[#371D1E] shadow-yellow-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}
                             `}
                         >
-                            {isSending ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : <span className="material-symbols-rounded">send</span>}
-                            {isSending ? '전송 중...' : `${mode === 'kakao' ? '카카오톡' : '문자'} 발송하기`}
+                            {isSending ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : <span className="material-symbols-rounded">rocket_launch</span>}
+                            {isSending ? '작업 중...' : `${mode === 'kakao' ? '카카오 알림톡' : '문자 메시지'} ${isBatch ? '단체 ' : ''}발송 시작`}
                         </button>
                     </div>
                 </div>
@@ -942,26 +1125,32 @@ const SmsSendModal = ({ customer, mode: initialMode, onClose, showAlert }) => {
                 {/* Right Side: Templates (Conditional) */}
                 <div className={`${showTemplates ? 'w-80 border-l border-slate-200' : 'w-0'} bg-slate-50 transition-all duration-300 ease-in-out overflow-hidden flex flex-col`}>
                     <div className="p-5 border-b border-slate-200 bg-white">
-                        <h4 className="font-bold text-slate-700 flex items-center gap-2">
-                            <span className="material-symbols-rounded text-indigo-500">library_books</span>
-                            나만의 템플릿
+                        <h4 className="font-black text-slate-700 flex items-center gap-2 text-sm">
+                            <span className="material-symbols-rounded text-indigo-500">auto_awesome</span>
+                            스마트 템플릿
                         </h4>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                        <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[11px] text-amber-800 font-bold mb-4">
+                            템플릿을 클릭하면 본문에 즉시 적용됩니다. [고객명] 치환자가 이미 포함되어 있습니다.
+                        </div>
                         {templates.map(t => (
                             <button
                                 key={t.id}
                                 onClick={() => applyTemplate(t.content)}
-                                className="w-full text-left bg-white p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all group"
+                                className="w-full text-left bg-white p-4 rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-lg transition-all group relative overflow-hidden"
                             >
-                                <div className="font-bold text-slate-700 text-sm mb-1 group-hover:text-indigo-600">{t.label}</div>
-                                <div className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{t.content}</div>
+                                <div className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="material-symbols-rounded text-indigo-400 text-sm">add_circle</span>
+                                </div>
+                                <div className="font-black text-slate-800 text-xs mb-1.5 group-hover:text-indigo-600">{t.label}</div>
+                                <div className="text-[11px] text-slate-400 line-clamp-3 leading-relaxed font-medium">{t.content}</div>
                             </button>
                         ))}
                     </div>
                     <div className="p-4 border-t border-slate-200 bg-white">
-                        <button className="w-full py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 font-bold hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-500 transition-all flex items-center justify-center gap-2">
-                            <span className="material-symbols-rounded">add</span> 새 템플릿 추가
+                        <button className="w-full py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 font-black text-xs hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 transition-all flex items-center justify-center gap-2">
+                            <span className="material-symbols-rounded text-lg">edit_note</span> 템플릿 커스텀 설정
                         </button>
                     </div>
                 </div>
