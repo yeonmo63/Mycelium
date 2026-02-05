@@ -113,6 +113,10 @@ pub struct Sales {
     pub product_code: Option<String>,
     #[sqlx(default)]
     pub product_id: Option<i32>,
+    #[sqlx(default)]
+    pub supply_value: Option<i32>,
+    #[sqlx(default)]
+    pub vat_amount: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -315,6 +319,8 @@ pub struct Product {
     pub status: Option<String>, // '판매중', '단종상품'
     #[sqlx(default)]
     pub category: Option<String>,
+    #[sqlx(default)]
+    pub tax_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]

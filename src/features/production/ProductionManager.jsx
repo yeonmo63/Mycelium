@@ -136,14 +136,14 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                                 type="date"
                                 value={reportPeriod.start}
                                 onChange={e => setReportPeriod(prev => ({ ...prev, start: e.target.value }))}
-                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-28"
+                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-36"
                             />
                             <span className="text-slate-300 font-bold">~</span>
                             <input
                                 type="date"
                                 value={reportPeriod.end}
                                 onChange={e => setReportPeriod(prev => ({ ...prev, end: e.target.value }))}
-                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-28"
+                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-36"
                             />
                         </div>
 

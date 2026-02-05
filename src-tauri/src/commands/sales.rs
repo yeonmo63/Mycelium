@@ -62,19 +62,34 @@ pub async fn create_sale(
 
     let parsed_date = parse_date_safe(&order_date).unwrap_or_else(|| Utc::now().date_naive());
 
-    // Find product_id
-    let p_id_row: Option<(i32,)> = sqlx::query_as(
-        "SELECT product_id FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2",
+    // Find product_id and tax_type
+    let p_info: Option<(i32, Option<String>)> = sqlx::query_as(
+        "SELECT product_id, tax_type FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2",
     )
     .bind(&product_name)
     .bind(&specification)
     .fetch_optional(&*state)
     .await?;
-    let product_id = p_id_row.map(|r| r.0);
+
+    let product_id = p_info.as_ref().map(|r| r.0);
+    let tax_type = p_info
+        .as_ref()
+        .and_then(|r| r.1.clone())
+        .unwrap_or_else(|| "면세".to_string());
+
+    let mut supply_value = total_amount;
+    let mut vat_amount = 0;
+
+    if tax_type == "과세" {
+        let total = total_amount as f64;
+        let supply = (total / 1.1).round() as i32;
+        vat_amount = total_amount - supply;
+        supply_value = supply;
+    }
 
     sqlx::query(
-        "INSERT INTO sales (sales_id, customer_id, product_name, specification, quantity, unit_price, total_amount, order_date, memo, status, product_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        "INSERT INTO sales (sales_id, customer_id, product_name, specification, quantity, unit_price, total_amount, order_date, memo, status, product_id, supply_value, vat_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
     )
     .bind(&sale_id)
     .bind(customer_id)
@@ -87,6 +102,8 @@ pub async fn create_sale(
     .bind(memo)
     .bind(status.unwrap_or_else(|| "접수".to_string()))
     .bind(product_id)
+    .bind(supply_value)
+    .bind(vat_amount)
     .execute(&*state)
     .await?;
 
@@ -903,10 +920,24 @@ pub async fn save_general_sales_batch(
         let order_date_parsed =
             NaiveDate::parse_from_str(&item.orderDateStr, "%Y-%m-%d").unwrap_or(today_naive);
 
-        // Find product_id
-        let p_id_row: Option<(i32,)> = sqlx::query_as("SELECT product_id FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2")
+        // Find product info (id and tax_type)
+        let p_info: Option<(i32, Option<String>)> = sqlx::query_as("SELECT product_id, tax_type FROM products WHERE product_name = $1 AND specification IS NOT DISTINCT FROM $2")
             .bind(&item.productName).bind(&item.specification).fetch_optional(&mut *tx).await?;
-        let product_id = p_id_row.map(|r| r.0);
+        let product_id = p_info.as_ref().map(|r| r.0);
+        let tax_type = p_info
+            .as_ref()
+            .and_then(|r| r.1.clone())
+            .unwrap_or_else(|| "면세".to_string());
+
+        let mut supply_value = item.totalAmount;
+        let mut vat_amount = 0;
+
+        if tax_type == "과세" {
+            let total = item.totalAmount as f64;
+            let supply = (total / 1.1).round() as i32;
+            vat_amount = item.totalAmount - supply;
+            supply_value = supply;
+        }
 
         if let Some(sid) = &item.salesId {
             if !sid.is_empty() {
@@ -917,8 +948,9 @@ pub async fn save_general_sales_batch(
                         total_amount = $6, status = $7, memo = $8, order_date = $9,
                         shipping_name = $10, shipping_zip_code = $11, shipping_address_primary = $12,
                         shipping_address_detail = $13, shipping_mobile_number = $14,
-                        paid_amount = $15, payment_status = $16, discount_rate = $17, product_id = $18
-                    WHERE sales_id = $19"
+                        paid_amount = $15, payment_status = $16, discount_rate = $17, product_id = $18,
+                        supply_value = $19, vat_amount = $20
+                    WHERE sales_id = $21"
                 )
                 .bind(&item.customerId)
                 .bind(&item.productName)
@@ -938,6 +970,8 @@ pub async fn save_general_sales_batch(
                 .bind(&item.paymentStatus)
                 .bind(item.discountRate)
                 .bind(product_id)
+                .bind(supply_value)
+                .bind(vat_amount)
                 .bind(sid)
                 .execute(&mut *tx).await?;
 
@@ -954,8 +988,8 @@ pub async fn save_general_sales_batch(
                 sales_id, customer_id, product_name, specification, quantity, unit_price,
                 total_amount, status, memo, order_date,
                 shipping_name, shipping_zip_code, shipping_address_primary, shipping_address_detail, shipping_mobile_number,
-                paid_amount, payment_status, discount_rate, product_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)"
+                paid_amount, payment_status, discount_rate, product_id, supply_value, vat_amount
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)"
         )
         .bind(&new_sid)
         .bind(&item.customerId)
@@ -976,6 +1010,8 @@ pub async fn save_general_sales_batch(
         .bind(&item.paymentStatus)
         .bind(item.discountRate)
         .bind(product_id)
+        .bind(supply_value)
+        .bind(vat_amount)
         .execute(&mut *tx).await?;
     }
 
