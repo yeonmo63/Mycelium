@@ -243,7 +243,7 @@ function AppContent() {
       <div className="fixed inset-0 z-0">
         <div className="absolute top-[-20%] left-[-10%] w-[800px] h-[800px] bg-indigo-900/10 blur-[150px] rounded-full" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[800px] h-[800px] bg-purple-900/10 blur-[150px] rounded-full" />
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-150 mix-blend-overlay"></div>
+        <div className="absolute inset-0 bg-gradient-to-tr from-slate-900 via-slate-950 to-indigo-950 opacity-40 mix-blend-overlay"></div>
       </div>
 
       {isConfigured && isLoggedIn && (

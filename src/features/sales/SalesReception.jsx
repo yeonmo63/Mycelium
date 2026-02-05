@@ -341,67 +341,68 @@ const SalesReception = () => {
         const phone = companyInfo?.phone_number || companyInfo?.mobile_number || '033-000-0000';
 
         const html = `
-            < html >
+            <!DOCTYPE html>
+            <html>
             <head>
                 <title>거래명세서 - ${customer.customer_name}</title>
                 <style>
-                    body { font-family: 'Malgun Gothic', sans-serif; font-size: 12px; margin: 20px; }
-                    .title { font-size: 24px; font-weight: bold; text-align: center; text-decoration: underline; margin-bottom: 20px; }
-                    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-                    .main-table { width: 100%; border-collapse: collapse; border: 2px solid #000; }
-                <style>
-                    body { font-family: 'Malgun Gothic', sans-serif; font-size: 12px; margin: 20px; }
+                    @media print {
+                        @page { margin: 0; }
+                        body { margin: 0; padding: 15mm; }
+                    }
+                    body { font-family: 'Malgun Gothic', sans-serif; font-size: 12px; }
                     .title { font-size: 24px; font-weight: bold; text-align: center; text-decoration: underline; margin-bottom: 20px; }
                     .header-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
                     .main-table { width: 100%; border-collapse: collapse; border: 2px solid #000; table-layout: fixed; }
                     .total-box { border: 2px solid #000; padding: 10px; margin-top: 10px; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; }
                     .row-cell { border: 1px solid #000; padding: 5px; height: 30px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; vertical-align: middle; }
                     .row-num { width: 30px; text-align: center; }
-                    .row-item { text-align: left; white-space: normal; } /* Allow wrapping for item name if needed, or keep fixed */
+                    .row-item { text-align: left; white-space: normal; }
                     .row-qty { width: 40px; text-align: center; }
                     .row-price { width: 80px; text-align: right; }
                     .row-disc { width: 40px; text-align: right; }
                     .row-amt { width: 90px; text-align: right; }
                     .row-rem { text-align: left; }
+                    .provider-table td { border: 1px solid #000; padding: 3px; white-space: nowrap; font-size: 11px; }
                 </style>
             </head>
             <body>
                 <div class="title">거 래 명 세 서</div>
                 <table class="header-table">
                     <tr>
-                        <td width="50%" valign="top">
+                        <td width="45%" valign="top">
                             <table style="width:100%;">
-                                <tr><td width="60">일 자 :</td><td>${orderDate}</td></tr>
-                                <tr><td>고객명 :</td><td><span style="font-size:16px; font-weight:bold;">${customer.customer_name} 귀하</span></td></tr>
+                                <tr><td width="60" style="font-size:11px;">일 자 :</td><td style="font-size:11px;">${orderDate}</td></tr>
+                                <tr><td style="font-size:11px;">고객명 :</td><td><span style="font-size:15px; font-weight:bold;">${customer.customer_name} 귀하</span></td></tr>
                             </table>
                         </td>
-                        <td width="50%">
-                            <table style="width:100%; border:1px solid #000; border-collapse:collapse;">
+                        <td width="55%">
+                            <table class="provider-table" style="width:100%; border-collapse:collapse;">
                                 <tr>
-                                    <td rowspan="4" width="20" style="border:1px solid #000; text-align:center; background:#eee;">공<br>급<br>자</td>
-                                    <td style="border:1px solid #000; padding:3px;">등록번호</td>
-                                    <td colspan="3" style="border:1px solid #000; padding:3px; font-weight:bold;">${businessNum}</td>
+                                    <td rowspan="4" width="20" style="text-align:center; background:#eee; font-weight:bold;">공<br>급<br>자</td>
+                                    <td>등록번호</td>
+                                    <td colspan="3" style="font-weight:bold; font-size:13px;">${businessNum}</td>
                                 </tr>
                                 <tr>
-                                    <td style="border:1px solid #000; padding:3px;">상 호</td>
-                                    <td style="border:1px solid #000; padding:3px;">${companyName}</td>
-                                    <td style="border:1px solid #000; padding:3px;">성 명</td>
-                                    <td style="border:1px solid #000; padding:3px; text-align:center;">${repName} (인)</td>
+                                    <td>상 호</td>
+                                    <td>${companyName}</td>
+                                    <td>성 명</td>
+                                    <td style="text-align:center;">${repName} (인)</td>
                                 </tr>
                                 <tr>
-                                    <td style="border:1px solid #000; padding:3px;">주 소</td>
-                                    <td colspan="3" style="border:1px solid #000; padding:3px; font-size:10px;">${address}</td>
+                                    <td>주 소</td>
+                                    <td colspan="3" style="font-size:10px; white-space:normal;">${address}</td>
                                 </tr>
                                 <tr>
-                                    <td style="border:1px solid #000; padding:3px;">전 화</td>
-                                    <td colspan="3" style="border:1px solid #000; padding:3px;">${phone}</td>
+                                    <td>전 화</td>
+                                    <td colspan="3">${phone}</td>
                                 </tr>
                             </table>
                         </td>
                     </tr>
                 </table>
                 <table class="main-table">
-                    <tr style="background:#eee; text-align:center; height: 30px;">
+                    <tr style="background:#eee; text-align:center; height: 30px; font-weight:bold;">
                         <td class="row-cell row-num">No</td>
                         <td class="row-cell">품명 및 규격</td>
                         <td class="row-cell row-qty">수량</td>
@@ -414,20 +415,19 @@ const SalesReception = () => {
             const row = salesRows[i];
             if (row) {
                 return `
-                            <tr style="height: 40px;"> <!-- Fixed row height -->
+                            <tr style="height: 40px;">
                                 <td class="row-cell row-num">${i + 1}</td>
                                 <td class="row-cell row-item">
-                                    <div style="font-weight:bold;">${row.product} <span style="font-size:11px; font-weight:normal; color:#555;">(${row.spec || '-'})</span></div>
-                                    ${row.shipAddr1 ? `<div style="font-size:10px; color:#666; margin-top:2px;">[배송] ${row.shipAddr1} (${row.shipName})</div>` : ''}
+                                    <div style="font-weight:bold; font-size:12px;">${row.product}</div>
+                                    <div style="font-size:10px; color:#555;">${row.spec || '-'}</div>
                                 </td>
                                 <td class="row-cell row-qty">${row.qty}</td>
                                 <td class="row-cell row-price">${formatCurrency(row.price)}</td>
                                 <td class="row-cell row-disc">${row.discountRate > 0 ? row.discountRate + '%' : '-'}</td>
                                 <td class="row-cell row-amt">${formatCurrency(row.amount)}</td>
-                                <td class="row-cell row-rem">${row.shipMemo || ''}</td>
+                                <td class="row-cell row-rem" style="font-size:9px;">${row.shipAddr1 ? `[배송] ${row.shipAddr1}` : ''}</td>
                             </tr>`;
             } else {
-                // Filler row
                 return `
                             <tr style="height: 40px;">
                                 <td class="row-cell row-num"></td>
@@ -445,7 +445,7 @@ const SalesReception = () => {
                     <span>합계금액 (일금 ${numberToKorean(summary.amount)}원정)</span>
                     <span>￦ ${formatCurrency(summary.amount)}</span>
                 </div>
-                <div style="margin-top:20px; text-align:center; color:#888;">위 금액을 정히 영수(청구)함.</div>
+                <div style="margin-top:20px; text-align:center; color:#888; font-size:11px;">위 금액을 정히 영수(청구)함.</div>
             </body>
             </html>
         `;

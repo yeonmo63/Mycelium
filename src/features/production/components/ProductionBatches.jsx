@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useModal } from '../../../contexts/ModalContext';
 import {
     Plus, FlaskConical, Calendar, CheckCircle2, AlertCircle,
-    ArrowRight, Tag, Boxes, Trash2, Edit2, Play, Square
+    ArrowRight, Tag, Boxes, Trash2, Edit2, Play, Square, Warehouse
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -131,7 +131,7 @@ const ProductionBatches = () => {
                             </div>
 
                             <div className="flex-1">
-                                <h4 className="text-lg font-black text-slate-700 mb-1">{product?.full_name || '상품 정보 없음'}</h4>
+                                <h4 className="text-lg font-black text-slate-700 mb-1">{product?.product_name || '상품 정보 없음'}</h4>
                                 <p className="text-xs font-bold text-slate-400 mb-6 flex items-center gap-1">
                                     <Warehouse size={12} /> {space?.space_name || '미지정'}
                                 </p>
@@ -171,7 +171,7 @@ const ProductionBatches = () => {
             {/* Batch Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={() => setIsModalOpen(false)}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
                     <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-8 border-b border-slate-50">
                             <h3 className="text-xl font-black text-slate-800">생산 주기 시작</h3>
@@ -196,15 +196,15 @@ const ProductionBatches = () => {
                             </div>
 
                             <div className="space-y-2 text-left">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">최종 수확 예정 상품 (판매 품목)</label>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">수확 목표 원물 (농산물)</label>
                                 <select
                                     value={formData.product_id || ''}
                                     onChange={e => setFormData({ ...formData, product_id: e.target.value })}
                                     className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100"
                                 >
-                                    <option value="">상품 선택</option>
+                                    <option value="">생산 원물 선택</option>
                                     {products
-                                        .filter(p => p.item_type === '상품')
+                                        .filter(p => p.item_type === 'harvest_item' || p.item_type === '농산물')
                                         .map(p => (
                                             <option key={p.product_id} value={p.product_id}>
                                                 {p.product_name} {p.specification ? `(${p.specification})` : ''}

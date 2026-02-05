@@ -1,5 +1,5 @@
 use bcrypt;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{FromRow, Pool, Postgres};
@@ -724,8 +724,8 @@ pub struct ProductionSpace {
     pub area_unit: Option<String>,
     pub is_active: bool,
     pub memo: Option<String>,
-    pub created_at: Option<NaiveDateTime>,
-    pub updated_at: Option<NaiveDateTime>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -740,8 +740,8 @@ pub struct ProductionBatch {
     pub status: Option<String>,
     pub initial_quantity: Option<rust_decimal::Decimal>,
     pub unit: Option<String>,
-    pub created_at: Option<NaiveDateTime>,
-    pub updated_at: Option<NaiveDateTime>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -756,8 +756,8 @@ pub struct FarmingLog {
     pub input_materials: Option<serde_json::Value>,
     pub env_data: Option<serde_json::Value>,
     pub photos: Option<serde_json::Value>,
-    pub created_at: Option<NaiveDateTime>,
-    pub updated_at: Option<NaiveDateTime>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -770,7 +770,7 @@ pub struct HarvestRecord {
     pub grade: Option<String>,
     pub traceability_code: Option<String>,
     pub memo: Option<String>,
-    pub created_at: Option<NaiveDateTime>,
+    pub created_at: Option<DateTime<Utc>>,
     #[sqlx(default)]
-    pub updated_at: Option<NaiveDateTime>,
+    pub updated_at: Option<DateTime<Utc>>,
 }

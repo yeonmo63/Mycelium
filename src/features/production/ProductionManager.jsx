@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { appDataDir, join } from '@tauri-apps/api/path';
 import { useModal } from '../../contexts/ModalContext';
 import {
     LayoutDashboard,
@@ -42,12 +43,24 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
     const [recentLogs, setRecentLogs] = useState([]);
     const [spaces, setSpaces] = useState([]);
     const [reportData, setReportData] = useState({ logs: [], company: {} });
+    const [isPrintingReport, setIsPrintingReport] = useState(false);
+
+    const [includeAttachments, setIncludeAttachments] = useState(true);
+    const [reportPeriod, setReportPeriod] = useState({
+        start: dayjs().startOf('month').format('YYYY-MM-DD'),
+        end: dayjs().endOf('month').format('YYYY-MM-DD')
+    });
 
     const loadDashboardData = async () => {
         try {
             const [batches, logs, harvests, spacesData] = await Promise.all([
                 invoke('get_production_batches'),
-                invoke('get_farming_logs', { batchId: null, spaceId: null }),
+                invoke('get_farming_logs', {
+                    batchId: null,
+                    spaceId: null,
+                    startDate: null,
+                    endDate: null
+                }),
                 invoke('get_harvest_records', { batchId: null }),
                 invoke('get_production_spaces')
             ]);
@@ -109,31 +122,86 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                             <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-100">
                                 <Activity size={24} />
                             </div>
-                            생산 및 현장 관리
+                            GAP/HACCP 인증센터
                         </h1>
                         <p className="text-xs font-bold text-slate-400 mt-1 ml-13 uppercase tracking-widest">
-                            General Production & GAP/HACCP Management System
+                            General Production & GAP/HACCP certification Management System
                         </p>
                     </div>
 
-                    <div className="flex gap-3">
+                    <div className="flex gap-4 items-center">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
+                            <Calendar size={14} className="text-slate-400" />
+                            <input
+                                type="date"
+                                value={reportPeriod.start}
+                                onChange={e => setReportPeriod(prev => ({ ...prev, start: e.target.value }))}
+                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-28"
+                            />
+                            <span className="text-slate-300 font-bold">~</span>
+                            <input
+                                type="date"
+                                value={reportPeriod.end}
+                                onChange={e => setReportPeriod(prev => ({ ...prev, end: e.target.value }))}
+                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-28"
+                            />
+                        </div>
+
+                        <label className="flex items-center gap-2 cursor-pointer group">
+                            <input
+                                type="checkbox"
+                                checked={includeAttachments}
+                                onChange={e => setIncludeAttachments(e.target.checked)}
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="text-[11px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider">첨부 포함</span>
+                        </label>
                         <button
                             onClick={async () => {
                                 try {
-                                    // Fetch data for report
-                                    const logs = await invoke('get_farming_logs', { batchId: null, spaceId: null });
+                                    // Fetch data for report with period
+                                    const rawLogs = await invoke('get_farming_logs', {
+                                        batchId: null,
+                                        spaceId: null,
+                                        startDate: reportPeriod.start,
+                                        endDate: reportPeriod.end
+                                    });
                                     const company = await invoke('get_company_info');
+
+                                    let logs = [...rawLogs];
+                                    if (includeAttachments) {
+                                        const appDir = await appDataDir();
+                                        const mediaDir = await join(appDir, 'media');
+
+                                        // Resolve image paths for each log
+                                        logs = await Promise.all(rawLogs.map(async log => {
+                                            if (Array.isArray(log.photos)) {
+                                                const resolvedPhotos = await Promise.all(log.photos.map(async p => {
+                                                    const fullPath = await join(mediaDir, p.path);
+                                                    return { ...p, resolvedPath: convertFileSrc(fullPath) };
+                                                }));
+                                                return { ...log, photos: resolvedPhotos };
+                                            }
+                                            return log;
+                                        }));
+                                    }
+
                                     setReportData({ logs, company: company || {} });
 
                                     const confirmed = await showConfirm(
                                         "GAP/HACCP 리포트 출력",
-                                        `${logs.length}건의 데이터를 기반으로 심사용 PDF 리포트를 생성했습니다. 출력하시겠습니까?`
+                                        `${dayjs(reportPeriod.start).format('YYYY-MM-DD')} ~ ${dayjs(reportPeriod.end).format('YYYY-MM-DD')} 기간의\n${logs.length}건의 데이터를 기반으로 리포트를 생성했습니다. 출력하시겠습니까?`
                                     );
 
                                     if (confirmed) {
-                                        setTimeout(() => window.print(), 500);
+                                        setIsPrintingReport(true);
+                                        setTimeout(() => {
+                                            window.print();
+                                            setIsPrintingReport(false);
+                                        }, 500);
                                     }
                                 } catch (err) {
+                                    console.error(err);
                                     showAlert("오류", "일지 데이터를 불러오는데 실패했습니다.");
                                 }
                             }}
@@ -170,7 +238,12 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
             </div>
 
             {/* Hidden Print View */}
-            <GapReportView logs={reportData.logs} companyInfo={reportData.company} />
+            <GapReportView
+                logs={reportData.logs}
+                companyInfo={reportData.company}
+                isPrinting={isPrintingReport}
+                includeAttachments={includeAttachments}
+            />
         </div>
     );
 };
@@ -182,6 +255,7 @@ const ProductionDashboard = ({ stats, recentLogs = [], spaces = [] }) => {
         fertilize: { label: '비료/시비', color: 'purple' },
         pesticide: { label: '방제/약제', color: 'red' },
         harvest: { label: '수확/채취', color: 'teal' },
+        process: { label: '가공/포장', color: 'indigo' },
         clean: { label: '청소/소독', color: 'indigo' },
         inspect: { label: '점검/예찰', color: 'amber' },
         education: { label: '교육/훈련', color: 'slate' },

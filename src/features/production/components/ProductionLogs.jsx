@@ -5,9 +5,12 @@ import {
     Plus, Search, Filter, History, Calendar, User,
     Thermometer, Droplets, Image as ImageIcon, CheckCircle,
     ChevronDown, ClipboardList, PenTool, FlaskConical,
-    Droplet, Sprout, Wind, Trash2, Edit2
+    Droplet, Sprout, Wind, Trash2, Edit2, Boxes, Paperclip,
+    FileText, X as CloseIcon, Camera
 } from 'lucide-react';
 import dayjs from 'dayjs';
+import { open } from '@tauri-apps/plugin-dialog';
+import { convertFileSrc } from '@tauri-apps/api/core';
 
 const ProductionLogs = () => {
     const [logs, setLogs] = useState([]);
@@ -28,7 +31,7 @@ const ProductionLogs = () => {
         work_content: '',
         input_materials: null,
         env_data: { temp: '', humidity: '', co2: '' },
-        photos: null
+        photos: [] // Initialized as empty array for JSONB
     });
 
     const workTypes = [
@@ -37,6 +40,7 @@ const ProductionLogs = () => {
         { id: 'fertilize', label: '비료/시비', icon: FlaskConical, color: 'purple' },
         { id: 'pesticide', label: '방제/약제', icon: Wind, color: 'red' },
         { id: 'harvest', label: '수확/채취', icon: CheckCircle, color: 'teal' },
+        { id: 'process', label: '가공/포장', icon: Boxes, color: 'indigo' },
         { id: 'clean', label: '청소/소독', icon: Droplets, color: 'indigo' },
         { id: 'inspect', label: '점검/예찰', icon: Search, color: 'amber' },
         { id: 'education', label: '교육/훈련', icon: ClipboardList, color: 'slate' },
@@ -46,7 +50,12 @@ const ProductionLogs = () => {
         setIsLoading(true);
         try {
             const [logsData, spacesData, batchesData] = await Promise.all([
-                invoke('get_farming_logs', { batchId: null, spaceId: null }),
+                invoke('get_farming_logs', {
+                    batchId: null,
+                    spaceId: null,
+                    startDate: null,
+                    endDate: null
+                }),
                 invoke('get_production_spaces'),
                 invoke('get_production_batches')
             ]);
@@ -67,7 +76,8 @@ const ProductionLogs = () => {
             setEditingLog(log);
             setFormData({
                 ...log,
-                env_data: log.env_data || { temp: '', humidity: '', co2: '' }
+                env_data: log.env_data || { temp: '', humidity: '', co2: '' },
+                photos: Array.isArray(log.photos) ? log.photos : []
             });
         } else {
             setEditingLog(null);
@@ -81,10 +91,44 @@ const ProductionLogs = () => {
                 work_content: '',
                 input_materials: null,
                 env_data: { temp: '', humidity: '', co2: '' },
-                photos: null
+                photos: []
             });
         }
         setIsModalOpen(true);
+    };
+
+    const handleFileUpload = async (type = 'photo') => {
+        try {
+            const selected = await open({
+                multiple: false,
+                filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+            });
+
+            if (selected) {
+                const fileName = await invoke('upload_farming_photo', { filePath: selected });
+                const newPhotos = [...(formData.photos || [])];
+                const labelIndex = newPhotos.length + 1;
+
+                newPhotos.push({
+                    id: Date.now(),
+                    type, // 'photo' or 'receipt'
+                    path: fileName,
+                    label: `증${labelIndex})`,
+                    displayPath: convertFileSrc(selected) // Temporary for display if needed
+                });
+
+                setFormData({ ...formData, photos: newPhotos });
+            }
+        } catch (err) {
+            showAlert('오류', '이미지 처리 실패: ' + err);
+        }
+    };
+
+    const removeAttachment = (id) => {
+        setFormData(prev => ({
+            ...prev,
+            photos: prev.photos.filter(p => p.id !== id)
+        }));
     };
 
     const handleSave = async () => {
@@ -209,7 +253,7 @@ const ProductionLogs = () => {
             {/* Log Entry Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={() => setIsModalOpen(false)}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
                     <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-8 border-b border-slate-50 flex justify-between items-center">
                             <h3 className="text-xl font-black text-slate-800">{editingLog ? '영농일지 수정' : '영농일지 작성'}</h3>
@@ -296,6 +340,55 @@ const ProductionLogs = () => {
                                     <label className="text-[10px] font-black text-slate-400 uppercase">CO2 (ppm)</label>
                                     <input type="number" value={formData.env_data.co2} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, co2: e.target.value } })} className="w-full h-10 px-4 bg-white border-none rounded-xl text-sm font-black ring-1 ring-slate-100" />
                                 </div>
+                            </div>
+
+                            <div className="col-span-2 space-y-4">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">증빙 자료 첨부 (사진/영수증)</label>
+                                <div className="flex gap-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleFileUpload('photo')}
+                                        className="flex-1 h-20 rounded-[1.5rem] border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600 transition-all"
+                                    >
+                                        <Camera size={20} />
+                                        현장 사진 추가
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleFileUpload('receipt')}
+                                        className="flex-1 h-20 rounded-[1.5rem] border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-all"
+                                    >
+                                        <FileText size={20} />
+                                        자재 영수증 추가
+                                    </button>
+                                </div>
+
+                                {formData.photos?.length > 0 && (
+                                    <div className="grid grid-cols-4 gap-3 mt-4">
+                                        {formData.photos.map(p => (
+                                            <div key={p.id} className="relative group aspect-square rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden shadow-sm">
+                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                    {p.type === 'receipt' ? (
+                                                        <FileText size={24} className="text-blue-300" />
+                                                    ) : (
+                                                        <ImageIcon size={24} className="text-emerald-300" />
+                                                    )}
+                                                </div>
+                                                {/* Label tag */}
+                                                <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-lg bg-black/60 backdrop-blur-sm text-[8px] font-black text-white">
+                                                    {p.label}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeAttachment(p.id)}
+                                                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                                >
+                                                    <CloseIcon size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 

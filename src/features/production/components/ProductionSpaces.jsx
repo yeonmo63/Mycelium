@@ -170,7 +170,7 @@ const ProductionSpaces = () => {
             {/* Space Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={() => setIsModalOpen(false)}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
                     <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-8 border-b border-slate-50">
                             <h3 className="text-xl font-black text-slate-800">{editingSpace ? '시설 정보 수정' : '새 시설 등록'}</h3>

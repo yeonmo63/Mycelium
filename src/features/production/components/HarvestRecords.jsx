@@ -4,13 +4,15 @@ import { useModal } from '../../../contexts/ModalContext';
 import {
     Plus, Boxes, Calendar, User, History,
     Trash2, Edit2, Search, Filter, ClipboardCheck,
-    Tag, Scale, Info
+    Tag, Scale, Info, QrCode
 } from 'lucide-react';
 import dayjs from 'dayjs';
+import LabelPrinter from './LabelPrinter';
 
 const HarvestRecords = () => {
     const [records, setRecords] = useState([]);
     const [batches, setBatches] = useState([]);
+    const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const { showAlert, showConfirm } = useModal();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -27,16 +29,20 @@ const HarvestRecords = () => {
         memo: ''
     });
     const [completeBatch, setCompleteBatch] = useState(false);
+    const [printData, setPrintData] = useState(null);
 
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const [recordsData, batchesData] = await Promise.all([
+            const [recordsData, batchesData, productsData] = await Promise.all([
                 invoke('get_harvest_records', { batchId: null }),
-                invoke('get_production_batches')
+                invoke('get_production_batches'),
+                invoke('get_product_list')
             ]);
             setRecords(recordsData);
-            setBatches(batchesData.filter(b => b.status === 'growing' || b.status === 'active' || b.status === 'completed'));
+            // Remove filter to ensure all batches are available for historical mapping/labels
+            setBatches(batchesData);
+            setProducts(productsData);
         } catch (err) {
             console.error(err);
         } finally {
@@ -103,6 +109,29 @@ const HarvestRecords = () => {
         }
     };
 
+    const handlePrint = (record) => {
+        // Use String conversion for safer comparison
+        const batch = batches.find(b => String(b.batch_id) === String(record.batch_id));
+        const product = products.find(p => String(p.product_id) === String(batch?.product_id));
+
+        const displayCode = record.traceability_code ||
+            (batch?.batch_code ? `B-${batch.batch_code}` : `H-${record.harvest_id}`);
+
+        setPrintData({
+            title: product?.product_name || '수확물(상품미정)',
+            code: displayCode,
+            spec: `${record.grade}등급 / ${record.quantity}${record.unit}`,
+            date: `수확: ${dayjs(record.harvest_date).format('YY/MM/DD')}`,
+            qrValue: `[${product?.product_name || '수확물'}] ${dayjs(record.harvest_date).format('YYYY-MM-DD')} | ${record.grade}등급 | ${record.quantity}${record.unit} | ${displayCode}`,
+            isPrinting: true
+        });
+
+        setTimeout(() => {
+            window.print();
+            setPrintData(prev => ({ ...prev, isPrinting: false }));
+        }, 100);
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
             <div className="flex justify-between items-end">
@@ -165,6 +194,9 @@ const HarvestRecords = () => {
                                         </td>
                                         <td className="px-6 py-5 text-right">
                                             <div className="flex justify-end gap-2">
+                                                <button onClick={() => handlePrint(record)} className="p-2 text-slate-500 hover:text-indigo-600 transition-colors">
+                                                    <span className="material-symbols-rounded text-[18px]">qr_code</span>
+                                                </button>
                                                 <button onClick={() => handleDelete(record.harvest_id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
                                             </div>
                                         </td>
@@ -187,7 +219,7 @@ const HarvestRecords = () => {
             {/* Harvest Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={() => setIsModalOpen(false)}></div>
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
                     <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-8 border-b border-slate-50">
                             <h3 className="text-xl font-black text-slate-800">새 수확 기록 등록</h3>
@@ -273,6 +305,9 @@ const HarvestRecords = () => {
                     </div>
                 </div>
             )}
+
+            {/* Print Label Component */}
+            <LabelPrinter type="harvest" data={printData} />
         </div>
     );
 };

@@ -392,8 +392,32 @@ pub async fn parse_business_card_ai(
 }
 
 #[command]
-pub async fn test_gemini_connection(_app: AppHandle) -> MyceliumResult<String> {
-    Ok("Connection OK".to_string())
+pub async fn test_gemini_connection(app: AppHandle, key: Option<String>) -> MyceliumResult<String> {
+    let api_key = if let Some(k) = key {
+        if k.trim().is_empty() {
+            get_gemini_api_key(&app).ok_or_else(|| {
+                MyceliumError::Internal("API 키가 입력되지 않았습니다.".to_string())
+            })?
+        } else {
+            k
+        }
+    } else {
+        get_gemini_api_key(&app).ok_or_else(|| {
+            MyceliumError::Internal("공유된 API 키가 없습니다. 먼저 저장하세요.".to_string())
+        })?
+    };
+
+    match call_gemini_ai_internal(&api_key, "Hello, are you there? Response with 'OK' only.").await
+    {
+        Ok(res) => {
+            if res.contains("OK") || res.len() < 100 {
+                Ok("OK".to_string())
+            } else {
+                Ok(format!("Connected, but unusual response: {}", res))
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

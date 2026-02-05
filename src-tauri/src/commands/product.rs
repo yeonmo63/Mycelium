@@ -704,11 +704,11 @@ pub async fn adjust_product_stock(
             sqlx::query("INSERT INTO farming_logs (batch_id, space_id, log_date, work_type, work_content, worker_name) VALUES ($1, $2, CURRENT_DATE, 'harvest', $3, '시스템자동')")
                 .bind(batch_id)
                 .bind(space_id)
-                .bind(format!("{} 수확 입고 (수량: {}{}) - {}", 
+                .bind(format!("[자동] 수확 입고: {} (수량: {}{}) - {}", 
                     &product.product_name, 
                     changeQty, 
                     product.specification.as_deref().unwrap_or(""),
-                    &memo))
+                    if memo.is_empty() { "기록 없음" } else { &memo }))
                 .execute(&mut *tx).await?;
         }
     }
@@ -839,6 +839,107 @@ pub async fn save_product_bom(
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+pub struct BatchTargetInput {
+    pub product_id: i32,
+    pub quantity: i32,
+}
+
+#[command]
+pub async fn batch_convert_stock(
+    pool: State<'_, DbPool>,
+    targets: Vec<BatchTargetInput>,
+    deductions: Vec<BomDeductionInput>,
+    memo: String,
+) -> MyceliumResult<()> {
+    DB_MODIFIED.store(true, Ordering::Relaxed);
+    let mut tx = pool.begin().await?;
+
+    // 1. Produce Targets
+    for target in &targets {
+        if target.quantity <= 0 {
+            continue;
+        }
+
+        let product: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
+            .bind(target.product_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        let p_new_qty = product.stock_quantity.unwrap_or(0) + target.quantity;
+        sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
+            .bind(p_new_qty)
+            .bind(target.product_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Log for Product Increase
+        sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '입고', $5, $6, $7, 'CONVERT_IN')")
+            .bind(target.product_id)
+            .bind(&product.product_name)
+            .bind(&product.specification)
+            .bind(&product.product_code)
+            .bind(target.quantity)
+            .bind(p_new_qty)
+            .bind(format!("배치 생산 완료: {}", memo))
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // 2. Deduct Materials
+    for deduct in &deductions {
+        if deduct.quantity <= 0 {
+            continue;
+        }
+
+        let material: Product = sqlx::query_as("SELECT * FROM products WHERE product_id = $1")
+            .bind(deduct.material_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+        if material.stock_quantity.unwrap_or(0) < deduct.quantity {
+            return Err(MyceliumError::Validation(format!(
+                "자재 재고 부족: {} (필요: {}, 현재: {})",
+                material.product_name,
+                deduct.quantity,
+                material.stock_quantity.unwrap_or(0)
+            )));
+        }
+
+        let m_new_qty = material.stock_quantity.unwrap_or(0) - deduct.quantity;
+        sqlx::query("UPDATE products SET stock_quantity = $1 WHERE product_id = $2")
+            .bind(m_new_qty)
+            .bind(deduct.material_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Summary of targets for the log
+        let target_names = targets.iter()
+            .map(|t| format!("{} {}개", t.product_id, t.quantity)) // Simplified for now, we'll log more detail in full implementation if needed
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, $6, $7, 'CONVERT_OUT')")
+            .bind(deduct.material_id)
+            .bind(&material.product_name)
+            .bind(&material.specification)
+            .bind(&material.product_code)
+            .bind(-deduct.quantity)
+            .bind(m_new_qty)
+            .bind(format!("배치 가공 소모 (Targets: {})", target_names))
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // 3. GAP/HACCP Log for the whole batch
+    sqlx::query("INSERT INTO farming_logs (log_date, worker_name, work_type, work_content) VALUES (CURRENT_DATE, '시스템자동', 'process', $1)")
+        .bind(format!("[자동] 통합 상품화/가공 완료 - {}", memo))
+        .execute(&mut *tx).await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
 #[command]
 pub async fn convert_stock_bom(
     pool: State<'_, DbPool>,
@@ -879,7 +980,7 @@ pub async fn convert_stock_bom(
         .await?;
 
     // 3. Deductions (Materials)
-    for deduct in deductions {
+    for deduct in &deductions {
         if deduct.quantity <= 0 {
             continue;
         }
@@ -920,6 +1021,28 @@ pub async fn convert_stock_bom(
             .await?;
     }
 
+    // 4. GAP/HACCP Integration - Log the processing activity
+    // Try to find if any material has a batch associated (to link the processing to a location)
+    let mut space_id = None;
+    let mut batch_id = None;
+    for deduct in &deductions {
+        let b_info: Option<(i32, Option<i32>)> = sqlx::query_as("SELECT batch_id, space_id FROM production_batches WHERE product_id = $1 ORDER BY start_date DESC LIMIT 1")
+            .bind(deduct.material_id)
+            .fetch_optional(&mut *tx).await?;
+        if let Some((bid, sid)) = b_info {
+            batch_id = Some(bid);
+            space_id = sid;
+            break; 
+        }
+    }
+
+    sqlx::query("INSERT INTO farming_logs (batch_id, space_id, log_date, work_type, work_content, worker_name) VALUES ($1, $2, CURRENT_DATE, 'process', $3, '시스템자동')")
+        .bind(batch_id)
+        .bind(space_id)
+        .bind(format!("[자동] 상품화 가공: {} {}개 생산 (메모: {})", &product.product_name, produceQty, memo))
+        .execute(&mut *tx).await?;
+
     tx.commit().await?;
     Ok(())
 }
+

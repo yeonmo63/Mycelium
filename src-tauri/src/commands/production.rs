@@ -99,14 +99,28 @@ pub async fn get_farming_logs(
     state: State<'_, DbPool>,
     batch_id: Option<i32>,
     space_id: Option<i32>,
+    start_date: Option<String>,
+    end_date: Option<String>,
 ) -> MyceliumResult<Vec<FarmingLog>> {
     let mut query = String::from("SELECT * FROM farming_logs WHERE 1=1");
+    let mut param_idx = 1;
+
     if batch_id.is_some() {
-        query.push_str(" AND batch_id = $1");
+        query.push_str(&format!(" AND batch_id = ${}", param_idx));
+        param_idx += 1;
     }
     if space_id.is_some() {
-        query.push_str(" AND space_id = $2");
+        query.push_str(&format!(" AND space_id = ${}", param_idx));
+        param_idx += 1;
     }
+    if start_date.is_some() {
+        query.push_str(&format!(" AND log_date >= ${}", param_idx));
+        param_idx += 1;
+    }
+    if end_date.is_some() {
+        query.push_str(&format!(" AND log_date <= ${}", param_idx));
+    }
+
     query.push_str(" ORDER BY log_date DESC, created_at DESC");
 
     let mut q = sqlx::query_as::<_, FarmingLog>(&query);
@@ -115,6 +129,12 @@ pub async fn get_farming_logs(
     }
     if let Some(sid) = space_id {
         q = q.bind(sid);
+    }
+    if let Some(sd) = start_date {
+        q = q.bind(chrono::NaiveDate::parse_from_str(&sd, "%Y-%m-%d").unwrap_or_default());
+    }
+    if let Some(ed) = end_date {
+        q = q.bind(chrono::NaiveDate::parse_from_str(&ed, "%Y-%m-%d").unwrap_or_default());
     }
 
     Ok(q.fetch_all(&*state).await?)
@@ -197,6 +217,23 @@ pub async fn save_harvest_record(
             .bind(format!("배치 {} 수확 입고 (단위: {})", record.batch_id.unwrap_or(0), record.unit))
             .bind(product_id)
             .execute(&mut *tx).await?;
+
+        // 4.5 Log to farming_logs (GAP/HACCP)
+        let space_id: Option<i32> =
+            sqlx::query_scalar("SELECT space_id FROM production_batches WHERE batch_id = $1")
+                .bind(record.batch_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+
+        sqlx::query("INSERT INTO farming_logs (batch_id, space_id, log_date, worker_name, work_type, work_content) VALUES ($1, $2, $3, '시스템자동', 'harvest', $4)")
+            .bind(record.batch_id)
+            .bind(space_id)
+            .bind(record.harvest_date)
+            .bind(format!("[자동] 수확 기록 등록: {} {}{} (배치: {})", 
+                sqlx::query_scalar::<_, String>("SELECT product_name FROM products WHERE product_id = $1").bind(product_id).fetch_one(&mut *tx).await.unwrap_or_else(|_| "알 수 없는 상품".to_string()),
+                qty, record.unit, record.batch_id.unwrap_or(0)))
+            .execute(&mut *tx).await?;
     }
 
     // 5. Update batch status if requested
@@ -249,4 +286,34 @@ pub async fn delete_harvest_record(
         .execute(&*state)
         .await?;
     Ok(())
+}
+
+#[command]
+pub async fn upload_farming_photo(
+    app: tauri::AppHandle,
+    file_path: String,
+) -> MyceliumResult<String> {
+    use tauri::Manager;
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| crate::error::MyceliumError::Internal(format!("App dir error: {}", e)))?;
+    let media_dir = app_dir.join("media");
+    if !media_dir.exists() {
+        std::fs::create_dir_all(&media_dir)?;
+    }
+
+    let path = std::path::Path::new(&file_path);
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+    let file_name = format!(
+        "farm_{}_{}.{}",
+        chrono::Utc::now().timestamp(),
+        uuid::Uuid::new_v4().to_string().split_at(8).0,
+        extension
+    );
+    let target_path = media_dir.join(&file_name);
+
+    std::fs::copy(path, &target_path)?;
+
+    Ok(file_name)
 }

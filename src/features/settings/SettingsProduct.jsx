@@ -18,8 +18,10 @@ import {
     History,
     TrendingUp,
     ArrowRight,
-    ChevronDown
+    ChevronDown,
+    QrCode
 } from 'lucide-react';
+import LabelPrinter from '../production/components/LabelPrinter';
 
 const SettingsProduct = () => {
     const navigate = useNavigate();
@@ -58,6 +60,7 @@ const SettingsProduct = () => {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [importSourceId, setImportSourceId] = useState('');
     const [sourceBoms, setSourceBoms] = useState([]);
+    const [printData, setPrintData] = useState(null);
     const [selectedImports, setSelectedImports] = useState([]); // Array of materialIds to import
 
     // --- Admin Guard Check ---
@@ -346,6 +349,22 @@ const SettingsProduct = () => {
                 showAlert('삭제 실패', '오류가 발생했습니다: ' + err);
             }
         }
+    };
+
+    const handlePrint = (product) => {
+        setPrintData({
+            title: product.product_name,
+            code: product.product_code || `PRD-${product.product_id}`,
+            spec: product.specification,
+            date: `단가: ₩${product.unit_price?.toLocaleString() || 0}`,
+            qrValue: `[${product.product_name}] ${product.specification || '규격미정'} | ₩${product.unit_price?.toLocaleString() || 0} | ${product.product_code || 'ID:' + product.product_id}`,
+            isPrinting: true
+        });
+
+        setTimeout(() => {
+            window.print();
+            setPrintData(prev => ({ ...prev, isPrinting: false }));
+        }, 100);
     };
 
     const loadPriceHistory = async (productId) => {
@@ -671,6 +690,13 @@ const SettingsProduct = () => {
                                                                 title="관리 이력"
                                                             >
                                                                 <span className="material-symbols-rounded text-[18px]">history</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handlePrint(p)}
+                                                                className="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm flex items-center justify-center border border-transparent hover:border-indigo-100"
+                                                                title="라벨 인쇄"
+                                                            >
+                                                                <span className="material-symbols-rounded text-[18px]">qr_code</span>
                                                             </button>
                                                             <button
                                                                 onClick={() => handleDelete(p)}
@@ -1222,6 +1248,8 @@ const SettingsProduct = () => {
                     </div>
                 )
             }
+            {/* Print Label Component */}
+            <LabelPrinter type="product" data={printData} />
         </div >
     );
 };
