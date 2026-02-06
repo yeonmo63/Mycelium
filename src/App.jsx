@@ -116,7 +116,7 @@ const router = createBrowserRouter(
 function AppContent() {
   const [isConfigured, setIsConfigured] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(sessionStorage.getItem('isLoggedIn') === 'true');
-  const { showConfirm } = useModal();
+  const { showConfirm, showChoice } = useModal();
 
   useEffect(() => {
     let unlisten;

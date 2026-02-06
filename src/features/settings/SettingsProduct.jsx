@@ -19,7 +19,8 @@ import {
     TrendingUp,
     ArrowRight,
     ChevronDown,
-    QrCode
+    QrCode,
+    Box
 } from 'lucide-react';
 import LabelPrinter from '../production/components/LabelPrinter';
 
@@ -54,7 +55,8 @@ const SettingsProduct = () => {
         type: 'product',
         bomList: [], // Array of { materialId, ratio, type: 'raw'|'aux' (ui only), key: rand }
         sync: false,
-        taxType: '면세'
+        taxType: '면세',
+        taxExemptValue: 0
     });
 
     // --- Recipe Import State ---
@@ -115,7 +117,8 @@ const SettingsProduct = () => {
                 sync: false,
                 productCode: '',
                 category: '',
-                taxType: '면세'
+                taxType: '면세',
+                taxExemptValue: 0
             };
 
             if (product) {
@@ -129,7 +132,8 @@ const SettingsProduct = () => {
                         initialBoms = boms.map(b => ({
                             materialId: b.material_id,
                             ratio: b.ratio,
-                            type: b.item_type === 'aux_material' ? 'aux' : 'raw',
+                            type: b.item_type === 'aux_material' || b.item_type === 'raw_material' || b.item_type === 'material' ? 'aux' :
+                                b.item_type === 'product' ? 'prod' : 'raw',
                             key: Math.random().toString(36).substr(2, 9)
                         }));
                     } else {
@@ -166,7 +170,8 @@ const SettingsProduct = () => {
                     sync: false,
                     productCode: product.product_code || '',
                     category: product.category || '',
-                    taxType: product.tax_type || '면세'
+                    taxType: product.tax_type || '면세',
+                    taxExemptValue: product.tax_exempt_value || 0
                 };
             }
 
@@ -287,7 +292,8 @@ const SettingsProduct = () => {
                 itemType: formData.type,
                 productCode: formData.productCode || null,
                 category: formData.category || null,
-                taxType: formData.taxType
+                taxType: formData.taxType,
+                taxExemptValue: formData.taxExemptValue
             };
 
             let productId;
@@ -833,7 +839,8 @@ const SettingsProduct = () => {
                                     <div className="flex p-1 bg-slate-100 rounded-xl">
                                         {[
                                             { id: '면세', label: '免 면세 (Exempt)' },
-                                            { id: '과세', label: '税 과세 (Taxable)' }
+                                            { id: '과세', label: '税 과세 (Taxable)' },
+                                            { id: '복합', label: '🔀 복합 (Integrated)' }
                                         ].map(tax => (
                                             <button
                                                 key={tax.id}
@@ -846,6 +853,29 @@ const SettingsProduct = () => {
                                             </button>
                                         ))}
                                     </div>
+                                    {formData.taxType === '복합' && (
+                                        <div className="mt-3 p-4 bg-amber-50 rounded-xl border border-amber-100 animate-in slide-in-from-top-2 duration-300">
+                                            <label className="block text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1.5 flex justify-between">
+                                                <span>지정 면세 가액 (Exempt Portion)</span>
+                                                <span className="text-amber-400">판매가 중 면세 부분</span>
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    value={formData.taxExemptValue.toLocaleString()}
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value.replace(/,/g, '')) || 0;
+                                                        setFormData({ ...formData, taxExemptValue: val });
+                                                    }}
+                                                    className="w-full h-11 px-4 bg-white border-none rounded-lg font-black font-mono text-sm focus:ring-2 focus:ring-amber-500 transition-all ring-1 ring-inset ring-amber-200 text-right pr-8"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-300">원</span>
+                                            </div>
+                                            <p className="text-[10px] text-amber-600/70 mt-2 leading-tight italic">
+                                                * 복합 선택 시 위에 입력한 판매금액 중 이 금액만큼은 면세로 처리되고, 나머지는 과세(부가세 별도)로 자동 안분됩니다.
+                                            </p>
+                                        </div>
+                                    )}
                                     <p className="text-[10px] text-slate-400 mt-1.5 ml-2 leading-tight">
                                         * 신선 농산물/가공되지 않은 식료품은 면세, 가공 공정을 거친 제품은 과세를 선택하세요.
                                     </p>
@@ -1068,8 +1098,14 @@ const SettingsProduct = () => {
                                                             />
                                                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-emerald-300 font-bold">배</span>
                                                         </div>
-                                                        <button type="button" onClick={() => handleRemoveBom(bom.key)} disabled={isLoading} className="w-10 h-10 flex items-center justify-center text-emerald-300 hover:text-rose-500 transition-colors disabled:opacity-50">
-                                                            <Trash2 size={16} />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveBom(bom.key)}
+                                                            disabled={isLoading}
+                                                            className="w-10 h-10 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all active:scale-95 shrink-0"
+                                                            title="항목 제거"
+                                                        >
+                                                            <span className="material-symbols-rounded text-[20px]">delete</span>
                                                         </button>
                                                     </div>
                                                 ))}
@@ -1163,8 +1199,14 @@ const SettingsProduct = () => {
                                                                                 />
                                                                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-orange-300 font-bold">배</span>
                                                                             </div>
-                                                                            <button type="button" onClick={() => handleRemoveBom(bom.key)} disabled={isLoading} className="w-10 h-10 flex items-center justify-center text-orange-300 hover:text-rose-500 transition-colors disabled:opacity-50">
-                                                                                <Trash2 size={16} />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleRemoveBom(bom.key)}
+                                                                                disabled={isLoading}
+                                                                                className="w-10 h-10 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all active:scale-95 shrink-0"
+                                                                                title="항목 제거"
+                                                                            >
+                                                                                <span className="material-symbols-rounded text-[20px]">delete</span>
                                                                             </button>
                                                                         </div>
                                                                     ))}
@@ -1216,8 +1258,14 @@ const SettingsProduct = () => {
                                                             />
                                                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-indigo-300 font-bold">개</span>
                                                         </div>
-                                                        <button type="button" onClick={() => handleRemoveBom(bom.key)} disabled={isLoading} className="w-10 h-10 flex items-center justify-center text-indigo-300 hover:text-rose-500 transition-colors disabled:opacity-50">
-                                                            <Trash2 size={16} />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveBom(bom.key)}
+                                                            disabled={isLoading}
+                                                            className="w-10 h-10 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all active:scale-95 shrink-0"
+                                                            title="항목 제거"
+                                                        >
+                                                            <span className="material-symbols-rounded text-[20px]">delete</span>
                                                         </button>
                                                     </div>
                                                 ))}
@@ -1331,7 +1379,7 @@ const SettingsProduct = () => {
             }
             {/* Print Label Component */}
             <LabelPrinter type="product" data={printData} />
-        </div >
+        </div>
     );
 };
 

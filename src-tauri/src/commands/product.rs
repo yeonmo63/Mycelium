@@ -12,7 +12,7 @@ use tauri::{command, State};
 #[command]
 pub async fn get_product_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Product>> {
     let products = sqlx::query_as::<_, Product>(
-        "SELECT product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status, category, tax_type FROM products ORDER BY product_name"
+        "SELECT product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status, category, tax_type, tax_exempt_value FROM products ORDER BY product_name"
     )
     .fetch_all(&*state)
     .await?;
@@ -178,6 +178,7 @@ pub async fn create_product(
     productCode: Option<String>,
     category: Option<String>,
     taxType: Option<String>,
+    taxExemptValue: Option<i32>,
 ) -> MyceliumResult<i32> {
     DB_MODIFIED.store(true, Ordering::Relaxed);
     let mut tx = state.begin().await?;
@@ -186,8 +187,8 @@ pub async fn create_product(
         "INSERT INTO products (
             product_name, specification, unit_price, stock_quantity, safety_stock, 
             cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, 
-            item_type, product_code, category, tax_type
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING product_id"
+            item_type, product_code, category, tax_type, tax_exempt_value
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING product_id"
     )
     .bind(&productName)
     .bind(&specification)
@@ -203,6 +204,7 @@ pub async fn create_product(
     .bind(&productCode)
     .bind(&category)
     .bind(taxType.unwrap_or_else(|| "면세".to_string()))
+    .bind(taxExemptValue.unwrap_or(0))
     .fetch_one(&mut *tx)
     .await?;
 
@@ -246,6 +248,7 @@ pub async fn update_product(
     syncSalesNames: Option<bool>,
     category: Option<String>,
     taxType: Option<String>,
+    taxExemptValue: Option<i32>,
 ) -> MyceliumResult<()> {
     let mut tx = state.begin().await?;
     let sync = syncSalesNames.unwrap_or(false);
@@ -262,9 +265,9 @@ pub async fn update_product(
 
     if let Some(qty) = stockQuantity {
         sqlx::query(
-            "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, stock_quantity = $4, safety_stock = $5, cost_price = $6, material_id = $7, material_ratio = $8, aux_material_id = $9, aux_material_ratio = $10, item_type = $11, status = $12, category = $13, tax_type = $14 WHERE product_id = $15",
+            "UPDATE products SET product_name = $1, specification = $2, unit_price = $3, stock_quantity = $4, safety_stock = $5, cost_price = $6, material_id = $7, material_ratio = $8, aux_material_id = $9, aux_material_ratio = $10, item_type = $11, status = $12, category = $13, tax_type = $14, tax_exempt_value = $15 WHERE product_id = $16",
         )
-        .bind(&productName).bind(&specification).bind(unitPrice).bind(qty).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(auxMaterialId).bind(aux_ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(&category).bind(&tax_type_val).bind(productId)
+        .bind(&productName).bind(&specification).bind(unitPrice).bind(qty).bind(safetyStock.unwrap_or(10)).bind(cost).bind(materialId).bind(ratio).bind(auxMaterialId).bind(aux_ratio).bind(itemType.clone().unwrap_or_else(|| "product".to_string())).bind(&status_val).bind(&category).bind(&tax_type_val).bind(taxExemptValue.unwrap_or(0)).bind(productId)
         .execute(&mut *tx).await?;
     } else {
         sqlx::query(
@@ -272,8 +275,8 @@ pub async fn update_product(
                 product_name = $1, specification = $2, unit_price = $3, 
                 safety_stock = $4, cost_price = $5, material_id = $6, material_ratio = $7, 
                 aux_material_id = $8, aux_material_ratio = $9, item_type = $10, 
-                status = $11, product_code = $12, category = $13, tax_type = $14
-             WHERE product_id = $15"
+                status = $11, product_code = $12, category = $13, tax_type = $14, tax_exempt_value = $15
+             WHERE product_id = $16"
         )
         .bind(&productName)
         .bind(&specification)
@@ -286,9 +289,10 @@ pub async fn update_product(
         .bind(auxMaterialRatio)
         .bind(itemType.unwrap_or_else(|| "product".to_string()))
         .bind(&status_val)
-        .bind(&old.product_code) // product_code is not an argument to update_product, use old value
+        .bind(&old.product_code) 
         .bind(&category)
         .bind(&tax_type_val)
+        .bind(taxExemptValue.unwrap_or(0))
         .bind(productId)
         .execute(&mut *tx).await?;
     }

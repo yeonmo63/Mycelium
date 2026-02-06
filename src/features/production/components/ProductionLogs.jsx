@@ -105,7 +105,11 @@ const ProductionLogs = () => {
             });
 
             if (selected) {
-                const fileName = await invoke('upload_farming_photo', { filePath: selected });
+                // In some Tauri versions, open might return an array even for multiple: false
+                const filePath = Array.isArray(selected) ? selected[0] : selected;
+                if (!filePath) return;
+
+                const fileName = await invoke('upload_farming_photo', { filePath });
                 const newPhotos = [...(formData.photos || [])];
                 const labelIndex = newPhotos.length + 1;
 
@@ -114,13 +118,14 @@ const ProductionLogs = () => {
                     type, // 'photo' or 'receipt'
                     path: fileName,
                     label: `증${labelIndex})`,
-                    displayPath: convertFileSrc(selected) // Temporary for display if needed
+                    displayPath: convertFileSrc(filePath)
                 });
 
                 setFormData({ ...formData, photos: newPhotos });
             }
         } catch (err) {
-            showAlert('오류', '이미지 처리 실패: ' + err);
+            console.error('File upload failed:', err);
+            showAlert('오류', '이미지 처리 실패: ' + (err.message || typeof err === 'string' ? err : JSON.stringify(err)));
         }
     };
 
@@ -368,7 +373,17 @@ const ProductionLogs = () => {
                                         {formData.photos.map(p => (
                                             <div key={p.id} className="relative group aspect-square rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden shadow-sm">
                                                 <div className="absolute inset-0 flex items-center justify-center">
-                                                    {p.type === 'receipt' ? (
+                                                    {p.displayPath ? (
+                                                        <img
+                                                            src={p.displayPath}
+                                                            alt={p.label}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                // If asset URL fails (e.g. session expired or fresh load)
+                                                                e.target.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    ) : p.type === 'receipt' ? (
                                                         <FileText size={24} className="text-blue-300" />
                                                     ) : (
                                                         <ImageIcon size={24} className="text-emerald-300" />

@@ -2,7 +2,7 @@ use crate::db::{DbPool, FarmingLog, HarvestRecord, ProductionBatch, ProductionSp
 use crate::error::MyceliumResult;
 use crate::DB_MODIFIED;
 use std::sync::atomic::Ordering;
-use tauri::{command, State};
+use tauri::{command, Manager, State};
 
 // --- Production Spaces ---
 
@@ -316,4 +316,235 @@ pub async fn upload_farming_photo(
     std::fs::copy(path, &target_path)?;
 
     Ok(file_name)
+}
+
+#[command]
+pub async fn get_media_base64(app: tauri::AppHandle, file_name: String) -> MyceliumResult<String> {
+    use tauri::Manager;
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| crate::error::MyceliumError::Internal(format!("App dir error: {}", e)))?;
+    let media_path = app_dir.join("media").join(&file_name);
+
+    if !media_path.exists() {
+        return Err(crate::error::MyceliumError::Internal(format!(
+            "File not found: {}",
+            file_name
+        )));
+    }
+
+    let bytes = std::fs::read(&media_path)?;
+    let extension = media_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png");
+    let mime_type = match extension.to_lowercase().as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        _ => "image/png",
+    };
+
+    use base64::{engine::general_purpose, Engine as _};
+    let base64_str = general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{};base64,{}", mime_type, base64_str))
+}
+#[command]
+pub async fn generate_production_pdf(
+    state: State<'_, DbPool>,
+    app: tauri::AppHandle,
+    save_path: String,
+    start_date: String,
+    end_date: String,
+    include_attachments: bool,
+) -> MyceliumResult<()> {
+    // 1. Fetch data from DB
+    let raw_logs = get_farming_logs(
+        state.clone(),
+        None,
+        None,
+        Some(start_date.clone()),
+        Some(end_date.clone()),
+    )
+    .await?;
+    let company_info_res = crate::commands::config::get_company_info(state.clone()).await;
+    let company_info = match company_info_res {
+        Ok(Some(info)) => info,
+        _ => crate::db::CompanyInfo::default(),
+    };
+
+    println!(
+        "Generating PDF for {} logs to {}",
+        raw_logs.len(),
+        save_path
+    );
+
+    // 2. Setup Font - Using Malgun Gothic as it's common on Windows
+    let font_path = std::path::PathBuf::from("C:\\Windows\\Fonts\\malgun.ttf");
+    if !font_path.exists() {
+        return Err(crate::error::MyceliumError::Internal(
+            "System font (Malgun Gothic) not found. PDF generation requires it for Korean text."
+                .into(),
+        ));
+    }
+
+    let media_dir: std::path::PathBuf = app
+        .path()
+        .app_data_dir()
+        .map(|p: std::path::PathBuf| p.join("media"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("media"));
+
+    // 3. Create PDF Document using genpdf
+    tokio::task::spawn_blocking(move || {
+        use genpdf::elements;
+        use genpdf::style;
+        use genpdf::Element;
+
+        let font_family = genpdf::fonts::from_files(font_path.parent().unwrap(), "malgun", None)
+            .map_err(|e| {
+                crate::error::MyceliumError::Internal(format!("Font loading error: {}", e))
+            })?;
+
+        let mut doc = genpdf::Document::new(font_family);
+        doc.set_title("GAP/HACCP 영농기록장");
+
+        // Styling
+        let mut decorator = genpdf::SimplePageDecorator::new();
+        decorator.set_margins(15); // 15mm margins
+        doc.set_page_decorator(decorator);
+
+        // Header
+        let mut header = elements::Paragraph::new("영농기록장 (GAP/HACCP 인증용)");
+        header.set_alignment(genpdf::Alignment::Center);
+        doc.push(header.styled(style::Style::new().bold().with_font_size(24)));
+        doc.push(elements::Break::new(2));
+
+        // Company Details Table
+        let mut company_table = elements::TableLayout::new(vec![1, 3]);
+
+        let row1: Vec<Box<dyn Element>> = vec![
+            Box::new(elements::Text::new("농장명").styled(style::Style::new().bold())),
+            Box::new(elements::Text::new(company_info.company_name.clone())),
+        ];
+        let _ = company_table.push_row(row1);
+
+        let row2: Vec<Box<dyn Element>> = vec![
+            Box::new(elements::Text::new("대표자").styled(style::Style::new().bold())),
+            Box::new(elements::Text::new(
+                company_info
+                    .representative_name
+                    .as_deref()
+                    .unwrap_or("-")
+                    .to_string(),
+            )),
+        ];
+        let _ = company_table.push_row(row2);
+
+        let row3: Vec<Box<dyn Element>> = vec![
+            Box::new(elements::Text::new("기간").styled(style::Style::new().bold())),
+            Box::new(elements::Text::new(format!(
+                "{} ~ {}",
+                start_date, end_date
+            ))),
+        ];
+        company_table.push_row(row3).ok();
+
+        doc.push(company_table);
+        doc.push(elements::Break::new(2));
+
+        // Logs Table Header
+        let mut logs_table = elements::TableLayout::new(vec![2, 3, 8, 3]);
+        let header_row: Vec<Box<dyn Element>> = vec![
+            Box::new(elements::Text::new("날짜").styled(style::Style::new().bold())),
+            Box::new(elements::Text::new("구분").styled(style::Style::new().bold())),
+            Box::new(elements::Text::new("작업 내용").styled(style::Style::new().bold())),
+            Box::new(elements::Text::new("작업자").styled(style::Style::new().bold())),
+        ];
+        logs_table.push_row(header_row).ok();
+
+        let mut all_attachments: Vec<(String, String, String)> = Vec::new();
+
+        // Add Logs
+        for log in raw_logs {
+            let log_row: Vec<Box<dyn Element>> = vec![
+                Box::new(elements::Text::new(log.log_date.to_string())),
+                Box::new(elements::Text::new(log.work_type.clone())),
+                Box::new(elements::Text::new(log.work_content.clone())),
+                Box::new(elements::Text::new(
+                    log.worker_name.as_deref().unwrap_or("-").to_string(),
+                )),
+            ];
+            let _ = logs_table.push_row(log_row);
+
+            // Collect attachments if needed
+            if include_attachments {
+                if let Some(photos_val) = &log.photos {
+                    if let Some(photos_arr) = photos_val.as_array() {
+                        for p in photos_arr {
+                            if let Some(filename) = p.as_str() {
+                                all_attachments.push((
+                                    log.log_date.to_string(),
+                                    log.work_content.clone(),
+                                    filename.to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        doc.push(logs_table);
+
+        // 4. Add Attachments if any
+        if !all_attachments.is_empty() {
+            doc.push(elements::PageBreak::new());
+            let mut attach_title = elements::Paragraph::new("첨부 증빙 자료 (Attachments)");
+            attach_title.set_alignment(genpdf::Alignment::Center);
+            doc.push(attach_title.styled(style::Style::new().bold().with_font_size(20)));
+            doc.push(elements::Break::new(2));
+
+            let mut attachment_idx = 1;
+            for (date, content, filename) in all_attachments {
+                let img_path = media_dir.join(&filename);
+                if img_path.exists() {
+                    // Title for attachment
+                    doc.push(
+                        elements::Text::new(format!(
+                            "[증{}] {} | {}",
+                            attachment_idx, date, content
+                        ))
+                        .styled(style::Style::new().bold().with_font_size(10)),
+                    );
+
+                    // Add Image
+                    match elements::Image::from_path(&img_path) {
+                        Ok(img) => {
+                            // Scale down if too big (genpdf handles some scaling internally if we use a layout)
+                            // A simple way is to wrap it in a padded div or a table
+                            let mut img_table = elements::TableLayout::new(vec![1]);
+                            let img_row: Vec<Box<dyn Element>> = vec![Box::new(img)];
+                            let _ = img_table.push_row(img_row);
+                            doc.push(img_table);
+                        }
+                        Err(e) => {
+                            doc.push(elements::Text::new(format!("(이미지 로드 실패: {})", e)));
+                        }
+                    }
+                    doc.push(elements::Break::new(1));
+                    attachment_idx += 1;
+                }
+            }
+        }
+
+        // Save
+        doc.render_to_file(&save_path).map_err(|e| {
+            crate::error::MyceliumError::Internal(format!("PDF Render error: {}", e))
+        })?;
+
+        Ok::<(), crate::error::MyceliumError>(())
+    })
+    .await
+    .map_err(|e| crate::error::MyceliumError::Internal(format!("Thread join error: {}", e)))?
 }

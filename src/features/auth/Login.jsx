@@ -95,7 +95,7 @@ const Login = ({ onLoginSuccess }) => {
 
                     {/* UI Close Button */}
                     <button
-                        onClick={() => emit('window_close_requested')}
+                        onClick={() => emit('window_close_requested', {})}
                         style={{
                             position: 'absolute',
                             top: '24px',

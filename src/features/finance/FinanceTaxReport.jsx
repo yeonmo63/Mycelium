@@ -90,20 +90,26 @@ const FinanceTaxReport = () => {
         csv += '[면세 매출 합계]\n';
         csv += `합계(공급가액),${reportData.summary.exemptAmt}\n\n`;
 
-        csv += '구분,날짜,상품명,규격,수량,단가,공급가액,부가세,합계\n';
+        csv += '구분,날짜,상품명,규격,수량,단가,공급가액,부가세,합계,비고(근거)\n';
 
         const allData = [...reportData.taxable, ...reportData.exempt];
         allData.forEach(r => {
+            // For mixed items, provide context in the remarks
+            let remark = r.memo || '';
+            if (r.display_tax_type === '과세(분분)') remark = `[복합-과세분] ${remark}`;
+            if (r.display_tax_type === '면세(분분)') remark = `[복합-면세분] ${remark}`;
+
             const row = [
-                r.tax_type,
+                r.display_tax_type || r.tax_type,
                 r.order_date,
                 r.product_name,
                 r.specification || '-',
                 r.quantity,
                 r.unit_price,
-                r.supply_value || r.total_amount,
+                r.supply_value || (r.display_tax_type === '면세(분분)' ? r.display_amount : r.total_amount),
                 r.vat_amount || 0,
-                r.total_amount
+                r.display_amount || r.total_amount,
+                `"${remark.replace(/"/g, '""')}"` // Handle CSV escaping
             ].join(',');
             csv += row + '\n';
         });

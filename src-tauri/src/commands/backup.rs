@@ -675,11 +675,13 @@ async fn backup_database_internal(
     emit_progress(0, 1, "데이터 개수 확인 중...");
 
     // Count records actually needing backup
-    let count_query = |table: &str| {
+    let count_query = |table: &str, time_col: Option<&str>| {
+        let col = time_col.unwrap_or("updated_at");
         if let Some(s) = since {
             format!(
-                "SELECT COUNT(*) FROM {} WHERE updated_at > '{}'",
+                "SELECT COUNT(*) FROM {} WHERE {} > '{}'",
                 table,
+                col,
                 s.format("%Y-%m-%d %H:%M:%S")
             )
         } else {
@@ -687,49 +689,50 @@ async fn backup_database_internal(
         }
     };
 
-    let count_users: (i64,) = sqlx::query_as(&count_query("users"))
+    let count_users: (i64,) = sqlx::query_as(&count_query("users", None))
         .fetch_one(pool)
         .await?;
-    let count_products: (i64,) = sqlx::query_as(&count_query("products"))
+    let count_products: (i64,) = sqlx::query_as(&count_query("products", None))
         .fetch_one(pool)
         .await?;
-    let count_customers: (i64,) = sqlx::query_as(&count_query("customers"))
+    let count_customers: (i64,) = sqlx::query_as(&count_query("customers", None))
         .fetch_one(pool)
         .await?;
-    let count_addresses: (i64,) = sqlx::query_as(&count_query("customer_addresses"))
+    let count_addresses: (i64,) = sqlx::query_as(&count_query("customer_addresses", None))
         .fetch_one(pool)
         .await?;
-    let count_sales: (i64,) = sqlx::query_as(&count_query("sales"))
+    let count_sales: (i64,) = sqlx::query_as(&count_query("sales", None))
         .fetch_one(pool)
         .await?;
-    let count_events: (i64,) = sqlx::query_as(&count_query("event"))
+    let count_events: (i64,) = sqlx::query_as(&count_query("event", None))
         .fetch_one(pool)
         .await?;
-    let count_schedules: (i64,) = sqlx::query_as(&count_query("schedules"))
+    let count_schedules: (i64,) = sqlx::query_as(&count_query("schedules", None))
         .fetch_one(pool)
         .await?;
-    let count_company: (i64,) = sqlx::query_as(&count_query("company_info"))
+    let count_company: (i64,) = sqlx::query_as(&count_query("company_info", None))
         .fetch_one(pool)
         .await?;
-    let count_expenses: (i64,) = sqlx::query_as(&count_query("expenses"))
+    let count_expenses: (i64,) = sqlx::query_as(&count_query("expenses", None))
         .fetch_one(pool)
         .await?;
-    let count_purchases: (i64,) = sqlx::query_as(&count_query("purchases"))
+    let count_purchases: (i64,) = sqlx::query_as(&count_query("purchases", None))
         .fetch_one(pool)
         .await?;
-    let count_consultations: (i64,) = sqlx::query_as(&count_query("consultations"))
+    let count_consultations: (i64,) = sqlx::query_as(&count_query("consultations", None))
         .fetch_one(pool)
         .await?;
-    let count_claims: (i64,) = sqlx::query_as(&count_query("sales_claims"))
+    let count_claims: (i64,) = sqlx::query_as(&count_query("sales_claims", None))
         .fetch_one(pool)
         .await?;
-    let count_bom: (i64,) = sqlx::query_as(&count_query("product_bom"))
+    let count_bom: (i64,) = sqlx::query_as(&count_query("product_bom", Some("created_at")))
         .fetch_one(pool)
         .await?;
-    let count_inventory: (i64,) = sqlx::query_as(&count_query("inventory_logs"))
-        .fetch_one(pool)
-        .await?;
-    let count_ledger: (i64,) = sqlx::query_as(&count_query("customer_ledger"))
+    let count_inventory: (i64,) =
+        sqlx::query_as(&count_query("inventory_logs", Some("created_at")))
+            .fetch_one(pool)
+            .await?;
+    let count_ledger: (i64,) = sqlx::query_as(&count_query("customer_ledger", None))
         .fetch_one(pool)
         .await?;
     let count_customer_logs: (i64,) = sqlx::query_as(&if let Some(s) = since {
@@ -742,15 +745,16 @@ async fn backup_database_internal(
     })
     .fetch_one(pool)
     .await?;
-    let count_vendors: (i64,) = sqlx::query_as(&count_query("vendors"))
+    let count_vendors: (i64,) = sqlx::query_as(&count_query("vendors", None))
         .fetch_one(pool)
         .await?;
-    let count_exp_programs: (i64,) = sqlx::query_as(&count_query("experience_programs"))
+    let count_exp_programs: (i64,) = sqlx::query_as(&count_query("experience_programs", None))
         .fetch_one(pool)
         .await?;
-    let count_exp_reservations: (i64,) = sqlx::query_as(&count_query("experience_reservations"))
-        .fetch_one(pool)
-        .await?;
+    let count_exp_reservations: (i64,) =
+        sqlx::query_as(&count_query("experience_reservations", None))
+            .fetch_one(pool)
+            .await?;
     let count_price_history: (i64,) = sqlx::query_as(&if let Some(s) = since {
         format!(
             "SELECT COUNT(*) FROM product_price_history WHERE changed_at > '{}'",
@@ -773,25 +777,18 @@ async fn backup_database_internal(
             .fetch_one(pool)
             .await?
     };
-    let count_prod_spaces: (i64,) = sqlx::query_as(&count_query("production_spaces"))
+    let count_prod_spaces: (i64,) = sqlx::query_as(&count_query("production_spaces", None))
         .fetch_one(pool)
         .await?;
-    let count_prod_batches: (i64,) = sqlx::query_as(&count_query("production_batches"))
+    let count_prod_batches: (i64,) = sqlx::query_as(&count_query("production_batches", None))
         .fetch_one(pool)
         .await?;
-    let count_farming_logs: (i64,) = sqlx::query_as(&count_query("farming_logs"))
+    let count_farming_logs: (i64,) = sqlx::query_as(&count_query("farming_logs", None))
         .fetch_one(pool)
         .await?;
-    let count_harvest: (i64,) = sqlx::query_as(&if let Some(s) = since {
-        format!(
-            "SELECT COUNT(*) FROM harvest_records WHERE updated_at > '{}'",
-            s.format("%Y-%m-%d %H:%M:%S")
-        )
-    } else {
-        "SELECT COUNT(*) FROM harvest_records".to_string()
-    })
-    .fetch_one(pool)
-    .await?;
+    let count_harvest: (i64,) = sqlx::query_as(&count_query("harvest_records", None))
+        .fetch_one(pool)
+        .await?;
 
     let total_records = count_users.0
         + count_products.0

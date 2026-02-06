@@ -44,6 +44,7 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
     const [spaces, setSpaces] = useState([]);
     const [reportData, setReportData] = useState({ logs: [], company: {} });
     const [isPrintingReport, setIsPrintingReport] = useState(false);
+    const [isGenerating, setIsGenerating] = useState(false);
 
     const [includeAttachments, setIncludeAttachments] = useState(true);
     const [reportPeriod, setReportPeriod] = useState({
@@ -173,12 +174,17 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                                         const appDir = await appDataDir();
                                         const mediaDir = await join(appDir, 'media');
 
-                                        // Resolve image paths for each log
+                                        // Resolve image paths for each log using Base64 for reliability in printing
                                         logs = await Promise.all(rawLogs.map(async log => {
                                             if (Array.isArray(log.photos)) {
                                                 const resolvedPhotos = await Promise.all(log.photos.map(async p => {
-                                                    const fullPath = await join(mediaDir, p.path);
-                                                    return { ...p, resolvedPath: convertFileSrc(fullPath) };
+                                                    try {
+                                                        const base64Data = await invoke('get_media_base64', { fileName: p.path });
+                                                        return { ...p, resolvedPath: base64Data };
+                                                    } catch (e) {
+                                                        console.error(`Failed to load photo ${p.path}:`, e);
+                                                        return p;
+                                                    }
                                                 }));
                                                 return { ...log, photos: resolvedPhotos };
                                             }
@@ -195,10 +201,11 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
 
                                     if (confirmed) {
                                         setIsPrintingReport(true);
+                                        // Wait longer to ensure images are actually loaded in the DOM before printing
                                         setTimeout(() => {
                                             window.print();
                                             setIsPrintingReport(false);
-                                        }, 500);
+                                        }, 1500);
                                     }
                                 } catch (err) {
                                     console.error(err);
@@ -209,6 +216,55 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                         >
                             <History size={18} />
                             GAP/HACCP 리포트 출력
+                        </button>
+
+                        <button
+                            disabled={isGenerating}
+                            onClick={async () => {
+                                try {
+                                    setIsGenerating(true);
+
+                                    // Step 1: Request save location
+                                    const savePath = await invoke('plugin:dialog|save', {
+                                        filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
+                                        defaultPath: `GAP_Report_${reportPeriod.start}_${reportPeriod.end}.pdf`
+                                    });
+
+                                    if (!savePath) {
+                                        setIsGenerating(false);
+                                        return;
+                                    }
+
+                                    // Step 2: Call backend to generate PDF
+                                    // We'll pass the period and backend will fetch raw data to save memory
+                                    await invoke('generate_production_pdf', {
+                                        savePath,
+                                        startDate: reportPeriod.start,
+                                        endDate: reportPeriod.end,
+                                        includeAttachments
+                                    });
+
+                                    showAlert("성공", "PDF 리포트가 성공적으로 생성되었습니다.");
+                                } catch (err) {
+                                    console.error(err);
+                                    showAlert("오류", "PDF 생성 중 오류가 발생했습니다: " + err);
+                                } finally {
+                                    setIsGenerating(false);
+                                }
+                            }}
+                            className={`
+                                px-5 py-2.5 rounded-2xl font-black text-sm transition-all flex items-center gap-2 shadow-sm
+                                ${isGenerating
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'}
+                            `}
+                        >
+                            {isGenerating ? (
+                                <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+                            ) : (
+                                <Plus size={18} />
+                            )}
+                            PDF 리포트 생성
                         </button>
                     </div>
                 </div>
@@ -244,6 +300,25 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                 isPrinting={isPrintingReport}
                 includeAttachments={includeAttachments}
             />
+
+            {/* Global Generation Spinner */}
+            {isGenerating && (
+                <div className="fixed inset-0 z-[999999] bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
+                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl flex flex-col items-center gap-6">
+                        <div className="relative">
+                            <div className="w-20 h-20 border-4 border-indigo-100 rounded-full"></div>
+                            <div className="absolute top-0 left-0 w-20 h-20 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                        </div>
+                        <div className="text-center">
+                            <h3 className="text-xl font-black text-slate-800 mb-1">리포트 생성 중...</h3>
+                            <p className="text-xs font-bold text-slate-400 px-4">
+                                방대한 데이터를 분석하고 고화질 증빙 사진을 결합하고 있습니다.<br />
+                                잠시만 기다려 주세요.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

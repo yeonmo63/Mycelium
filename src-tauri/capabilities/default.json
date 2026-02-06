@@ -7,6 +7,16 @@
   ],
   "permissions": [
     "core:default",
+    {
+      "identifier": "fs:allow-read",
+      "scope": [
+        "$DOWNLOADS/**",
+        "$PICTURES/**",
+        "$DESKTOP/**",
+        "$DOCUMENT/**",
+        "C:\\Users\\**"
+      ]
+    },
     "opener:default",
     "dialog:default",
     "fs:default",

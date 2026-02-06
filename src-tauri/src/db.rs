@@ -68,6 +68,9 @@ pub async fn init_database(pool: &DbPool) -> MyceliumResult<()> {
     sqlx::query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_type VARCHAR(20)")
         .execute(pool)
         .await?;
+    sqlx::query("ALTER TABLE products ADD COLUMN IF NOT EXISTS tax_exempt_value INTEGER DEFAULT 0")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -333,6 +336,8 @@ pub struct Product {
     pub category: Option<String>,
     #[sqlx(default)]
     pub tax_type: Option<String>,
+    #[sqlx(default)]
+    pub tax_exempt_value: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -363,7 +368,7 @@ pub struct User {
     pub updated_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, Default)]
 pub struct CompanyInfo {
     pub id: i32,
     pub company_name: String,

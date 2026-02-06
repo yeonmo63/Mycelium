@@ -215,6 +215,8 @@ pub fn run() {
             commands::production::delete_harvest_record,
             commands::production::delete_production_batch,
             commands::production::upload_farming_photo,
+            commands::production::get_media_base64,
+            commands::production::generate_production_pdf,
             commands::config::get_sms_config_for_ui,
             commands::config::save_sms_config,
             commands::config::get_naver_client_id_for_ui,
