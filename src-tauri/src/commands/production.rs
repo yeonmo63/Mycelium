@@ -244,11 +244,28 @@ pub async fn get_harvest_records(
 pub async fn save_harvest_record(
     state: State<'_, DbPool>,
     record: HarvestRecord,
+    complete_batch: Option<bool>,
 ) -> MyceliumResult<()> {
     let pool = state.inner();
+    let mut tx = pool.begin().await?;
+
+    // 1. Get Product ID from Batch
+    let batch_info: (i32, String) =
+        sqlx::query_as("SELECT product_id, batch_code FROM production_batches WHERE batch_id = $1")
+            .bind(record.batch_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    let product_id = batch_info.0;
+    let b_code = batch_info.1;
+
+    // 2. Save Harvest Record
     if record.harvest_id > 0 {
-        query(
-            "UPDATE harvest_records SET batch_id = $1, harvest_date = $2, quantity = $3, unit = $4, grade = $5, traceability_code = $6, memo = $7, updated_at = CURRENT_TIMESTAMP WHERE harvest_id = $8"
+        sqlx::query(
+            "UPDATE harvest_records SET 
+                batch_id = $1, harvest_date = $2, quantity = $3, unit = $4, grade = $5, 
+                traceability_code = $6, memo = $7, package_count = $8, weight_per_package = $9, 
+                package_unit = $10, updated_at = CURRENT_TIMESTAMP WHERE harvest_id = $11",
         )
         .bind(record.batch_id)
         .bind(record.harvest_date)
@@ -257,12 +274,18 @@ pub async fn save_harvest_record(
         .bind(&record.grade)
         .bind(&record.traceability_code)
         .bind(&record.memo)
+        .bind(record.package_count)
+        .bind(&record.weight_per_package)
+        .bind(&record.package_unit)
         .bind(record.harvest_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     } else {
-        query(
-            "INSERT INTO harvest_records (batch_id, harvest_date, quantity, unit, grade, traceability_code, memo) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        sqlx::query(
+            "INSERT INTO harvest_records (
+                batch_id, harvest_date, quantity, unit, grade, traceability_code, memo, 
+                package_count, weight_per_package, package_unit
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(record.batch_id)
         .bind(record.harvest_date)
@@ -271,9 +294,131 @@ pub async fn save_harvest_record(
         .bind(&record.grade)
         .bind(&record.traceability_code)
         .bind(&record.memo)
-        .execute(pool)
+        .bind(record.package_count)
+        .bind(&record.weight_per_package)
+        .bind(&record.package_unit)
+        .execute(&mut *tx)
         .await?;
     }
+
+    // 3. Update Product Stock (Only for new records or simple increment)
+    // For simplicity, we assume new record = increment.
+    // In a real system, editing a record might require calculating delta.
+    if record.harvest_id == 0 {
+        let qty_f64: f64 = record.quantity.to_string().parse().unwrap_or(0.0);
+
+        sqlx::query(
+            "UPDATE products SET stock_quantity = stock_quantity + $1 WHERE product_id = $2",
+        )
+        .bind(qty_f64 as i32)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Add Inventory Log
+        let p_name: String =
+            sqlx::query_scalar("SELECT product_name FROM products WHERE product_id = $1")
+                .bind(product_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        sqlx::query(
+            "INSERT INTO inventory_logs (product_id, product_name, change_type, change_quantity, current_stock, memo, reference_id) 
+             VALUES ($1, $2, '입고', $3, (SELECT stock_quantity FROM products WHERE product_id = $1), $4, $5)"
+        )
+        .bind(product_id)
+        .bind(&p_name)
+        .bind(qty_f64 as i32)
+        .bind(format!("수확 입고 (배치: {})", b_code))
+        .bind(format!("HARVEST_{}", b_code))
+        .execute(&mut *tx).await?;
+    }
+
+    // 4. Handle Batch Completion
+    if complete_batch.unwrap_or(false) {
+        sqlx::query(
+            "UPDATE production_batches SET status = 'completed', end_date = $1 WHERE batch_id = $2",
+        )
+        .bind(record.harvest_date)
+        .bind(record.batch_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+#[command]
+pub async fn save_harvest_batch(
+    state: State<'_, DbPool>,
+    records: Vec<HarvestRecord>,
+) -> MyceliumResult<()> {
+    let pool = state.inner();
+    let mut tx = pool.begin().await?;
+
+    for record in records {
+        // 1. Get Product ID from Batch
+        let batch_info: (i32, String) = sqlx::query_as(
+            "SELECT product_id, batch_code FROM production_batches WHERE batch_id = $1",
+        )
+        .bind(record.batch_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let product_id = batch_info.0;
+        let b_code = batch_info.1;
+
+        // 2. Insert Harvest Record (Batch is always for new records)
+        sqlx::query(
+            "INSERT INTO harvest_records (
+                batch_id, harvest_date, quantity, unit, grade, traceability_code, memo, 
+                package_count, weight_per_package, package_unit
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(record.batch_id)
+        .bind(record.harvest_date)
+        .bind(&record.quantity)
+        .bind(&record.unit)
+        .bind(&record.grade)
+        .bind(&record.traceability_code)
+        .bind(&record.memo)
+        .bind(record.package_count)
+        .bind(&record.weight_per_package)
+        .bind(&record.package_unit)
+        .execute(&mut *tx)
+        .await?;
+
+        // 3. Update Product Stock
+        let qty_f64: f64 = record.quantity.to_string().parse().unwrap_or(0.0);
+        sqlx::query(
+            "UPDATE products SET stock_quantity = stock_quantity + $1 WHERE product_id = $2",
+        )
+        .bind(qty_f64 as i32)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // 4. Add Inventory Log
+        let p_name: String =
+            sqlx::query_scalar("SELECT product_name FROM products WHERE product_id = $1")
+                .bind(product_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        sqlx::query(
+            "INSERT INTO inventory_logs (product_id, product_name, change_type, change_quantity, current_stock, memo, reference_id) 
+             VALUES ($1, $2, '입고', $3, (SELECT stock_quantity FROM products WHERE product_id = $1), $4, $5)"
+        )
+        .bind(product_id)
+        .bind(&p_name)
+        .bind(qty_f64 as i32)
+        .bind(format!("수확 입고(일괄): {}", b_code))
+        .bind(format!("HARVEST_{}_{}", b_code, chrono::Utc::now().timestamp()))
+        .execute(&mut *tx).await?;
+    }
+
+    tx.commit().await?;
     Ok(())
 }
 
@@ -359,6 +504,7 @@ pub async fn generate_production_pdf(
     end_date: String,
     include_attachments: bool,
     include_approval: bool,
+    report_type: String,
 ) -> MyceliumResult<()> {
     let pool = state.inner().clone();
 
@@ -378,13 +524,38 @@ pub async fn generate_production_pdf(
     let end_naive = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d")
         .map_err(|e| MyceliumError::Internal(format!("Invalid end date: {}", e)))?;
 
-    let raw_logs = sqlx::query_as::<_, FarmingLog>(
+    let all_logs = sqlx::query_as::<_, FarmingLog>(
         "SELECT * FROM farming_logs WHERE log_date BETWEEN $1 AND $2 ORDER BY log_date ASC",
     )
     .bind(start_naive)
     .bind(end_naive)
     .fetch_all(&pool)
     .await?;
+
+    let allowed_categories: Option<Vec<&str>> = match report_type.as_str() {
+        "chemical" => Some(vec!["pesticide", "fertilize"]),
+        "sanitation" => Some(vec!["clean", "inspect", "water"]),
+        "harvest" => Some(vec!["harvest", "process"]),
+        "education" => Some(vec!["education"]),
+        _ => None,
+    };
+
+    let raw_logs: Vec<FarmingLog> = if let Some(cats) = allowed_categories {
+        all_logs
+            .into_iter()
+            .filter(|l| cats.contains(&l.work_type.as_str()))
+            .collect()
+    } else {
+        all_logs
+    };
+
+    let main_title = match report_type.as_str() {
+        "chemical" => "농약 살포 및 시비 기록부",
+        "sanitation" => "위생 관리 및 시설 점검표",
+        "harvest" => "수확 및 출하 관리 대장",
+        "education" => "교육 훈련 및 인력 관리 일지",
+        _ => "통합 영농 및 작업 기록장",
+    };
 
     let media_dir: std::path::PathBuf = app
         .path()
@@ -501,20 +672,9 @@ pub async fn generate_production_pdf(
         // 1. HEADER AREA (Title + Period)
         // Title and period without box and English
         // Title (Bold effect)
-        draw_text(
-            &current_layer,
-            margin_x,
-            current_y,
-            20.0,
-            "영농 및 작업 기록장",
-        );
-        draw_text(
-            &current_layer,
-            margin_x + 0.2,
-            current_y,
-            20.0,
-            "영농 및 작업 기록장",
-        );
+        // Title (Bold effect)
+        draw_text(&current_layer, margin_x, current_y, 20.0, main_title);
+        draw_text(&current_layer, margin_x + 0.2, current_y, 20.0, main_title);
         // 기록 기간 (Bold effect)
         let period_txt = format!("기록 기간: {} ~ {}", start_date, end_date);
         draw_text(
@@ -632,8 +792,6 @@ pub async fn generate_production_pdf(
         draw_text(&current_layer, x3 + 3.0, ty2, ts, haccp_num);
 
         current_y = box_bot - 10.0;
-
-        // 3. LOG HEADER (Matching border thickness)
         let header_h: f32 = 12.0;
         let h_top = current_y;
         let h_bot = h_top - header_h;

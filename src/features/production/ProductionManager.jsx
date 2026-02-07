@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
-// --- Sub-components (could be moved to separate files later) ---
+// --- Sub-components ---
 import ProductionSpaces from './components/ProductionSpaces';
 import ProductionBatches from './components/ProductionBatches';
 import ProductionLogs from './components/ProductionLogs';
@@ -51,6 +51,7 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
 
     const [includeAttachments, setIncludeAttachments] = useState(true);
     const [includeApproval, setIncludeApproval] = useState(true);
+    const [reportType, setReportType] = useState('all'); // 'all', 'chemical', 'sanitation', 'harvest', 'education'
     const [reportPeriod, setReportPeriod] = useState({
         start: dayjs().startOf('month').format('YYYY-MM-DD'),
         end: dayjs().endOf('month').format('YYYY-MM-DD')
@@ -120,46 +121,46 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
     return (
         <div className="flex flex-col h-full bg-slate-50/50">
             {/* Header / Navigation Bar */}
-            <div className="bg-white border-b border-slate-200 px-8 py-4 shadow-sm relative z-10">
-                <div className="flex justify-between items-center mb-6">
-                    <div>
-                        <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-100">
-                                <Activity size={24} />
-                            </div>
-                            GAP/HACCP 인증센터
-                        </h1>
-                        <p className="text-xs font-bold text-slate-400 mt-1 ml-13 uppercase tracking-widest">
-                            General Production & GAP/HACCP certification Management System
-                        </p>
+            <div className="bg-white border-b border-slate-200 px-8 pt-2 shadow-sm relative z-10">
+                {/* Line 1: Title */}
+                <div className="flex justify-between items-baseline mb-1">
+                    <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-100">
+                            <Activity size={16} />
+                        </div>
+                        <h1 className="text-lg font-black text-slate-800 tracking-tight">GAP/HACCP 인증센터</h1>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest opacity-60">Certification Management System</p>
+                    </div>
+                </div>
+
+                {/* Line 2: Controls (Aligned Right) */}
+                <div className="flex justify-end items-center gap-3 mb-1">
+                    <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-xl border border-slate-100">
+                        <Calendar size={12} className="text-slate-400" />
+                        <input
+                            type="date"
+                            value={reportPeriod.start}
+                            onChange={e => setReportPeriod(prev => ({ ...prev, start: e.target.value }))}
+                            className="bg-transparent border-none text-[11px] font-black text-slate-600 focus:ring-0 p-0 w-36"
+                        />
+                        <span className="text-slate-300 font-bold text-[10px]">~</span>
+                        <input
+                            type="date"
+                            value={reportPeriod.end}
+                            onChange={e => setReportPeriod(prev => ({ ...prev, end: e.target.value }))}
+                            className="bg-transparent border-none text-[11px] font-black text-slate-600 focus:ring-0 p-0 w-36"
+                        />
                     </div>
 
-                    <div className="flex gap-4 items-center">
-                        <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
-                            <Calendar size={14} className="text-slate-400" />
-                            <input
-                                type="date"
-                                value={reportPeriod.start}
-                                onChange={e => setReportPeriod(prev => ({ ...prev, start: e.target.value }))}
-                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-36"
-                            />
-                            <span className="text-slate-300 font-bold">~</span>
-                            <input
-                                type="date"
-                                value={reportPeriod.end}
-                                onChange={e => setReportPeriod(prev => ({ ...prev, end: e.target.value }))}
-                                className="bg-transparent border-none text-xs font-black text-slate-600 focus:ring-0 p-0 w-36"
-                            />
-                        </div>
-
+                    <div className="flex items-center gap-3 ml-2">
                         <label className="flex items-center gap-2 cursor-pointer group">
                             <input
                                 type="checkbox"
                                 checked={includeAttachments}
                                 onChange={e => setIncludeAttachments(e.target.checked)}
-                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                className="w-3 h-3 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                             />
-                            <span className="text-[11px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider">첨부 포함</span>
+                            <span className="text-[10px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider whitespace-nowrap">첨부</span>
                         </label>
 
                         <label className="flex items-center gap-2 cursor-pointer group">
@@ -167,35 +168,51 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                                 type="checkbox"
                                 checked={includeApproval}
                                 onChange={e => setIncludeApproval(e.target.checked)}
-                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                className="w-3 h-3 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                             />
-                            <span className="text-[11px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider">결재란 포함</span>
+                            <span className="text-[10px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider whitespace-nowrap">결재란</span>
                         </label>
-
-
-                        <button
-                            onClick={() => setIsPreviewOpen(true)}
-                            className="px-5 py-2.5 rounded-2xl font-black text-sm bg-indigo-50 text-indigo-600 hover:bg-white hover:text-indigo-700 shadow-sm border border-indigo-100 transition-all flex items-center gap-2"
-                        >
-                            <Eye size={18} /> 리포트 미리보기
-                        </button>
-
                     </div>
+
+                    <div className="h-5 w-px bg-slate-200 mx-1" />
+
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">양식</span>
+                        <select
+                            value={reportType}
+                            onChange={e => setReportType(e.target.value)}
+                            className="bg-slate-50 border-slate-200 text-[11px] font-black text-slate-700 rounded-xl focus:ring-indigo-500 py-0.5 min-w-[130px]"
+                        >
+                            <option value="all">통합 영농일지</option>
+                            <option value="chemical">농약 및 시비 기록부</option>
+                            <option value="sanitation">위생 및 점검표</option>
+                            <option value="harvest">수확 및 생산 대장</option>
+                            <option value="education">교육 훈련 기록부</option>
+                        </select>
+                    </div>
+
+                    <button
+                        onClick={() => setIsPreviewOpen(true)}
+                        className="px-4 py-1.5 rounded-xl font-black text-[11px] bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all flex items-center gap-2"
+                    >
+                        <Eye size={14} /> 리포트 미리보기
+                    </button>
                 </div>
 
-                <div className="flex gap-2">
+                {/* Line 3: Tabs */}
+                <div className="flex gap-1">
                     {tabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={`
-                                flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all
+                                flex items-center gap-2 px-5 py-1.5 rounded-t-lg font-bold text-xs transition-all
                                 ${activeTab === tab.id
-                                    ? 'bg-slate-900 text-white shadow-lg shadow-slate-200 translate-y-[-2px]'
-                                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'}
+                                    ? 'bg-slate-50 text-indigo-600 border-t-2 border-indigo-600 -mb-[1px]'
+                                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}
                             `}
                         >
-                            <tab.icon size={18} />
+                            <tab.icon size={14} />
                             {tab.label}
                         </button>
                     ))}
@@ -206,8 +223,6 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 {renderContent()}
             </div>
-
-
 
             {/* Global Generation Spinner */}
             {isGenerating && (
@@ -235,6 +250,7 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                     endDate={reportPeriod.end}
                     includeAttachments={includeAttachments}
                     includeApproval={includeApproval}
+                    reportType={reportType}
                     onClose={() => setIsPreviewOpen(false)}
                 />
             )}

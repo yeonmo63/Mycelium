@@ -15,7 +15,23 @@ const workTypes = {
     education: '교육/훈련',
 };
 
-const FarmingReportView = ({ startDate, endDate, includeAttachments, includeApproval, onClose }) => {
+const reportLabels = {
+    all: '통합 영농 및 작업 기록장',
+    chemical: '농약 살포 및 시비 기록부',
+    sanitation: '위생 관리 및 시설 점검표',
+    harvest: '수확 및 출하 관리 대장',
+    education: '교육 훈련 및 인력 관리 일지',
+};
+
+const reportCategoryMap = {
+    all: null,
+    chemical: ['pesticide', 'fertilize'],
+    sanitation: ['clean', 'inspect', 'water'],
+    harvest: ['harvest', 'process'],
+    education: ['education'],
+};
+
+const FarmingReportView = ({ startDate, endDate, includeAttachments, includeApproval, reportType = 'all', onClose }) => {
     const [logs, setLogs] = useState([]);
     const [companyInfo, setCompanyInfo] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -30,12 +46,19 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
                     batchId: null,
                     spaceId: null,
                     startDate: startDate,
-                    endDate: endDate
+                    endDate: endDate,
+                    workType: reportCategoryMap[reportType]?.[0] // Note: Backend needs to support multiple workTypes or we filter here
                 }),
                 invoke('get_company_info')
             ]);
 
-            const reversedLogs = [...logsData].reverse();
+            let filteredLogs = logsData;
+            const allowedCategories = reportCategoryMap[reportType];
+            if (allowedCategories) {
+                filteredLogs = logsData.filter(l => allowedCategories.includes(l.work_type));
+            }
+
+            const reversedLogs = [...filteredLogs].reverse();
             setLogs(reversedLogs);
             setCompanyInfo(companyData);
 
@@ -80,7 +103,7 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
             const savePath = await invoke('plugin:dialog|save', {
                 options: {
                     filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
-                    defaultPath: `GAP_Report_${startDate}_${endDate}.pdf`
+                    defaultPath: `${reportLabels[reportType]}_${startDate}_${endDate}.pdf`
                 }
             });
 
@@ -94,7 +117,8 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
                 startDate,
                 endDate,
                 includeAttachments,
-                includeApproval
+                includeApproval,
+                reportType
             });
 
             // Optional: You could add a success toast here
@@ -206,9 +230,9 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 mb-1">
                                 <div className="w-2 h-8 bg-indigo-600 rounded-full" />
-                                <h1 className="text-3xl font-black tracking-tighter text-slate-800">영농 및 작업 기록장</h1>
+                                <h1 className="text-3xl font-black tracking-tighter text-slate-800">{reportLabels[reportType] || '영농 및 작업 기록장'}</h1>
                             </div>
-                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest pl-4">General Production & GAP/HACCP Logbook</p>
+                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest pl-4">GAP/HACCP Certification Records - {reportType.toUpperCase()}</p>
                             <div className="pl-4">
                                 <span className="inline-block px-3 py-1 bg-slate-100 rounded-lg text-xs font-black text-slate-500">
                                     기록 기간: {dayjs(startDate).format('YYYY년 MM월 DD일')} ~ {dayjs(endDate).format('YYYY년 MM월 DD일')}

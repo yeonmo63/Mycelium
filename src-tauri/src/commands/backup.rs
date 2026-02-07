@@ -977,7 +977,7 @@ async fn backup_database_internal(
     batch_table_internal!(
         "company_info",
         CompanyInfo,
-        "SELECT id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, created_at, updated_at FROM company_info",
+        "SELECT id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, certification_info, created_at, updated_at FROM company_info",
         "company_info",
         "회사 정보 백업 중",
         count_company.0,
@@ -1435,10 +1435,10 @@ pub async fn restore_database(
 
     // PRODUCTS
     restore_table!("products", Product, "상품 정보 복구 중", p, t, {
-        sqlx::query("INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status, category, tax_type, updated_at) 
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) 
-             ON CONFLICT (product_id) DO UPDATE SET product_name=EXCLUDED.product_name, status=EXCLUDED.status, category=EXCLUDED.category, tax_type=EXCLUDED.tax_type, updated_at=EXCLUDED.updated_at")
-            .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.aux_material_id).bind(p.aux_material_ratio).bind(p.item_type).bind(p.product_code).bind(p.status).bind(p.category).bind(p.tax_type).bind(p.updated_at)
+        sqlx::query("INSERT INTO products (product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status, category, tax_type, tax_exempt_value, updated_at) 
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) 
+             ON CONFLICT (product_id) DO UPDATE SET product_name=EXCLUDED.product_name, status=EXCLUDED.status, category=EXCLUDED.category, tax_type=EXCLUDED.tax_type, tax_exempt_value=EXCLUDED.tax_exempt_value, updated_at=EXCLUDED.updated_at")
+            .bind(p.product_id).bind(p.product_name).bind(p.specification).bind(p.unit_price).bind(p.stock_quantity).bind(p.safety_stock).bind(p.cost_price).bind(p.material_id).bind(p.material_ratio).bind(p.aux_material_id).bind(p.aux_material_ratio).bind(p.item_type).bind(p.product_code).bind(p.status).bind(p.category).bind(p.tax_type).bind(p.tax_exempt_value).bind(p.updated_at)
             .execute(&mut **t).await?;
     });
 
@@ -1498,8 +1498,8 @@ pub async fn restore_database(
         c,
         t,
         {
-            sqlx::query("INSERT INTO company_info (id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET company_name=EXCLUDED.company_name, updated_at=EXCLUDED.updated_at")
-            .bind(c.id).bind(c.company_name).bind(c.representative_name).bind(c.address).bind(c.business_type).bind(c.item).bind(c.phone_number).bind(c.mobile_number).bind(c.business_reg_number).bind(c.registration_date).bind(c.memo).bind(c.created_at).bind(c.updated_at)
+            sqlx::query("INSERT INTO company_info (id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, certification_info, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET company_name=EXCLUDED.company_name, certification_info=EXCLUDED.certification_info, updated_at=EXCLUDED.updated_at")
+            .bind(c.id).bind(c.company_name).bind(c.representative_name).bind(c.address).bind(c.business_type).bind(c.item).bind(c.phone_number).bind(c.mobile_number).bind(c.business_reg_number).bind(c.registration_date).bind(c.memo).bind(c.certification_info).bind(c.created_at).bind(c.updated_at)
             .execute(&mut **t).await?;
         }
     );
@@ -1708,8 +1708,8 @@ pub async fn restore_database(
         r,
         t,
         {
-            sqlx::query("INSERT INTO harvest_records (harvest_id, batch_id, harvest_date, quantity, unit, grade, traceability_code, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (harvest_id) DO UPDATE SET quantity=EXCLUDED.quantity, updated_at=EXCLUDED.updated_at")
-            .bind(r.harvest_id).bind(r.batch_id).bind(r.harvest_date).bind(r.quantity).bind(r.unit).bind(r.grade).bind(r.traceability_code).bind(r.memo).bind(r.created_at).bind(r.updated_at)
+            sqlx::query("INSERT INTO harvest_records (harvest_id, batch_id, harvest_date, quantity, unit, grade, traceability_code, lot_number, memo, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (harvest_id) DO UPDATE SET quantity=EXCLUDED.quantity, lot_number=EXCLUDED.lot_number, updated_at=EXCLUDED.updated_at")
+            .bind(r.harvest_id).bind(r.batch_id).bind(r.harvest_date).bind(r.quantity).bind(r.unit).bind(r.grade).bind(r.traceability_code).bind(r.lot_number).bind(r.memo).bind(r.created_at).bind(r.updated_at)
             .execute(&mut **t).await?;
         }
     );
@@ -1830,7 +1830,13 @@ pub async fn reset_database(state: State<'_, DbPool>) -> MyceliumResult<String> 
         .execute(&*state)
         .await?;
 
-    Ok("데이터 초기화가 완료되었습니다.\n모든 데이터가 삭제되고 초기 관리자(admin) 계정만 생성되었습니다.".to_string())
+    // 3. Re-create default Company Info
+    sqlx::query("INSERT INTO company_info (company_name) VALUES ($1)")
+        .bind("(주)대관령송암버섯")
+        .execute(&*state)
+        .await?;
+
+    Ok("데이터 초기화가 완료되었습니다.\n모든 데이터가 삭제되고 초기 관리자(admin) 계정 및 기본 회사 정보가 생성되었습니다.".to_string())
 }
 
 #[command]

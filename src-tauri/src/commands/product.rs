@@ -12,7 +12,7 @@ use tauri::{command, State};
 #[command]
 pub async fn get_product_list(state: State<'_, DbPool>) -> MyceliumResult<Vec<Product>> {
     let products = sqlx::query_as::<_, Product>(
-        "SELECT product_id, product_name, specification, unit_price, stock_quantity, safety_stock, cost_price, material_id, material_ratio, aux_material_id, aux_material_ratio, item_type, product_code, status, category, tax_type, tax_exempt_value FROM products ORDER BY product_name"
+        "SELECT * FROM products ORDER BY product_name"
     )
     .fetch_all(&*state)
     .await?;

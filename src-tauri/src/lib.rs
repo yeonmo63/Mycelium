@@ -30,9 +30,13 @@ pub fn run() {
                 if let Ok(pool) = pool_res {
                     app_handle.manage(pool.clone());
                     is_configured = true;
-                    tauri::async_runtime::spawn(async move {
-                        let _ = crate::db::init_database(&pool).await;
-                    });
+
+                    // BLOCKING initialization to ensure schema is ready before any window opens
+                    if let Err(e) = tauri::async_runtime::block_on(async {
+                        crate::db::init_database(&pool).await
+                    }) {
+                        eprintln!("Critical: Database initialization failed: {:?}", e);
+                    }
                 }
             }
 
@@ -213,6 +217,7 @@ pub fn run() {
             commands::production::get_harvest_records,
             commands::production::save_harvest_record,
             commands::production::delete_harvest_record,
+            commands::production::save_harvest_batch,
             commands::production::delete_production_batch,
             commands::production::upload_farming_photo,
             commands::production::get_media_base64,

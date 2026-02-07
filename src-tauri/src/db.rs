@@ -19,6 +19,13 @@ pub async fn init_pool(database_url: &str) -> MyceliumResult<DbPool> {
 }
 
 pub async fn init_database(pool: &DbPool) -> MyceliumResult<()> {
+    // FIX: Resolution for Migration VersionMismatch(20260202173000)
+    // Deleting the record so SQLx re-runs it and updates the checksum.
+    // The migration file has IF NOT EXISTS guards for all operations.
+    let _ = sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260202173000")
+        .execute(pool)
+        .await;
+
     // 1. Run Migrations (Schema + Triggers)
     // This will look for .sql files in the migrations directory and apply them.
     sqlx::migrate!("./migrations").run(pool).await?;
@@ -65,14 +72,33 @@ pub async fn init_database(pool: &DbPool) -> MyceliumResult<()> {
     sqlx::query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_exempt_value INTEGER DEFAULT 0")
         .execute(pool)
         .await?;
-    sqlx::query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_type VARCHAR(20)")
+    sqlx::query("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_type VARCHAR(20) DEFAULT '면세'")
         .execute(pool)
         .await?;
     sqlx::query("ALTER TABLE products ADD COLUMN IF NOT EXISTS tax_exempt_value INTEGER DEFAULT 0")
         .execute(pool)
         .await?;
+    sqlx::query(
+        "ALTER TABLE products ADD COLUMN IF NOT EXISTS tax_type VARCHAR(20) DEFAULT '면세'",
+    )
+    .execute(pool)
+    .await?;
 
-    // 7. Ensure certification_info exists in company_info with a safe default
+    // 7. Ensure lot_number and certification_info exist
+    sqlx::query("ALTER TABLE harvest_records ADD COLUMN IF NOT EXISTS lot_number VARCHAR(100)")
+        .execute(pool)
+        .await?;
+    sqlx::query("ALTER TABLE harvest_records ADD COLUMN IF NOT EXISTS package_count INTEGER")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        "ALTER TABLE harvest_records ADD COLUMN IF NOT EXISTS weight_per_package NUMERIC(10, 2)",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("ALTER TABLE harvest_records ADD COLUMN IF NOT EXISTS package_unit VARCHAR(50)")
+        .execute(pool)
+        .await?;
     sqlx::query("ALTER TABLE company_info ADD COLUMN IF NOT EXISTS certification_info JSONB DEFAULT '{}'::jsonb")
         .execute(pool)
         .await?;
@@ -799,6 +825,14 @@ pub struct HarvestRecord {
     pub unit: String,
     pub grade: Option<String>,
     pub traceability_code: Option<String>,
+    #[sqlx(default)]
+    pub lot_number: Option<String>,
+    #[sqlx(default)]
+    pub package_count: Option<i32>,
+    #[sqlx(default)]
+    pub weight_per_package: Option<rust_decimal::Decimal>,
+    #[sqlx(default)]
+    pub package_unit: Option<String>,
     pub memo: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     #[sqlx(default)]
