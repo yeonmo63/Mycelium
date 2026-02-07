@@ -26,6 +26,7 @@ dist-ssr
 # Rust
 target/
 src-tauri/target/
+src-tauri/target_tmp*/
 src-tauri/gen/
 
 # SQL and Backups

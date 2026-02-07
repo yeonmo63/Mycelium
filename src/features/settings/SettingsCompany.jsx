@@ -28,7 +28,8 @@ const SettingsCompany = () => {
         address: '',
         business_type: '',
         item: '',
-        memo: ''
+        memo: '',
+        certification_info: { gap: '', haccp: '', organic: '' }
     });
 
     // --- Admin Guard Check ---
@@ -62,7 +63,8 @@ const SettingsCompany = () => {
                             address: info.address || '',
                             business_type: info.business_type || '',
                             item: info.item || '',
-                            memo: info.memo || ''
+                            memo: info.memo || '',
+                            certification_info: info.certification_info || { gap: '', haccp: '', organic: '' }
                         });
                     }
                 } catch (err) {
@@ -92,7 +94,8 @@ const SettingsCompany = () => {
                 address: formData.address || null,
                 businessType: formData.business_type || null,
                 item: formData.item || null,
-                memo: formData.memo || null
+                memo: formData.memo || null,
+                certificationInfo: formData.certification_info
             });
             window.dispatchEvent(new Event('company-info-changed'));
             await showAlert('저장 완료', '업체 정보가 저장되었습니다.');
@@ -268,6 +271,49 @@ const SettingsCompany = () => {
                                         onChange={e => setFormData({ ...formData, mobile_number: e.target.value })}
                                         className="w-full h-11 px-4 bg-white border-none rounded-xl font-bold text-sm text-slate-900 focus:ring-4 focus:ring-indigo-500/10 transition-all ring-1 ring-inset ring-slate-200"
                                         placeholder="010-0000-0000"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Section 2.5: Certification Info - GAP/HACCP */}
+                        <div className="p-6 bg-white border-b border-slate-50 text-left">
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
+                                    <CheckCircle size={16} />
+                                </div>
+                                <h2 className="text-lg font-black text-slate-700 tracking-tight">인증 및 품질 관리 정보</h2>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-teal-600">GAP 인증번호</label>
+                                    <input
+                                        type="text"
+                                        value={formData.certification_info.gap}
+                                        onChange={e => setFormData({ ...formData, certification_info: { ...formData.certification_info, gap: e.target.value } })}
+                                        className="w-full h-11 px-4 bg-slate-50 border-none rounded-xl font-bold text-sm text-slate-900 focus:ring-4 focus:ring-teal-500/10 transition-all ring-1 ring-inset ring-slate-200"
+                                        placeholder="GAP 인증번호 입력"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-teal-600">HACCP 인증번호</label>
+                                    <input
+                                        type="text"
+                                        value={formData.certification_info.haccp}
+                                        onChange={e => setFormData({ ...formData, certification_info: { ...formData.certification_info, haccp: e.target.value } })}
+                                        className="w-full h-11 px-4 bg-slate-50 border-none rounded-xl font-bold text-sm text-slate-900 focus:ring-4 focus:ring-teal-500/10 transition-all ring-1 ring-inset ring-slate-200"
+                                        placeholder="HACCP 인증번호 입력"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-teal-600">친환경/무농약 인증번호</label>
+                                    <input
+                                        type="text"
+                                        value={formData.certification_info.organic}
+                                        onChange={e => setFormData({ ...formData, certification_info: { ...formData.certification_info, organic: e.target.value } })}
+                                        className="w-full h-11 px-4 bg-slate-50 border-none rounded-xl font-bold text-sm text-slate-900 focus:ring-4 focus:ring-teal-500/10 transition-all ring-1 ring-inset ring-slate-200"
+                                        placeholder="인증번호 입력"
                                     />
                                 </div>
                             </div>

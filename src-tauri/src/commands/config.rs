@@ -744,9 +744,14 @@ pub async fn get_company_info(
     state: State<'_, crate::db::DbPool>,
 ) -> MyceliumResult<Option<CompanyInfo>> {
     let pool = state.inner();
-    let row = sqlx::query_as::<_, CompanyInfo>("SELECT * FROM company_info LIMIT 1")
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query_as::<_, CompanyInfo>(
+        "SELECT id, company_name, representative_name, address, business_type, item, 
+         phone_number, mobile_number, business_reg_number, registration_date, memo, 
+         created_at, updated_at 
+         FROM company_info LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
     Ok(row)
 }
 
@@ -763,6 +768,7 @@ pub async fn save_company_info(
     address: Option<String>,
     business_type: Option<String>,
     item: Option<String>,
+    certification_info: Option<serde_json::Value>,
 ) -> MyceliumResult<()> {
     let reg_date = registration_date.and_then(|s| {
         chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
@@ -782,7 +788,7 @@ pub async fn save_company_info(
             "UPDATE company_info SET 
              company_name = $1, representative_name = $2, phone_number = $3, 
              mobile_number = $4, business_reg_number = $5, registration_date = $6, memo = $7, 
-             address = $8, business_type = $9, item = $10,
+             address = $8, business_type = $9, item = $10, certification_info = $11,
              updated_at = CURRENT_TIMESTAMP",
         )
         .bind(company_name)
@@ -795,14 +801,15 @@ pub async fn save_company_info(
         .bind(address)
         .bind(business_type)
         .bind(item)
+        .bind(certification_info)
         .execute(pool)
         .await?;
     } else {
         sqlx::query(
             "INSERT INTO company_info 
              (company_name, representative_name, phone_number, mobile_number, 
-              business_reg_number, registration_date, memo, address, business_type, item)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+              business_reg_number, registration_date, memo, address, business_type, item, certification_info)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(company_name)
         .bind(representative_name)
@@ -814,6 +821,7 @@ pub async fn save_company_info(
         .bind(address)
         .bind(business_type)
         .bind(item)
+        .bind(certification_info)
         .execute(pool)
         .await?;
     }

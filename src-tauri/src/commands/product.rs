@@ -730,8 +730,14 @@ pub async fn adjust_product_stock(
                 .bind(&memo)
                 .execute(&mut *tx).await?;
 
-            // 3. Insert into farming_logs (4th tab - GAP/HACCP)
-            sqlx::query("INSERT INTO farming_logs (batch_id, space_id, log_date, work_type, work_content, worker_name) VALUES ($1, $2, CURRENT_DATE, 'harvest', $3, '시스템자동')")
+            // 3. Get representative name
+            let rep_name = sqlx::query_scalar::<_, String>("SELECT representative_name FROM company_info LIMIT 1")
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or_else(|| "시스템자동".to_string());
+
+            // 4. Insert into farming_logs (4th tab - GAP/HACCP)
+            sqlx::query("INSERT INTO farming_logs (batch_id, space_id, log_date, work_type, work_content, worker_name) VALUES ($1, $2, CURRENT_DATE, 'harvest', $3, $4)")
                 .bind(batch_id)
                 .bind(space_id)
                 .bind(format!("[자동] 수확 입고: {} (수량: {}{}) - {}", 
@@ -739,6 +745,7 @@ pub async fn adjust_product_stock(
                     changeQty, 
                     product.specification.as_deref().unwrap_or(""),
                     if memo.is_empty() { "기록 없음" } else { &memo }))
+                .bind(rep_name)
                 .execute(&mut *tx).await?;
         }
     }

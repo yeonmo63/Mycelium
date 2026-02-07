@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { appDataDir, join } from '@tauri-apps/api/path';
+import { save } from '@tauri-apps/plugin-dialog';
 import { useModal } from '../../contexts/ModalContext';
 import {
     LayoutDashboard,
@@ -8,7 +9,6 @@ import {
     FlaskConical,
     History,
     Boxes,
-    Plus,
     Search,
     Filter,
     Calendar,
@@ -20,7 +20,9 @@ import {
     User,
     CheckCircle2,
     Clock,
-    Activity
+    Activity,
+    Eye,
+    Download
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -29,11 +31,13 @@ import ProductionSpaces from './components/ProductionSpaces';
 import ProductionBatches from './components/ProductionBatches';
 import ProductionLogs from './components/ProductionLogs';
 import HarvestRecords from './components/HarvestRecords';
-import GapReportView from './components/GapReportView';
+import FarmingReportView from './components/FarmingReportView';
+
 
 const ProductionManager = ({ initialTab = 'dashboard' }) => {
     const [activeTab, setActiveTab] = useState(initialTab);
     const { showAlert, showConfirm } = useModal();
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [stats, setStats] = useState({
         activeBatches: 0,
         todayLogs: 0,
@@ -42,11 +46,11 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
     });
     const [recentLogs, setRecentLogs] = useState([]);
     const [spaces, setSpaces] = useState([]);
-    const [reportData, setReportData] = useState({ logs: [], company: {} });
-    const [isPrintingReport, setIsPrintingReport] = useState(false);
+
     const [isGenerating, setIsGenerating] = useState(false);
 
     const [includeAttachments, setIncludeAttachments] = useState(true);
+    const [includeApproval, setIncludeApproval] = useState(true);
     const [reportPeriod, setReportPeriod] = useState({
         start: dayjs().startOf('month').format('YYYY-MM-DD'),
         end: dayjs().endOf('month').format('YYYY-MM-DD')
@@ -157,115 +161,25 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                             />
                             <span className="text-[11px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider">첨부 포함</span>
                         </label>
-                        <button
-                            onClick={async () => {
-                                try {
-                                    // Fetch data for report with period
-                                    const rawLogs = await invoke('get_farming_logs', {
-                                        batchId: null,
-                                        spaceId: null,
-                                        startDate: reportPeriod.start,
-                                        endDate: reportPeriod.end
-                                    });
-                                    const company = await invoke('get_company_info');
 
-                                    let logs = [...rawLogs];
-                                    if (includeAttachments) {
-                                        const appDir = await appDataDir();
-                                        const mediaDir = await join(appDir, 'media');
+                        <label className="flex items-center gap-2 cursor-pointer group">
+                            <input
+                                type="checkbox"
+                                checked={includeApproval}
+                                onChange={e => setIncludeApproval(e.target.checked)}
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="text-[11px] font-black text-slate-500 group-hover:text-indigo-600 transition-colors uppercase tracking-wider">결재란 포함</span>
+                        </label>
 
-                                        // Resolve image paths for each log using Base64 for reliability in printing
-                                        logs = await Promise.all(rawLogs.map(async log => {
-                                            if (Array.isArray(log.photos)) {
-                                                const resolvedPhotos = await Promise.all(log.photos.map(async p => {
-                                                    try {
-                                                        const base64Data = await invoke('get_media_base64', { fileName: p.path });
-                                                        return { ...p, resolvedPath: base64Data };
-                                                    } catch (e) {
-                                                        console.error(`Failed to load photo ${p.path}:`, e);
-                                                        return p;
-                                                    }
-                                                }));
-                                                return { ...log, photos: resolvedPhotos };
-                                            }
-                                            return log;
-                                        }));
-                                    }
-
-                                    setReportData({ logs, company: company || {} });
-
-                                    const confirmed = await showConfirm(
-                                        "GAP/HACCP 리포트 출력",
-                                        `${dayjs(reportPeriod.start).format('YYYY-MM-DD')} ~ ${dayjs(reportPeriod.end).format('YYYY-MM-DD')} 기간의\n${logs.length}건의 데이터를 기반으로 리포트를 생성했습니다. 출력하시겠습니까?`
-                                    );
-
-                                    if (confirmed) {
-                                        setIsPrintingReport(true);
-                                        // Wait longer to ensure images are actually loaded in the DOM before printing
-                                        setTimeout(() => {
-                                            window.print();
-                                            setIsPrintingReport(false);
-                                        }, 1500);
-                                    }
-                                } catch (err) {
-                                    console.error(err);
-                                    showAlert("오류", "일지 데이터를 불러오는데 실패했습니다.");
-                                }
-                            }}
-                            className="bg-white border-2 border-slate-200 text-slate-700 px-5 py-2.5 rounded-2xl font-black text-sm hover:border-indigo-600 hover:text-indigo-600 transition-all flex items-center gap-2 shadow-sm"
-                        >
-                            <History size={18} />
-                            GAP/HACCP 리포트 출력
-                        </button>
 
                         <button
-                            disabled={isGenerating}
-                            onClick={async () => {
-                                try {
-                                    setIsGenerating(true);
-
-                                    // Step 1: Request save location
-                                    const savePath = await invoke('plugin:dialog|save', {
-                                        filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
-                                        defaultPath: `GAP_Report_${reportPeriod.start}_${reportPeriod.end}.pdf`
-                                    });
-
-                                    if (!savePath) {
-                                        setIsGenerating(false);
-                                        return;
-                                    }
-
-                                    // Step 2: Call backend to generate PDF
-                                    // We'll pass the period and backend will fetch raw data to save memory
-                                    await invoke('generate_production_pdf', {
-                                        savePath,
-                                        startDate: reportPeriod.start,
-                                        endDate: reportPeriod.end,
-                                        includeAttachments
-                                    });
-
-                                    showAlert("성공", "PDF 리포트가 성공적으로 생성되었습니다.");
-                                } catch (err) {
-                                    console.error(err);
-                                    showAlert("오류", "PDF 생성 중 오류가 발생했습니다: " + err);
-                                } finally {
-                                    setIsGenerating(false);
-                                }
-                            }}
-                            className={`
-                                px-5 py-2.5 rounded-2xl font-black text-sm transition-all flex items-center gap-2 shadow-sm
-                                ${isGenerating
-                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                    : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'}
-                            `}
+                            onClick={() => setIsPreviewOpen(true)}
+                            className="px-5 py-2.5 rounded-2xl font-black text-sm bg-indigo-50 text-indigo-600 hover:bg-white hover:text-indigo-700 shadow-sm border border-indigo-100 transition-all flex items-center gap-2"
                         >
-                            {isGenerating ? (
-                                <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
-                            ) : (
-                                <Plus size={18} />
-                            )}
-                            PDF 리포트 생성
+                            <Eye size={18} /> 리포트 미리보기
                         </button>
+
                     </div>
                 </div>
 
@@ -293,13 +207,7 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                 {renderContent()}
             </div>
 
-            {/* Hidden Print View */}
-            <GapReportView
-                logs={reportData.logs}
-                companyInfo={reportData.company}
-                isPrinting={isPrintingReport}
-                includeAttachments={includeAttachments}
-            />
+
 
             {/* Global Generation Spinner */}
             {isGenerating && (
@@ -318,6 +226,17 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Farming Report Preview Modal */}
+            {isPreviewOpen && (
+                <FarmingReportView
+                    startDate={reportPeriod.start}
+                    endDate={reportPeriod.end}
+                    includeAttachments={includeAttachments}
+                    includeApproval={includeApproval}
+                    onClose={() => setIsPreviewOpen(false)}
+                />
             )}
         </div>
     );

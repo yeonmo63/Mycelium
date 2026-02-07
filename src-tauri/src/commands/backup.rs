@@ -977,7 +977,7 @@ async fn backup_database_internal(
     batch_table_internal!(
         "company_info",
         CompanyInfo,
-        "SELECT * FROM company_info",
+        "SELECT id, company_name, representative_name, address, business_type, item, phone_number, mobile_number, business_reg_number, registration_date, memo, created_at, updated_at FROM company_info",
         "company_info",
         "회사 정보 백업 중",
         count_company.0,

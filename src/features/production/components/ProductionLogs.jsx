@@ -29,9 +29,9 @@ const ProductionLogs = () => {
         worker_name: '',
         work_type: 'plant',
         work_content: '',
-        input_materials: null,
+        input_materials: [],
         env_data: { temp: '', humidity: '', co2: '' },
-        photos: [] // Initialized as empty array for JSONB
+        photos: []
     });
 
     const workTypes = [
@@ -77,6 +77,7 @@ const ProductionLogs = () => {
             setFormData({
                 ...log,
                 env_data: log.env_data || { temp: '', humidity: '', co2: '' },
+                input_materials: Array.isArray(log.input_materials) ? log.input_materials : [],
                 photos: Array.isArray(log.photos) ? log.photos : []
             });
         } else {
@@ -89,7 +90,7 @@ const ProductionLogs = () => {
                 worker_name: localStorage.getItem('last_worker') || '',
                 work_type: 'plant',
                 work_content: '',
-                input_materials: null,
+                input_materials: [],
                 env_data: { temp: '', humidity: '', co2: '' },
                 photos: []
             });
@@ -105,7 +106,6 @@ const ProductionLogs = () => {
             });
 
             if (selected) {
-                // In some Tauri versions, open might return an array even for multiple: false
                 const filePath = Array.isArray(selected) ? selected[0] : selected;
                 if (!filePath) return;
 
@@ -115,7 +115,7 @@ const ProductionLogs = () => {
 
                 newPhotos.push({
                     id: Date.now(),
-                    type, // 'photo' or 'receipt'
+                    type,
                     path: fileName,
                     label: `증${labelIndex})`,
                     displayPath: convertFileSrc(filePath)
@@ -125,7 +125,7 @@ const ProductionLogs = () => {
             }
         } catch (err) {
             console.error('File upload failed:', err);
-            showAlert('오류', '이미지 처리 실패: ' + (err.message || typeof err === 'string' ? err : JSON.stringify(err)));
+            showAlert('오류', '이미지 처리 실패: ' + err);
         }
     };
 
@@ -134,6 +134,28 @@ const ProductionLogs = () => {
             ...prev,
             photos: prev.photos.filter(p => p.id !== id)
         }));
+    };
+
+    const addMaterial = () => {
+        const currentMaterials = Array.isArray(formData.input_materials) ? formData.input_materials : [];
+        setFormData({
+            ...formData,
+            input_materials: [...currentMaterials, { id: Date.now(), name: '', quantity: '', unit: 'kg', purpose: '' }]
+        });
+    };
+
+    const updateMaterial = (id, field, value) => {
+        setFormData({
+            ...formData,
+            input_materials: formData.input_materials.map(m => m.id === id ? { ...m, [field]: value } : m)
+        });
+    };
+
+    const removeMaterial = (id) => {
+        setFormData({
+            ...formData,
+            input_materials: formData.input_materials.filter(m => m.id !== id)
+        });
     };
 
     const handleSave = async () => {
@@ -148,6 +170,7 @@ const ProductionLogs = () => {
                     ...formData,
                     batch_id: formData.batch_id ? parseInt(formData.batch_id) : null,
                     space_id: formData.space_id ? parseInt(formData.space_id) : null,
+                    input_materials: formData.input_materials.length > 0 ? formData.input_materials : null
                 }
             });
             localStorage.setItem('last_worker', formData.worker_name);
@@ -159,6 +182,19 @@ const ProductionLogs = () => {
         }
     };
 
+    const handleDelete = async (id) => {
+        const confirmed = await showConfirm('알림', '정말로 이 일지를 삭제하시겠습니까?');
+        if (confirmed) {
+            try {
+                await invoke('delete_farming_log', { logId: id });
+                loadData();
+                showAlert('성공', '일지가 삭제되었습니다.');
+            } catch (err) {
+                showAlert('오류', `삭제 실패: ${err}`);
+            }
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-end">
@@ -166,12 +202,14 @@ const ProductionLogs = () => {
                     <h3 className="text-xl font-black text-slate-700">영농일지 (GAP/HACCP 연동)</h3>
                     <p className="text-xs font-bold text-slate-400 mt-1">현장 작업을 실시간으로 기록하여 인증 서류 자동 생성 기반을 마련합니다.</p>
                 </div>
-                <button
-                    onClick={() => handleOpenModal()}
-                    className="h-12 px-6 bg-indigo-600 border-none rounded-2xl font-black text-sm text-white flex items-center gap-2 shadow-xl shadow-indigo-100 transition-all active:scale-[0.95] hover:bg-indigo-500"
-                >
-                    <Plus size={18} /> 일지 새로 쓰기
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => handleOpenModal()}
+                        className="h-12 px-6 bg-indigo-600 border-none rounded-2xl font-black text-sm text-white flex items-center gap-2 shadow-xl shadow-indigo-100 transition-all active:scale-[0.95] hover:bg-indigo-500"
+                    >
+                        <Plus size={18} /> 일지 새로 쓰기
+                    </button>
+                </div>
             </div>
 
             <div className="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
@@ -180,7 +218,6 @@ const ProductionLogs = () => {
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
                         <input type="text" placeholder="작업 내용이나 작업자 검색..." className="w-full h-10 pl-12 pr-4 bg-white border-none rounded-xl text-sm font-bold shadow-sm ring-1 ring-slate-100 focus:ring-indigo-500/20 transition-all" />
                     </div>
-                    <button className="h-10 px-4 bg-white rounded-xl border border-slate-100 text-slate-500 font-bold text-xs flex items-center gap-2 shadow-sm"><Filter size={14} /> 필터</button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -191,7 +228,7 @@ const ProductionLogs = () => {
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">장소/배치</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">작업 내용</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">작업자</th>
-                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">전실 환경</th>
+                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">환경</th>
                                 <th className="px-6 py-4 text-right"></th>
                             </tr>
                         </thead>
@@ -204,10 +241,10 @@ const ProductionLogs = () => {
                                         <td className="px-6 py-5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-xl bg-slate-100 flex flex-col items-center justify-center shrink-0">
-                                                    <span className="text-[10px] font-black text-slate-400 leading-none">{dayjs(log.log_date).format('MMM')}</span>
+                                                    <span className="text-[10px] font-black text-slate-400 leading-none">{dayjs(log.log_date).format('MM')}</span>
                                                     <span className="text-sm font-black text-slate-700 leading-none mt-0.5">{dayjs(log.log_date).format('DD')}</span>
                                                 </div>
-                                                <div className={`px-2 py-1 rounded bg-${workType.color}-50 text-${workType.color}-600 text-[10px] font-black uppercase`}>
+                                                <div className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-black uppercase">
                                                     {workType.label}
                                                 </div>
                                             </div>
@@ -236,7 +273,10 @@ const ProductionLogs = () => {
                                             </div>
                                         </td>
                                         <td className="px-6 py-5 text-right">
-                                            <button onClick={() => handleOpenModal(log)} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"><Edit2 size={16} /></button>
+                                            <div className="flex gap-1 justify-end">
+                                                <button onClick={() => handleOpenModal(log)} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"><Edit2 size={16} /></button>
+                                                <button onClick={() => handleDelete(log.log_id)} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><Trash2 size={16} /></button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -246,7 +286,7 @@ const ProductionLogs = () => {
                                 <tr>
                                     <td colSpan="6" className="py-20 text-center">
                                         <ClipboardList size={48} className="mx-auto text-slate-100 mb-3" />
-                                        <p className="text-slate-400 font-bold">오늘 작성된 일지가 없습니다.</p>
+                                        <p className="text-slate-400 font-bold">등록된 영농일지가 없습니다.</p>
                                     </td>
                                 </tr>
                             )}
@@ -259,12 +299,12 @@ const ProductionLogs = () => {
             {isModalOpen && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"></div>
-                    <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-8 border-b border-slate-50 flex justify-between items-center">
                             <h3 className="text-xl font-black text-slate-800">{editingLog ? '영농일지 수정' : '영농일지 작성'}</h3>
                             <div className="text-right">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">자동 저장 시스템</p>
-                                <p className="text-xs font-bold text-teal-600">HACCP Compliance Active</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">인증 대응 기록 시스템</p>
+                                <p className="text-xs font-bold text-teal-600">GAP/HACCP 준수 모드</p>
                             </div>
                         </div>
 
@@ -274,13 +314,13 @@ const ProductionLogs = () => {
                                 <input type="date" value={formData.log_date} onChange={e => setFormData({ ...formData, log_date: e.target.value })} className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100" />
                             </div>
                             <div className="space-y-2 text-left">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">작업자 이름</label>
-                                <input type="text" value={formData.worker_name} onChange={e => setFormData({ ...formData, worker_name: e.target.value })} placeholder="실무자 성함" className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100" />
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">작업자</label>
+                                <input type="text" value={formData.worker_name} onChange={e => setFormData({ ...formData, worker_name: e.target.value })} placeholder="성함 입력" className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100" />
                             </div>
 
                             <div className="space-y-2 text-left col-span-2">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">작업 유형 선택</label>
-                                <div className="grid grid-cols-4 gap-2">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">작업 유형</label>
+                                <div className="grid grid-cols-5 gap-2">
                                     {workTypes.map(type => (
                                         <button
                                             key={type.id}
@@ -300,106 +340,88 @@ const ProductionLogs = () => {
                             </div>
 
                             <div className="space-y-2 text-left">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">시설/필지</label>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">작업 구획</label>
                                 <select
                                     value={formData.space_id || ''}
                                     onChange={e => setFormData({ ...formData, space_id: e.target.value || null })}
                                     className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100"
                                 >
-                                    <option value="">장소 선택 안함</option>
+                                    <option value="">구획 선택</option>
                                     {spaces.map(s => <option key={s.space_id} value={s.space_id}>{s.space_name}</option>)}
                                 </select>
                             </div>
                             <div className="space-y-2 text-left">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">생산 배치 (선택사항)</label>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Batch Code (선택)</label>
                                 <select
                                     value={formData.batch_id || ''}
                                     onChange={e => setFormData({ ...formData, batch_id: e.target.value || null })}
                                     className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100"
                                 >
-                                    <option value="">배치 선택 안함</option>
+                                    <option value="">배치 선택</option>
                                     {batches.map(b => <option key={b.batch_id} value={b.batch_id}>{b.batch_code}</option>)}
                                 </select>
                             </div>
 
                             <div className="space-y-2 text-left col-span-2">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">구체적 작업 내용</label>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">상세 작업 내용</label>
                                 <textarea
                                     value={formData.work_content}
                                     onChange={e => setFormData({ ...formData, work_content: e.target.value })}
-                                    placeholder="어떤 작업을 하셨나요? (예: 관수 2시간 진행, 배지 500개 입고 등)"
-                                    className="w-full h-32 p-5 bg-slate-50 border-none rounded-[2rem] font-bold text-sm ring-1 ring-slate-100 resize-none"
+                                    className="w-full h-24 p-5 bg-slate-50 border-none rounded-[2rem] font-bold text-sm ring-1 ring-slate-100 resize-none"
                                 />
                             </div>
 
-                            <div className="col-span-2 grid grid-cols-3 gap-4 p-6 bg-slate-50/50 rounded-3xl border border-slate-100">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase">온도 (°C)</label>
-                                    <input type="number" step="0.1" value={formData.env_data.temp} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, temp: e.target.value } })} className="w-full h-10 px-4 bg-white border-none rounded-xl text-sm font-black ring-1 ring-slate-100" />
+                            <div className="col-span-2 space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">투입 자재/약제 내역</label>
+                                    <button type="button" onClick={addMaterial} className="text-[10px] font-black text-indigo-600 px-3 py-1 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-all">+ 자재 추가</button>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase">습도 (%)</label>
-                                    <input type="number" step="0.1" value={formData.env_data.humidity} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, humidity: e.target.value } })} className="w-full h-10 px-4 bg-white border-none rounded-xl text-sm font-black ring-1 ring-slate-100" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase">CO2 (ppm)</label>
-                                    <input type="number" value={formData.env_data.co2} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, co2: e.target.value } })} className="w-full h-10 px-4 bg-white border-none rounded-xl text-sm font-black ring-1 ring-slate-100" />
+                                    {formData.input_materials.map(m => (
+                                        <div key={m.id} className="flex gap-2 items-center bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                                            <input type="text" placeholder="자재명" value={m.name} onChange={e => updateMaterial(m.id, 'name', e.target.value)} className="flex-2 h-9 px-3 bg-white border-none rounded-xl text-xs font-bold" />
+                                            <input type="text" placeholder="수량" value={m.quantity} onChange={e => updateMaterial(m.id, 'quantity', e.target.value)} className="flex-1 h-9 px-3 bg-white border-none rounded-xl text-xs font-bold w-16" />
+                                            <select value={m.unit} onChange={e => updateMaterial(m.id, 'unit', e.target.value)} className="h-9 px-2 bg-white border-none rounded-xl text-xs font-bold shadow-sm">
+                                                <option value="kg">kg</option>
+                                                <option value="L">L</option>
+                                                <option value="g">g</option>
+                                                <option value="ml">ml</option>
+                                                <option value="포">포</option>
+                                            </select>
+                                            <input type="text" placeholder="용도/배수" value={m.purpose} onChange={e => updateMaterial(m.id, 'purpose', e.target.value)} className="flex-2 h-9 px-3 bg-white border-none rounded-xl text-xs font-bold" />
+                                            <button type="button" onClick={() => removeMaterial(m.id)} className="p-2 text-rose-400 hover:bg-rose-50 rounded-lg"><Trash2 size={14} /></button>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
-                            <div className="col-span-2 space-y-4">
-                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">증빙 자료 첨부 (사진/영수증)</label>
-                                <div className="flex gap-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleFileUpload('photo')}
-                                        className="flex-1 h-20 rounded-[1.5rem] border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600 transition-all"
-                                    >
-                                        <Camera size={20} />
-                                        현장 사진 추가
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleFileUpload('receipt')}
-                                        className="flex-1 h-20 rounded-[1.5rem] border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-all"
-                                    >
-                                        <FileText size={20} />
-                                        자재 영수증 추가
-                                    </button>
+                            <div className="col-span-2 grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-3xl border border-slate-100">
+                                <div className="space-y-1">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase">Temp (°C)</label>
+                                    <input type="number" step="0.1" value={formData.env_data.temp} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, temp: e.target.value } })} className="w-full h-9 px-3 bg-white border-none rounded-xl text-xs font-black shadow-sm" />
                                 </div>
+                                <div className="space-y-1">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase">Humid (%)</label>
+                                    <input type="number" step="0.1" value={formData.env_data.humidity} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, humidity: e.target.value } })} className="w-full h-9 px-3 bg-white border-none rounded-xl text-xs font-black shadow-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase">CO2 (ppm)</label>
+                                    <input type="number" value={formData.env_data.co2} onChange={e => setFormData({ ...formData, env_data: { ...formData.env_data, co2: e.target.value } })} className="w-full h-9 px-3 bg-white border-none rounded-xl text-xs font-black shadow-sm" />
+                                </div>
+                            </div>
 
+                            <div className="col-span-2 space-y-3">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">증빙 자료/영수증</label>
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => handleFileUpload('photo')} className="flex-1 h-16 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-[10px] flex flex-col items-center justify-center gap-1 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600 transition-all"><Camera size={18} /> 현장 사진</button>
+                                    <button type="button" onClick={() => handleFileUpload('receipt')} className="flex-1 h-16 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-[10px] flex flex-col items-center justify-center gap-1 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-all"><FileText size={18} /> 영수증</button>
+                                </div>
                                 {formData.photos?.length > 0 && (
-                                    <div className="grid grid-cols-4 gap-3 mt-4">
+                                    <div className="grid grid-cols-4 gap-2 mt-2">
                                         {formData.photos.map(p => (
-                                            <div key={p.id} className="relative group aspect-square rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden shadow-sm">
-                                                <div className="absolute inset-0 flex items-center justify-center">
-                                                    {p.displayPath ? (
-                                                        <img
-                                                            src={p.displayPath}
-                                                            alt={p.label}
-                                                            className="w-full h-full object-cover"
-                                                            onError={(e) => {
-                                                                // If asset URL fails (e.g. session expired or fresh load)
-                                                                e.target.style.display = 'none';
-                                                            }}
-                                                        />
-                                                    ) : p.type === 'receipt' ? (
-                                                        <FileText size={24} className="text-blue-300" />
-                                                    ) : (
-                                                        <ImageIcon size={24} className="text-emerald-300" />
-                                                    )}
-                                                </div>
-                                                {/* Label tag */}
-                                                <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-lg bg-black/60 backdrop-blur-sm text-[8px] font-black text-white">
-                                                    {p.label}
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeAttachment(p.id)}
-                                                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-                                                >
-                                                    <CloseIcon size={12} />
-                                                </button>
+                                            <div key={p.id} className="relative aspect-square rounded-xl border border-slate-100 bg-slate-50 overflow-hidden group">
+                                                <img src={p.displayPath} alt={p.label} className="w-full h-full object-cover" />
+                                                <button onClick={() => removeAttachment(p.id)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><CloseIcon size={12} /></button>
                                             </div>
                                         ))}
                                     </div>
@@ -408,9 +430,9 @@ const ProductionLogs = () => {
                         </div>
 
                         <div className="p-8 bg-slate-50 flex gap-3">
-                            <button onClick={() => setIsModalOpen(false)} className="flex-1 h-12 rounded-2xl font-black text-sm text-slate-400 hover:text-slate-600">취소</button>
+                            <button onClick={() => setIsModalOpen(false)} className="flex-1 h-12 rounded-2xl font-black text-sm text-slate-400 hover:bg-slate-100">취소</button>
                             <button onClick={handleSave} className="flex-1 h-12 bg-indigo-600 rounded-2xl font-black text-sm text-white shadow-xl shadow-indigo-100 hover:bg-indigo-500">
-                                {editingLog ? '일지 수정 완료' : '일지 저장하기'}
+                                {editingLog ? '기록 수정 완료' : '현장 일지 저장'}
                             </button>
                         </div>
                     </div>

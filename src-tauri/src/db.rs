@@ -72,6 +72,11 @@ pub async fn init_database(pool: &DbPool) -> MyceliumResult<()> {
         .execute(pool)
         .await?;
 
+    // 7. Ensure certification_info exists in company_info with a safe default
+    sqlx::query("ALTER TABLE company_info ADD COLUMN IF NOT EXISTS certification_info JSONB DEFAULT '{}'::jsonb")
+        .execute(pool)
+        .await?;
+
     Ok(())
 }
 
@@ -381,6 +386,8 @@ pub struct CompanyInfo {
     pub business_reg_number: Option<String>,
     pub registration_date: Option<NaiveDateTime>,
     pub memo: Option<String>,
+    #[sqlx(default)]
+    pub certification_info: Option<serde_json::Value>,
     pub created_at: Option<NaiveDateTime>,
     #[sqlx(default)]
     pub updated_at: Option<NaiveDateTime>,
