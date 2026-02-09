@@ -244,7 +244,7 @@ const SalesDailyReceipts = () => {
                                 <div className="flex flex-col gap-1 relative z-10">
                                     <div className="flex justify-between items-baseline">
                                         <span className="text-xs font-bold text-slate-500">주문 건수</span>
-                                        <span className="text-sm font-black text-slate-800">{stats.total.count} <span className="text-[10px] font-normal text-slate-400">건</span></span>
+                                        <span className="text-sm font-black text-slate-800">{stats.total.count.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">건</span></span>
                                     </div>
                                     <div className="flex justify-between items-baseline">
                                         <span className="text-xs font-bold text-slate-500">공급가액</span>
@@ -270,7 +270,7 @@ const SalesDailyReceipts = () => {
                                 <div className="flex flex-col gap-1 relative z-10">
                                     <div className="flex justify-between items-baseline">
                                         <span className="text-xs font-bold text-slate-500">주문 건수</span>
-                                        <span className="text-sm font-black text-slate-800">{stats.gen.count} <span className="text-[10px] font-normal text-slate-400">건</span></span>
+                                        <span className="text-sm font-black text-slate-800">{stats.gen.count.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">건</span></span>
                                     </div>
                                     <div className="flex justify-between items-baseline">
                                         <span className="text-xs font-bold text-slate-500">주문 금액</span>
@@ -288,7 +288,7 @@ const SalesDailyReceipts = () => {
                                 <div className="flex flex-col gap-1 relative z-10">
                                     <div className="flex justify-between items-baseline">
                                         <span className="text-xs font-bold text-slate-500">주문 건수</span>
-                                        <span className="text-sm font-black text-slate-800">{stats.mall.count} <span className="text-[10px] font-normal text-slate-400">건</span></span>
+                                        <span className="text-sm font-black text-slate-800">{stats.mall.count.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">건</span></span>
                                     </div>
                                     <div className="flex justify-between items-baseline">
                                         <span className="text-xs font-bold text-slate-500">결제 금액</span>
@@ -306,15 +306,15 @@ const SalesDailyReceipts = () => {
                                 <div className="grid grid-cols-3 gap-2 text-center relative z-10 h-full items-center pb-2">
                                     <div className="bg-white/10 rounded-xl p-2 backdrop-blur-sm border border-white/5">
                                         <div className="text-[9px] text-slate-300 mb-0.5 font-bold">입금대기</div>
-                                        <div className="text-base font-black text-red-400">{stats.status.receipt}</div>
+                                        <div className="text-base font-black text-red-400">{stats.status.receipt.toLocaleString()}</div>
                                     </div>
                                     <div className="bg-white/10 rounded-xl p-2 backdrop-blur-sm border border-white/5">
                                         <div className="text-[9px] text-slate-300 mb-0.5 font-bold">입금완료</div>
-                                        <div className="text-base font-black text-amber-400">{stats.status.paid}</div>
+                                        <div className="text-base font-black text-amber-400">{stats.status.paid.toLocaleString()}</div>
                                     </div>
                                     <div className="bg-white/10 rounded-xl p-2 backdrop-blur-sm border border-white/5">
                                         <div className="text-[9px] text-slate-300 mb-0.5 font-bold">배송완료</div>
-                                        <div className="text-base font-black text-emerald-400">{stats.status.shipped}</div>
+                                        <div className="text-base font-black text-emerald-400">{stats.status.shipped.toLocaleString()}</div>
                                     </div>
                                 </div>
                             </div>

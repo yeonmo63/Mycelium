@@ -38,38 +38,74 @@ pub async fn get_dashboard_schedule_stats(state: State<'_, DbPool>) -> MyceliumR
 #[command]
 pub async fn get_dashboard_stats(state: State<'_, DbPool>) -> MyceliumResult<DashboardStats> {
     let today = chrono::Local::now().date_naive();
-    eprintln!("Dashboard: Fetching stats for date: {}", today);
 
-    // Timeout (15s) - return empty stats on timeout to keep UI responsive
-    match tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        sqlx::query_as(
-            r#"
+    // Combined query for much better performance (avoiding multiple separate subqueries)
+    let sql = r#"
+        WITH sales_stats AS (
             SELECT 
-                (SELECT CAST(COALESCE(SUM(total_amount), 0) AS BIGINT) FROM sales WHERE order_date = $1 AND status != '취소') as total_sales_amount,
-                (SELECT COUNT(*) FROM sales WHERE order_date = $1 AND status != '취소') as total_orders,
-                (SELECT COUNT(*) FROM customers WHERE join_date = $1) as total_customers,
-                (SELECT COUNT(*) FROM customers) as total_customers_all_time,
-                (SELECT COUNT(*) FROM customers WHERE status = '정상') as normal_customers_count,
-                (SELECT COUNT(*) FROM customers WHERE status = '말소') as dormant_customers_count,
-                (SELECT COUNT(*) FROM sales WHERE status NOT IN ('배송완료', '취소')) as pending_orders,
-                (SELECT COUNT(*) FROM schedules WHERE start_time < ($1 + interval '1 day')::timestamp AND end_time >= $1::timestamp) as today_schedule_count,
-                (SELECT COUNT(*) FROM experience_reservations WHERE reservation_date = $1 AND status != '취소') as experience_reservation_count,
-                (SELECT COUNT(*) FROM products WHERE stock_quantity <= safety_stock) as low_stock_count,
-                (SELECT COUNT(*) FROM consultations WHERE status IN ('접수', '처리중')) as pending_consultation_count
-        "#,
+                SUM(total_amount) FILTER (WHERE order_date = $1 AND status != '취소') as today_sales,
+                COUNT(*) FILTER (WHERE order_date = $1 AND status != '취소') as today_orders,
+                COUNT(*) FILTER (WHERE status NOT IN ('배송완료', '취소')) as pending
+            FROM sales
+        ),
+        customer_stats AS (
+            SELECT 
+                COUNT(*) FILTER (WHERE join_date = $1) as new_today,
+                COUNT(*) as total_all,
+                COUNT(*) FILTER (WHERE status = '정상') as normal,
+                COUNT(*) FILTER (WHERE status = '말소') as dormant
+            FROM customers
+        ),
+        schedule_count AS (
+            SELECT COUNT(*) as today_schedules 
+            FROM schedules 
+            WHERE start_time < ($1 + interval '1 day')::timestamp AND end_time >= $1::timestamp
+        ),
+        exp_stats AS (
+            SELECT COUNT(*) as today_exp 
+            FROM experience_reservations 
+            WHERE reservation_date = $1 AND status != '취소'
+        ),
+        inv_stats AS (
+            SELECT COUNT(*) as low_stock 
+            FROM products 
+            WHERE stock_quantity <= safety_stock
+        ),
+        consult_stats AS (
+            SELECT COUNT(*) as pending_consults 
+            FROM consultations 
+            WHERE status IN ('접수', '처리중')
         )
-        .bind(today)
-        .fetch_one(&*state)
-        .await
-    }).await {
+        SELECT 
+            CAST(COALESCE(ss.today_sales, 0) AS BIGINT) as total_sales_amount,
+            CAST(ss.today_orders AS BIGINT) as total_orders,
+            CAST(cs.new_today AS BIGINT) as total_customers,
+            CAST(cs.total_all AS BIGINT) as total_customers_all_time,
+            CAST(cs.normal AS BIGINT) as normal_customers_count,
+            CAST(cs.dormant AS BIGINT) as dormant_customers_count,
+            CAST(ss.pending AS BIGINT) as pending_orders,
+            CAST(sc.today_schedules AS BIGINT) as today_schedule_count,
+            CAST(es.today_exp AS BIGINT) as experience_reservation_count,
+            CAST(is_stat.low_stock AS BIGINT) as low_stock_count,
+            CAST(cons.pending_consults AS BIGINT) as pending_consultation_count
+        FROM sales_stats ss, customer_stats cs, schedule_count sc, exp_stats es, inv_stats is_stat, consult_stats cons
+    "#;
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        sqlx::query_as::<_, DashboardStats>(sql)
+            .bind(today)
+            .fetch_one(&*state),
+    )
+    .await
+    {
         Ok(Ok(stats)) => Ok(stats),
         Ok(Err(e)) => {
             eprintln!("Dashboard Stats Error: {:?}", e);
-            // Return empty stats on DB error to keep UI functional
             Ok(DashboardStats::default())
-        },
+        }
         Err(_) => {
-            eprintln!("Dashboard Stats Timeout: Returning empty stats.");
+            eprintln!("Dashboard Stats Timeout");
             Ok(DashboardStats::default())
         }
     }
@@ -234,37 +270,23 @@ pub async fn get_recent_sales(state: State<'_, DbPool>) -> MyceliumResult<Vec<Sa
 
 #[command]
 pub async fn get_weekly_sales_data(state: State<'_, DbPool>) -> MyceliumResult<Vec<WeeklySales>> {
-    let mut results = Vec::new();
-    let today = chrono::Local::now().date_naive();
+    // Single query using generate_series for better performance
+    let sql = r#"
+        SELECT 
+            TO_CHAR(d, 'MM-DD') as date,
+            CAST(COALESCE(SUM(s.total_amount), 0) AS BIGINT) as total
+        FROM generate_series(CURRENT_DATE - interval '6 days', CURRENT_DATE, '1 day') d
+        LEFT JOIN sales s ON s.order_date = d::date AND s.status != '취소'
+        GROUP BY d
+        ORDER BY d
+    "#;
 
-    // Timeout (15s) - return empty on timeout
-    match tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        for i in (0..7).rev() {
-            let date = today - chrono::Duration::days(i);
-            let date_str = date.format("%m-%d").to_string();
+    let rows = sqlx::query_as::<_, WeeklySales>(sql)
+        .fetch_all(&*state)
+        .await
+        .unwrap_or_default();
 
-            let total: (i64,) = sqlx::query_as(
-                "SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE order_date = $1 AND status != '취소'"
-            )
-            .bind(date)
-            .fetch_one(&*state)
-            .await
-            .unwrap_or((0,));
-
-            results.push(WeeklySales {
-                date: date_str,
-                total: Some(total.0),
-            });
-        }
-        Ok::<Vec<WeeklySales>, sqlx::Error>(results)
-    }).await {
-        Ok(Ok(res)) => Ok(res),
-        Ok(Err(e)) => Err(MyceliumError::Database(e)),
-        Err(_) => {
-            eprintln!("Weekly Sales Timeout: Database is busy.");
-            Ok(Vec::new()) // Return empty list on timeout
-        }
-    }
+    Ok(rows)
 }
 
 #[command]
