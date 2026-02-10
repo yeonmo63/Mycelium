@@ -31,8 +31,11 @@ const SettingsApiKeys = () => {
         gemini: false,
         sms: false,
         naver: false,
-        mall_naver: false,
-        mall_coupang: false,
+        naver_commerce_id: false,
+        naver_commerce_secret: false,
+        coupang_access_key: false,
+        sabangnet: false,
+        playauto: false,
         courier: false,
         tax: false
     });
@@ -50,6 +53,11 @@ const SettingsApiKeys = () => {
         coupang_access_key: '',
         coupang_secret_key: '',
         coupang_vendor_id: '',
+        // Aggregators
+        sabangnet_api_key: '',
+        sabangnet_id: '',
+        playauto_api_key: '',
+        playauto_id: '',
         // Courier
         courier_provider: 'sweettracker',
         courier_api_key: '',
@@ -97,6 +105,10 @@ const SettingsApiKeys = () => {
                         coupang_access_key: mallConfig?.coupang_access_key || '',
                         coupang_secret_key: mallConfig?.coupang_secret_key || '',
                         coupang_vendor_id: mallConfig?.coupang_vendor_id || '',
+                        sabangnet_api_key: mallConfig?.sabangnet_api_key || '',
+                        sabangnet_id: mallConfig?.sabangnet_id || '',
+                        playauto_api_key: mallConfig?.playauto_api_key || '',
+                        playauto_id: mallConfig?.playauto_id || '',
                         courier_provider: courierConfig?.provider || 'sweettracker',
                         courier_api_key: courierConfig?.api_key || '',
                         courier_client_id: courierConfig?.client_id || '',
@@ -189,7 +201,11 @@ const SettingsApiKeys = () => {
                     naver_commerce_secret: formData.naver_commerce_secret,
                     coupang_access_key: formData.coupang_access_key,
                     coupang_secret_key: formData.coupang_secret_key,
-                    coupang_vendor_id: formData.coupang_vendor_id
+                    coupang_vendor_id: formData.coupang_vendor_id,
+                    sabangnet_api_key: formData.sabangnet_api_key,
+                    sabangnet_id: formData.sabangnet_id,
+                    playauto_api_key: formData.playauto_api_key,
+                    playauto_id: formData.playauto_id
                 }
             });
             await showAlert('저장 완료', '쇼핑몰 연동 키가 저장되었습니다.');
@@ -521,74 +537,119 @@ const SettingsApiKeys = () => {
                             <div className="space-y-8">
                                 {/* Naver Commerce */}
                                 <div className="space-y-4">
-                                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-l-4 border-teal-500 pl-2">Naver Commerce API (SmartStore)</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="block text-[10px] font-black text-slate-500 ml-1">애플리케이션 ID (Client ID)</label>
-                                            <input
-                                                type="text"
-                                                value={formData.naver_commerce_id}
-                                                onChange={e => setFormData({ ...formData, naver_commerce_id: e.target.value })}
-                                                className="w-full h-11 px-4 bg-slate-50 border-none rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200"
-                                                placeholder="Commerce ID"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="block text-[10px] font-black text-slate-500 ml-1">애플리케이션 Secret</label>
-                                            <div className="relative">
+                                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-l-4 border-teal-500 pl-2">Mall Integration Aggregators (Best for Multi-Channel)</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
+                                        {/* Sabangnet */}
+                                        <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <div className="w-8 h-8 rounded-lg bg-teal-500 text-white flex items-center justify-center font-black text-xs">S</div>
+                                                <h4 className="font-black text-slate-700">사방넷 (Sabangnet)</h4>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-black text-slate-500 ml-1">인증코드 (API Key)</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type={showKeys.sabangnet ? "text" : "password"}
+                                                        value={formData.sabangnet_api_key}
+                                                        onChange={e => setFormData({ ...formData, sabangnet_api_key: e.target.value })}
+                                                        className="w-full h-11 px-4 pr-10 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 transition-all"
+                                                        placeholder="Sabangnet API Key"
+                                                    />
+                                                    <button onClick={() => toggleKeyVisibility('sabangnet')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                                        {showKeys.sabangnet ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-black text-slate-500 ml-1">회사 아이디 (Company ID)</label>
                                                 <input
-                                                    type={showKeys.mall_naver ? "text" : "password"}
-                                                    value={formData.naver_commerce_secret}
-                                                    onChange={e => setFormData({ ...formData, naver_commerce_secret: e.target.value })}
-                                                    className="w-full h-11 px-4 pr-10 bg-slate-50 border-none rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200"
-                                                    placeholder="Commerce Secret"
+                                                    type="text"
+                                                    value={formData.sabangnet_id}
+                                                    onChange={e => setFormData({ ...formData, sabangnet_id: e.target.value })}
+                                                    className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 transition-all"
+                                                    placeholder="Company ID"
                                                 />
-                                                <button onClick={() => toggleKeyVisibility('mall_naver')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                                    {showKeys.mall_naver ? <EyeOff size={14} /> : <Eye size={14} />}
-                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* PlayAuto */}
+                                        <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <div className="w-8 h-8 rounded-lg bg-orange-500 text-white flex items-center justify-center font-black text-xs">P</div>
+                                                <h4 className="font-black text-slate-700">플레이오토 (PlayAuto)</h4>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-black text-slate-500 ml-1">연동 대행사 키 (API Key)</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type={showKeys.playauto ? "text" : "password"}
+                                                        value={formData.playauto_api_key}
+                                                        onChange={e => setFormData({ ...formData, playauto_api_key: e.target.value })}
+                                                        className="w-full h-11 px-4 pr-10 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 transition-all"
+                                                        placeholder="PlayAuto API Key"
+                                                    />
+                                                    <button onClick={() => toggleKeyVisibility('playauto')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                                        {showKeys.playauto ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="block text-[10px] font-black text-slate-500 ml-1">계정 아이디 (Member ID)</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.playauto_id}
+                                                    onChange={e => setFormData({ ...formData, playauto_id: e.target.value })}
+                                                    className="w-full h-11 px-4 bg-white border border-slate-200 rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 transition-all"
+                                                    placeholder="Member ID"
+                                                />
                                             </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* Coupang Wing */}
-                                <div className="space-y-4">
-                                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-l-4 border-teal-500 pl-2">Coupang Wing API (Marketplace)</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="block text-[10px] font-black text-slate-500 ml-1">액세스 키 (Access Key)</label>
-                                            <input
-                                                type="text"
-                                                value={formData.coupang_access_key}
-                                                onChange={e => setFormData({ ...formData, coupang_access_key: e.target.value })}
-                                                className="w-full h-11 px-4 bg-slate-50 border-none rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200"
-                                                placeholder="Coupang Access Key"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="block text-[10px] font-black text-slate-500 ml-1">시크릿 키 (Secret Key)</label>
-                                            <div className="relative">
-                                                <input
-                                                    type={showKeys.mall_coupang ? "text" : "password"}
-                                                    value={formData.coupang_secret_key}
-                                                    onChange={e => setFormData({ ...formData, coupang_secret_key: e.target.value })}
-                                                    className="w-full h-11 px-4 pr-10 bg-slate-50 border-none rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200"
-                                                    placeholder="Coupang Secret Key"
-                                                />
-                                                <button onClick={() => toggleKeyVisibility('mall_coupang')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                                    {showKeys.mall_coupang ? <EyeOff size={14} /> : <Eye size={14} />}
-                                                </button>
+                                    {/* Existing direct mall options as legacy/advanced */}
+                                    <div className="pt-6 border-t border-slate-100">
+                                        <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] mb-4">Advanced: Direct Mall Connectivity</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 opacity-60 hover:opacity-100 transition-opacity">
+                                            {/* Naver Commerce */}
+                                            <div className="space-y-3">
+                                                <h4 className="text-[11px] font-black text-slate-400 pl-1">Naver SmartStore</h4>
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="text"
+                                                        value={formData.naver_commerce_id}
+                                                        onChange={e => setFormData({ ...formData, naver_commerce_id: e.target.value })}
+                                                        className="w-full h-10 px-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"
+                                                        placeholder="Client ID"
+                                                    />
+                                                    <input
+                                                        type="password"
+                                                        value={formData.naver_commerce_secret}
+                                                        onChange={e => setFormData({ ...formData, naver_commerce_secret: e.target.value })}
+                                                        className="w-full h-10 px-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"
+                                                        placeholder="Client Secret"
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="space-y-2 md:col-span-2">
-                                            <label className="block text-[10px] font-black text-slate-500 ml-1">업체코드 (Vendor ID)</label>
-                                            <input
-                                                type="text"
-                                                value={formData.coupang_vendor_id}
-                                                onChange={e => setFormData({ ...formData, coupang_vendor_id: e.target.value })}
-                                                className="w-full h-11 px-4 bg-slate-50 border-none rounded-xl font-bold text-sm focus:ring-4 focus:ring-teal-500/10 focus:bg-white transition-all ring-1 ring-inset ring-slate-200"
-                                                placeholder="A00XXXXXX"
-                                            />
+                                            {/* Coupang */}
+                                            <div className="space-y-3">
+                                                <h4 className="text-[11px] font-black text-slate-400 pl-1">Coupang Marketplace</h4>
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="text"
+                                                        value={formData.coupang_access_key}
+                                                        onChange={e => setFormData({ ...formData, coupang_access_key: e.target.value })}
+                                                        className="w-full h-10 px-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"
+                                                        placeholder="Access Key"
+                                                    />
+                                                    <input
+                                                        type="password"
+                                                        value={formData.coupang_secret_key}
+                                                        onChange={e => setFormData({ ...formData, coupang_secret_key: e.target.value })}
+                                                        className="w-full h-10 px-4 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs"
+                                                        placeholder="Secret Key"
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

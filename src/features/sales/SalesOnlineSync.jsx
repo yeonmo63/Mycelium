@@ -7,7 +7,7 @@ const SalesOnlineSync = () => {
     const { showAlert, showConfirm } = useModal();
     // State
     const [file, setFile] = useState(null);
-    const [mallType, setMallType] = useState('naver');
+    const [mallType, setMallType] = useState('sabangnet');
     const [parsedOrders, setParsedOrders] = useState([]);
     const [productList, setProductList] = useState([]);
     const [mappings, setMappings] = useState({});
@@ -494,9 +494,9 @@ const SalesOnlineSync = () => {
                     <div className="inline-flex flex-col items-start">
                         <div className="flex items-center gap-2 mb-0.5">
                             <span className="w-6 h-1 bg-teal-500 rounded-full"></span>
-                            <span className="text-[9px] font-black tracking-[0.2em] text-teal-600 uppercase">Smart Store Integration</span>
+                            <span className="text-[9px] font-black tracking-[0.2em] text-teal-600 uppercase">Multi-Channel Sync Engine</span>
                         </div>
-                        <h1 className="text-3xl font-black text-slate-600 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>쇼핑몰 주문 연동 <span className="text-slate-300 font-light ml-1 text-xl">Smart Sync</span></h1>
+                        <h1 className="text-3xl font-black text-slate-600 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>통합 주문 수집 <span className="text-slate-300 font-light ml-1 text-xl">Omni-Channel Sync</span></h1>
                     </div>
                 </div>
             </div>
@@ -520,6 +520,8 @@ const SalesOnlineSync = () => {
                             <label className="block text-xs font-black text-slate-400 uppercase mb-2 ml-1">쇼핑몰 선택</label>
                             <select value={mallType} onChange={e => setMallType(e.target.value)}
                                 className="w-full h-12 px-4 rounded-xl bg-white border border-slate-200 font-bold text-slate-700 focus:ring-4 focus:ring-teal-500/20 focus:border-teal-500 transition-all outline-none">
+                                <option value="sabangnet">사방넷 (Sabangnet API)</option>
+                                <option value="playauto">플레이오토 (PlayAuto API)</option>
                                 <option value="naver">네이버 스마트스토어 (Commerce API)</option>
                                 <option value="coupang">쿠팡 (윙 API)</option>
                                 <option value="custom">자유 양식 엑셀 (컬럼 직접 지정)</option>

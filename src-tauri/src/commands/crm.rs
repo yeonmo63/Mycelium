@@ -1,10 +1,12 @@
 use crate::db::{
     ChurnRiskCustomer, CustomerLifecycle, DbPool, LtvCustomer, ProductAssociation, RawRfmData,
 };
+use crate::error::MyceliumError;
 use crate::error::MyceliumResult;
 use crate::DB_MODIFIED;
+use std::fs;
 use std::sync::atomic::Ordering;
-use tauri::{command, State};
+use tauri::{command, Manager, State};
 
 #[command]
 pub async fn get_ltv_analysis(
@@ -226,17 +228,87 @@ pub async fn get_special_care_customers(
 
 #[command]
 pub async fn send_sms_simulation(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     mode: String,
     recipients: Vec<String>,
     content: String,
     _template_code: Option<String>,
 ) -> MyceliumResult<serde_json::Value> {
-    // Just a placeholder for actual SMS logic
-    let count = recipients.len() * 10; // Mock count based on groups
+    // 1. Check Config for real sending
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
+    let config_path = config_dir.join("config.json");
+
+    let api_key = if config_path.exists() {
+        let cfg_content = fs::read_to_string(&config_path).unwrap_or_default();
+        let json: serde_json::Value =
+            serde_json::from_str::<serde_json::Value>(&cfg_content).unwrap_or_default();
+        json.get("sms_api_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        String::new()
+    };
+
+    if !api_key.is_empty() {
+        // Real Sending Logic (Aligo Example)
+        let sender = if config_path.exists() {
+            let cfg_content = fs::read_to_string(&config_path).unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&cfg_content).unwrap_or_default();
+            json.get("sms_sender_number")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        } else {
+            String::new()
+        };
+
+        let client = reqwest::Client::new();
+        let receiver_str = recipients.join(",");
+
+        let params = [
+            ("key", api_key.as_str()),
+            ("user_id", "mycelium_admin"), // Default or from config
+            ("sender", sender.as_str()),
+            ("receiver", receiver_str.as_str()),
+            ("msg", content.as_str()),
+            ("msg_type", if content.len() > 80 { "LMS" } else { "SMS" }),
+        ];
+
+        let res = client
+            .post("https://sslsms.aligo.in/send/")
+            .form(&params)
+            .send()
+            .await;
+
+        match res {
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                if status.is_success() {
+                    return Ok(serde_json::json!({
+                        "success": true,
+                        "raw_response": text,
+                        "count": recipients.len(),
+                        "message": format!("Real {} sent to {} recipients via Aligo", mode, recipients.len())
+                    }));
+                } else {
+                    return Err(MyceliumError::Internal(format!("SMS API Error: {}", text)));
+                }
+            }
+            Err(e) => return Err(MyceliumError::Internal(format!("Network Error: {}", e))),
+        }
+    }
+
+    // Fallback to Simulation if no API key
+    let count = recipients.len() * 10;
     Ok(serde_json::json!({
         "success": true,
         "count": count,
+        "mode": "SIMULATION",
         "message_id": format!("SMS-{}-{}", mode, uuid::Uuid::new_v4().to_string()[..8].to_uppercase()),
         "message": format!("Simulated sending {} to {:?} (Content: {}...)", mode, recipients, &content.chars().take(10).collect::<String>())
     }))

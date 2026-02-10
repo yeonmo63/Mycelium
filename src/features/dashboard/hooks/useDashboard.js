@@ -26,6 +26,28 @@ export const useDashboard = (showAlert) => {
     }, []);
 
     const loadDashboardData = async () => {
+        if (!window.__TAURI__) {
+            console.warn("Non-Tauri environment detected. Using mock data.");
+            setStats({
+                total_sales_amount: 12540000,
+                total_orders: 142,
+                pending_orders: 28,
+                total_customers: 12,
+                total_customers_all_time: 12450,
+                experience_reservation_count: 5,
+                today_schedule_count: 8
+            });
+            setWeeklyData([
+                { date: dayjs().subtract(1, 'day').format('MM-DD'), total: 8500000 },
+                { date: dayjs().format('MM-DD'), total: 12540000 }
+            ]);
+            setIsLoading(false);
+            setIsChartLoading(false);
+            setIsRankLoading(false);
+            setIsWeatherLoading(false);
+            return;
+        }
+
         // 1. 핵심 통계 (우선순위 분리 로딩)
         invoke('get_dashboard_priority_stats').then(res => {
             setStats(prev => ({ ...(prev || {}), ...(res || {}) }));

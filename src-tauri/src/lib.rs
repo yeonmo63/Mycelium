@@ -383,6 +383,7 @@ pub fn run() {
             commands::iot::get_virtual_sensor_data,
             commands::courier::batch_sync_courier_statuses,
             commands::courier::sync_courier_status,
+            commands::config::get_local_ip_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

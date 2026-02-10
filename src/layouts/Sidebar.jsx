@@ -186,6 +186,7 @@ const Sidebar = () => {
                             <SubMenuItem to="/settings/iot" icon="router" label="IoT 장비 관리" />
                             <SubMenuItem to="/settings/template-mgmt" icon="chat_bubble" label="메시지 템플릿" />
                             <SubMenuItem to="/settings/db-backup-restore" icon="backup" label="백업 및 복구" />
+                            <SubMenuItem to="/settings/mobile-sync" icon="smartphone" label="모바일 현장 연동" />
                             <SubMenuItem to="/settings/db-reset" icon="delete_forever" label="데이터 초기화/프리셋" />
                         </MenuGroup>
                     )}

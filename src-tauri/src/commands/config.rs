@@ -139,6 +139,11 @@ pub fn get_db_url(app: &AppHandle) -> Result<String, String> {
     Err("Configuration file (config.json) missing or database_url not set".to_string())
 }
 
+#[tauri::command]
+pub async fn get_local_ip_command() -> Option<String> {
+    get_local_ip()
+}
+
 /// Detect the local IP address of this machine
 pub fn get_local_ip() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
@@ -393,6 +398,11 @@ pub struct MallConfig {
     pub coupang_access_key: String,
     pub coupang_secret_key: String,
     pub coupang_vendor_id: String,
+    // Add Aggregators
+    pub sabangnet_api_key: String,
+    pub sabangnet_id: String,
+    pub playauto_api_key: String,
+    pub playauto_id: String,
 }
 
 #[command]
@@ -417,6 +427,10 @@ pub async fn save_mall_keys(app: AppHandle, config: MallConfig) -> MyceliumResul
     config_data["coupang_access_key"] = Value::String(config.coupang_access_key);
     config_data["coupang_secret_key"] = Value::String(config.coupang_secret_key);
     config_data["coupang_vendor_id"] = Value::String(config.coupang_vendor_id);
+    config_data["sabangnet_api_key"] = Value::String(config.sabangnet_api_key);
+    config_data["sabangnet_id"] = Value::String(config.sabangnet_id);
+    config_data["playauto_api_key"] = Value::String(config.playauto_api_key);
+    config_data["playauto_id"] = Value::String(config.playauto_id);
 
     let config_str = serde_json::to_string_pretty(&config_data)
         .map_err(|e| MyceliumError::Internal(e.to_string()))?;
@@ -456,6 +470,26 @@ pub async fn get_mall_config_for_ui(app: AppHandle) -> MyceliumResult<MallConfig
                         .to_string();
                     config.coupang_vendor_id = json
                         .get("coupang_vendor_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    config.sabangnet_api_key = json
+                        .get("sabangnet_api_key")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    config.sabangnet_id = json
+                        .get("sabangnet_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    config.playauto_api_key = json
+                        .get("playauto_api_key")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    config.playauto_id = json
+                        .get("playauto_id")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();

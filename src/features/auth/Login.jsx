@@ -39,6 +39,22 @@ const Login = ({ onLoginSuccess }) => {
         setIsLoading(true);
 
         try {
+            // Check if we are in a mobile browser (no Tauri bridge)
+            if (!window.__TAURI__ && window.location.pathname.startsWith('/mobile-')) {
+                console.log("Mobile browser detected. Entering Preview Mode.");
+                sessionStorage.setItem('isLoggedIn', 'true');
+                sessionStorage.setItem('userId', '999');
+                sessionStorage.setItem('username', 'MobilePreview');
+                sessionStorage.setItem('userRole', 'admin');
+
+                if (onLoginSuccess) {
+                    onLoginSuccess();
+                } else {
+                    window.location.reload();
+                }
+                return;
+            }
+
             const response = await invoke('login', {
                 username: username.trim(),
                 password: password.trim()

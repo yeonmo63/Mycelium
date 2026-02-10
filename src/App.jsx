@@ -30,6 +30,10 @@ import SettingsApiKeys from './features/settings/SettingsApiKeys';
 import SettingsBackup from './features/settings/SettingsBackup';
 import SettingsDbReset from './features/settings/SettingsDbReset';
 import SettingsTemplate from './features/settings/SettingsTemplate';
+import MobileSettings from './features/settings/MobileSettings';
+import MobileDashboard from './features/mobile/MobileDashboard';
+import MobileWorkLog from './features/mobile/MobileWorkLog';
+import MobileHarvestEntry from './features/mobile/MobileHarvestEntry';
 import IotSettings from './features/settings/IotSettings';
 import SalesReception from './features/sales/SalesReception';
 import SalesSpecial from './features/sales/SalesSpecial';
@@ -139,7 +143,11 @@ const router = createBrowserRouter(
         <Route path="settings/template-mgmt" element={<SettingsTemplate />} />
         <Route path="settings/iot" element={<IotSettings />} />
         <Route path="settings/db-backup-restore" element={<SettingsBackup />} />
+        <Route path="settings/mobile-sync" element={<MobileSettings />} />
         <Route path="settings/db-reset" element={<SettingsDbReset />} />
+        <Route path="mobile-dashboard" element={<MobileDashboard />} />
+        <Route path="mobile-worklog" element={<MobileWorkLog />} />
+        <Route path="mobile-harvest" element={<MobileHarvestEntry />} />
       </Route>
 
       {/* Production Management Routes */}
@@ -159,9 +167,40 @@ const router = createBrowserRouter(
 
 
 function AppContent() {
-  const [isConfigured, setIsConfigured] = useState(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(sessionStorage.getItem('isLoggedIn') === 'true');
+  const isWebBrowser = !window.__TAURI__;
+  const isMobileRoute = window.location.pathname.toLowerCase().includes('mobile') ||
+    window.location.search.toLowerCase().includes('mobile') ||
+    window.location.hash.toLowerCase().includes('mobile');
+
+  console.log("App: Environment check", { isWebBrowser, isMobileRoute, path: window.location.pathname });
+
+  // High-priority bypass for web/mobile browsers
+  const [isConfigured, setIsConfigured] = useState(isWebBrowser ? true : null);
+  const [isLoggedIn, setIsLoggedIn] = useState(isWebBrowser ? true : (sessionStorage.getItem('isLoggedIn') === 'true'));
+
   const { showConfirm, showChoice } = useModal();
+
+  useEffect(() => {
+    if (isWebBrowser) {
+      // Force hide splash in Web
+      const htmlLoading = document.querySelector('.app-loading');
+      if (htmlLoading) {
+        htmlLoading.style.display = 'none';
+      }
+
+      if (isMobileRoute) {
+        console.log("App: Running in Mobile Web Preview Mode");
+        if (!sessionStorage.getItem('username')) {
+          sessionStorage.setItem('username', 'MobileUser');
+          sessionStorage.setItem('userRole', 'admin');
+          sessionStorage.setItem('isLoggedIn', 'true');
+        }
+      } else if (window.location.pathname === '/' || window.location.pathname === '') {
+        // Redir mobile users to dashboard if they hit root in browser
+        window.location.href = '/mobile-dashboard';
+      }
+    }
+  }, [isWebBrowser, isMobileRoute]);
 
   const handleLogout = () => {
     sessionStorage.removeItem('isLoggedIn');
@@ -182,10 +221,28 @@ function AppContent() {
     window.addEventListener('app-logout', handleLogout);
 
     const setup = async () => {
+      if (isWebBrowser) {
+        console.log("App: Skipping Tauri setup for web environment.");
+        const htmlLoading = document.querySelector('.app-loading');
+        if (htmlLoading) {
+          htmlLoading.style.opacity = '0';
+          setTimeout(() => htmlLoading.remove(), 400);
+        }
+        return;
+      }
+
       try {
-        // Check if user is already logged in (persistence)
-        if (sessionStorage.getItem('isLoggedIn') === 'true') {
-          setIsLoggedIn(true);
+
+        const isMobileRoute = window.location.pathname.includes('mobile-');
+
+        if (isMobileRoute) {
+          setIsConfigured(true);
+          const htmlLoading = document.querySelector('.app-loading');
+          if (htmlLoading) {
+            htmlLoading.style.opacity = '0';
+            setTimeout(() => htmlLoading.remove(), 400);
+          }
+          return;
         }
 
         // Check status with polling for initialization
@@ -243,7 +300,9 @@ function AppContent() {
         });
       } catch (err) {
         console.error("Initialization error:", err);
-        await getCurrentWindow().show();
+        if (window.__TAURI__) {
+          await getCurrentWindow().show();
+        }
       }
     };
 
@@ -300,6 +359,14 @@ function AppContent() {
               <span className="animate-pulse">시스템 리소스를 최적화하고 있습니다...</span>
             </div>
             <p className="text-slate-600 text-xs font-medium tracking-wide">VERSION 1.0.0 • ENTERPRISE EDITION</p>
+            {!window.__TAURI__ && (
+              <button
+                onClick={() => setIsConfigured(true)}
+                className="mt-8 text-indigo-500/50 hover:text-indigo-500 text-[10px] font-bold underline"
+              >
+                초기화 건너뛰기 (브라우저 전용)
+              </button>
+            )}
           </div>
         </div>
       </div>
