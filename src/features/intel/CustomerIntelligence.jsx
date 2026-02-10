@@ -24,8 +24,9 @@ const CustomerIntelligence = () => {
     const [membershipData, setMembershipData] = useState([]);
     const [isTabLoading, setIsTabLoading] = useState(false);
 
-    // SMS Modal State
+    // Modal State
     const [smsModal, setSmsModal] = useState({ isOpen: false, targetCustomers: [], mode: 'sms' });
+    const [batchMemoModal, setBatchMemoModal] = useState({ isOpen: false, targetCustomers: [] });
 
     // Summary Modal State
     const [summaryId, setSummaryId] = useState(null);
@@ -73,6 +74,14 @@ const CustomerIntelligence = () => {
 
     const closeSmsModal = useCallback(() => {
         setSmsModal(prev => ({ ...prev, isOpen: false }));
+    }, []);
+
+    const openBatchMemoModal = useCallback((customers) => {
+        setBatchMemoModal({ isOpen: true, targetCustomers: Array.isArray(customers) ? customers : [customers] });
+    }, []);
+
+    const closeBatchMemoModal = useCallback(() => {
+        setBatchMemoModal(prev => ({ ...prev, isOpen: false }));
     }, []);
 
     useEffect(() => {
@@ -176,11 +185,12 @@ const CustomerIntelligence = () => {
                                 isVisible={activeTab === 'rfm'}
                                 showAlert={showAlert}
                                 openSmsModal={openSmsModal}
+                                openBatchMemoModal={openBatchMemoModal}
                                 openSummaryModal={openSummaryModal}
                             />
                         </div>
                         <div style={{ display: activeTab === 'repurchase' ? 'block' : 'none' }}>
-                            <TabRepurchase isVisible={activeTab === 'repurchase'} showAlert={showAlert} toggleProcessing={toggleProcessing} openSmsModal={openSmsModal} />
+                            <TabRepurchase isVisible={activeTab === 'repurchase'} showAlert={showAlert} toggleProcessing={toggleProcessing} openSmsModal={openSmsModal} openBatchMemoModal={openBatchMemoModal} />
                         </div>
                         <div style={{ display: activeTab === 'behavior' ? 'block' : 'none' }}>
                             <TabBehavior isVisible={activeTab === 'behavior'} showAlert={showAlert} toggleProcessing={toggleProcessing} />
@@ -201,6 +211,15 @@ const CustomerIntelligence = () => {
                 />
             )}
 
+            {batchMemoModal.isOpen && (
+                <BatchMemoModal
+                    customers={batchMemoModal.targetCustomers}
+                    onClose={closeBatchMemoModal}
+                    showAlert={showAlert}
+                    onSuccess={handleRefresh}
+                />
+            )}
+
             {/* Customer Detail Modal (Global) */}
             {summaryId && (
                 <CustomerSummaryModal
@@ -214,7 +233,7 @@ const CustomerIntelligence = () => {
 
 // --- Sub Components ---
 
-const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, openSmsModal, openSummaryModal }) => {
+const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, openSmsModal, openBatchMemoModal, openSummaryModal }) => {
     const navigate = useNavigate();
     const [filter, setFilter] = useState('all');
     const [isFiltering, setIsFiltering] = useState(false);
@@ -281,6 +300,12 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
         openSmsModal(targets, 'kakao');
     };
 
+    const handleBatchMemo = () => {
+        if (selectedIds.size === 0) return showAlert('알림', '선택된 고객이 없습니다.');
+        const targets = data.filter(c => selectedIds.has(c.customer_id));
+        openBatchMemoModal(targets);
+    };
+
     const handleLevelChange = async (customerId, newLevel) => {
         if (!window.__TAURI__) return;
         try {
@@ -310,13 +335,20 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
                             key={idx}
                             onClick={() => setFilterValue(isActive ? 'all' : card.key)}
                             className={`p-4 rounded-2xl border transition-all flex flex-col items-center justify-center text-center shadow-sm relative group overflow-hidden
-                                ${isActive ? card.activeBg : `${card.bg} hover:shadow-md hover:scale-[1.02] active:scale-[0.98]`}`}
+                                ${isActive ? card.activeBg : `${card.bg} hover:shadow-md hover:scale-[1.02] active:scale-[0.98]`}
+                                ${card.key === 'At Risk' ? 'ring-2 ring-rose-300 ring-offset-2 animate-soft-pulse' : ''}`}
                         >
                             <div className={`text-3xl mb-2 transition-transform group-hover:scale-110 ${isActive ? 'brightness-0 invert opacity-80' : ''}`}>
                                 {card.icon === 'zzz' ? <span className={`material-symbols-rounded ${isActive ? 'text-white' : 'text-slate-400'}`}>snooze</span> : card.icon}
                             </div>
                             <div className={`text-[10px] font-bold uppercase mb-1 ${isActive ? 'text-white/80' : 'opacity-60'}`}>{card.label}</div>
                             <div className={`text-xl font-black ${isActive ? 'text-white' : card.text}`}>{card.value.toLocaleString()}명</div>
+
+                            {card.key === 'At Risk' && card.value > 0 && (
+                                <div className="absolute top-1 left-2">
+                                    <span className="flex h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+                                </div>
+                            )}
 
                             {isActive && (
                                 <div className="absolute top-2 right-2 flex items-center justify-center">
@@ -349,6 +381,13 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
                                 className="h-8 px-3 rounded-lg bg-yellow-100 text-yellow-800 font-bold hover:bg-yellow-200 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-yellow-200 shadow-sm"
                             >
                                 <span className="material-symbols-rounded text-base">chat</span> 선택 알림톡 발송
+                            </button>
+                            <button
+                                onClick={handleBatchMemo}
+                                disabled={selectedIds.size === 0}
+                                className="h-8 px-3 rounded-lg bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-slate-200"
+                            >
+                                <span className="material-symbols-rounded text-base">edit_note</span> 선택 메모 일괄 등록
                             </button>
                         </div>
                     </div>
@@ -470,7 +509,7 @@ const TabRfm = React.memo(({ data, isLoading, onRefresh, isVisible, showAlert, o
     );
 });
 
-const TabRepurchase = ({ isVisible, showAlert, toggleProcessing, openSmsModal }) => {
+const TabRepurchase = ({ isVisible, showAlert, toggleProcessing, openSmsModal, openBatchMemoModal }) => {
     const [result, setResult] = useState([]);
     const [hasRun, setHasRun] = useState(false);
     const [selectedIds, setSelectedIds] = useState(new Set());
@@ -519,6 +558,12 @@ const TabRepurchase = ({ isVisible, showAlert, toggleProcessing, openSmsModal })
         openSmsModal(targets, 'kakao');
     };
 
+    const handleBatchMemo = () => {
+        if (selectedIds.size === 0) return showAlert('알림', '선택된 고객이 없습니다.');
+        const targets = result.filter((_, i) => selectedIds.has(i));
+        openBatchMemoModal(targets);
+    };
+
     return (
         <div className="space-y-6">
             <div className="bg-white rounded-2xl p-6 border-l-[6px] border-rose-500 shadow-sm flex flex-col md:flex-row gap-6">
@@ -560,6 +605,13 @@ const TabRepurchase = ({ isVisible, showAlert, toggleProcessing, openSmsModal })
                                 className="h-8 px-3 rounded-lg bg-yellow-100 text-yellow-800 font-bold hover:bg-yellow-200 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-yellow-200"
                             >
                                 <span className="material-symbols-rounded text-base">chat</span> 선택 알림톡
+                            </button>
+                            <button
+                                onClick={handleBatchMemo}
+                                disabled={selectedIds.size === 0}
+                                className="h-8 px-3 rounded-lg bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 disabled:opacity-30 transition-all flex items-center gap-1.5 text-[11px] border border-slate-200"
+                            >
+                                <span className="material-symbols-rounded text-base">edit_note</span> 메모 등록
                             </button>
                         </div>
                     </div>
@@ -1155,6 +1207,117 @@ const SmsSendModal = ({ customers, mode: initialMode, onClose, showAlert }) => {
                     </div>
                 </div>
 
+            </div>
+        </div>
+    );
+};
+
+const BatchMemoModal = ({ customers, onClose, showAlert, onSuccess }) => {
+    const [memo, setMemo] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [append, setAppend] = useState(true);
+
+    const handleSubmit = async () => {
+        if (!memo.trim()) return showAlert('알림', '메모 내용을 입력해 주세요.');
+        if (!window.__TAURI__) return;
+
+        setIsSubmitting(true);
+        try {
+            const customerIds = customers.map(c => c.customer_id);
+            await window.__TAURI__.core.invoke('update_customer_memo_batch', {
+                customerIds,
+                newMemo: memo.trim(),
+                append
+            });
+            showAlert('완료', `${customers.length}명의 고객 메모를 일괄 처리했습니다.`, 'success');
+            onSuccess && onSuccess();
+            onClose();
+        } catch (e) {
+            console.error(e);
+            showAlert('오류', '메모 일괄 등록 실패: ' + e);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[150] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-8 duration-500">
+                <div className="px-8 pt-8 pb-4 flex justify-between items-start">
+                    <div>
+                        <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                <span className="material-symbols-rounded">edit_note</span>
+                            </span>
+                            고객 메모 일괄 등록
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-2 font-medium">선택한 <span className="text-indigo-600 font-black">{customers.length}명</span>의 고객 카드에 공통 메모를 남깁니다.</p>
+                    </div>
+                    <button onClick={onClose} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
+                        <span className="material-symbols-rounded">close</span>
+                    </button>
+                </div>
+
+                <div className="p-8 space-y-6">
+                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                        <div className="flex items-center gap-1.5 mb-3">
+                            <span className="material-symbols-rounded text-base text-indigo-500">groups</span>
+                            <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Targets</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto custom-scrollbar pr-2">
+                            {customers.map(c => (
+                                <span key={c.customer_id} className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600">
+                                    {c.customer_name}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <label className="text-sm font-black text-slate-700 flex items-center gap-2">
+                            <span className="w-1 h-3.5 bg-indigo-600 rounded-full"></span>
+                            메모 내용
+                        </label>
+                        <textarea
+                            value={memo}
+                            onChange={e => setMemo(e.target.value)}
+                            className="w-full h-40 p-5 rounded-3xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all resize-none shadow-inner text-slate-700 leading-relaxed font-medium"
+                            placeholder="예: [이탈위험] 특별 관리 대상 / 판촉 행사 안내 필요"
+                        ></textarea>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                        <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${append ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                                <span className="material-symbols-rounded">{append ? 'add_to_photos' : 'edit_square'}</span>
+                            </div>
+                            <div>
+                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Update Mode</div>
+                                <div className="text-sm font-black text-slate-700">{append ? '기존 메모에 추가' : '기존 메모 덮어쓰기'}</div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setAppend(!append)}
+                            className={`px-4 py-2 rounded-xl text-xs font-black border transition-all ${append ? 'border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            모드 전환
+                        </button>
+                    </div>
+                </div>
+
+                <div className="p-8 border-t border-slate-100 flex gap-3 bg-slate-50/50">
+                    <button onClick={onClose} className="flex-1 py-4 rounded-2xl bg-white border border-slate-300 text-slate-600 font-bold hover:bg-slate-50 transition-all text-sm">
+                        취소
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={isSubmitting || !memo.trim()}
+                        className="flex-[2] py-4 rounded-2xl bg-indigo-600 text-white font-black hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-100 text-sm flex items-center justify-center gap-2"
+                    >
+                        {isSubmitting ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : <span className="material-symbols-rounded">save</span>}
+                        {isSubmitting ? '처리 중...' : '메모 등록 완료'}
+                    </button>
+                </div>
             </div>
         </div>
     );

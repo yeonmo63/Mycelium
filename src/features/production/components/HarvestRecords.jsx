@@ -23,6 +23,8 @@ const HarvestRecords = () => {
         batch_id: null,
         harvest_date: dayjs().format('YYYY-MM-DD'),
         quantity: 0,
+        defective_quantity: 0,
+        loss_quantity: 0,
         unit: 'kg',
         grade: 'A',
         traceability_code: '',
@@ -92,6 +94,8 @@ const HarvestRecords = () => {
                 batch_id: null,
                 harvest_date: dayjs().format('YYYY-MM-DD'),
                 quantity: 0,
+                defective_quantity: 0,
+                loss_quantity: 0,
                 unit: 'kg',
                 grade: 'A',
                 traceability_code: '',
@@ -117,6 +121,8 @@ const HarvestRecords = () => {
                     ...formData,
                     batch_id: parseInt(formData.batch_id),
                     quantity: parseFloat(formData.quantity) || 0,
+                    defective_quantity: parseFloat(formData.defective_quantity) || 0,
+                    loss_quantity: parseFloat(formData.loss_quantity) || 0,
                     package_count: parseInt(formData.package_count) || 0,
                     weight_per_package: parseFloat(formData.weight_per_package) || 0
                 },
@@ -392,7 +398,9 @@ const HarvestRecords = () => {
                             <tr className="bg-slate-50/50 border-b border-slate-100">
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">수확일</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">배치 코드</th>
-                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">수확량</th>
+                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">수확량(정품)</th>
+                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">비상품/손실</th>
+                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">수율</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">등급</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">이력번호</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">관리</th>
@@ -426,6 +434,33 @@ const HarvestRecords = () => {
                                                     </p>
                                                 )}
                                             </div>
+                                        </td>
+                                        <td className="px-6 py-5">
+                                            <div className="flex items-center gap-2 text-rose-500 mb-1">
+                                                <span className="text-[10px] font-black bg-rose-50 px-1.5 py-0.5 rounded">파지</span>
+                                                <p className="text-[11px] font-bold">{record.defective_quantity || 0}{record.unit}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-slate-400">
+                                                <span className="text-[10px] font-black bg-slate-100 px-1.5 py-0.5 rounded">손실</span>
+                                                <p className="text-[11px] font-bold">{record.loss_quantity || 0}{record.unit}</p>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-5 text-center">
+                                            {(() => {
+                                                const q = parseFloat(record.quantity) || 0;
+                                                const d = parseFloat(record.defective_quantity) || 0;
+                                                const l = parseFloat(record.loss_quantity) || 0;
+                                                const total = q + d + l;
+                                                const yield_val = total > 0 ? ((q / total) * 100).toFixed(1) : 0;
+                                                return (
+                                                    <div className="flex flex-col items-center">
+                                                        <span className={`text-[11px] font-black ${yield_val > 90 ? 'text-teal-600' : yield_val > 70 ? 'text-indigo-600' : 'text-amber-600'}`}>{yield_val}%</span>
+                                                        <div className="w-12 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                                                            <div className={`h-full transition-all duration-1000 ${yield_val > 90 ? 'bg-teal-500' : yield_val > 70 ? 'bg-indigo-500' : 'bg-amber-500'}`} style={{ width: `${yield_val}%` }}></div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="px-6 py-5">
                                             <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${record.grade === 'A' ? 'bg-teal-50 text-teal-600' :
@@ -529,12 +564,23 @@ const HarvestRecords = () => {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1 text-left">
-                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">총 수확량 (자동계산)</label>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">정품 수확량 (입고량)</label>
                                     <input type="number" step="0.1" value={formData.quantity} onChange={e => setFormData({ ...formData, quantity: e.target.value })} className="w-full h-11 px-5 bg-slate-50 border-none rounded-2xl font-black text-sm ring-1 ring-indigo-100 text-indigo-600 text-right" />
                                 </div>
                                 <div className="space-y-1 text-left">
                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">중량 단위</label>
                                     <input type="text" value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} className="w-full h-11 px-5 bg-slate-50 border-none rounded-2xl font-bold text-sm ring-1 ring-slate-100" />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1 text-left">
+                                    <label className="block text-[10px] font-black text-rose-400 uppercase tracking-widest ml-1">비상품(파지) 수량</label>
+                                    <input type="number" step="0.1" value={formData.defective_quantity} onChange={e => setFormData({ ...formData, defective_quantity: e.target.value })} className="w-full h-11 px-5 bg-rose-50/30 border-none rounded-2xl font-black text-sm ring-1 ring-rose-100 text-rose-600 text-right" />
+                                </div>
+                                <div className="space-y-1 text-left">
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">폐기/손실 수량</label>
+                                    <input type="number" step="0.1" value={formData.loss_quantity} onChange={e => setFormData({ ...formData, loss_quantity: e.target.value })} className="w-full h-11 px-5 bg-slate-50 border-none rounded-2xl font-black text-sm ring-1 ring-slate-200 text-slate-400 text-right" />
                                 </div>
                             </div>
 

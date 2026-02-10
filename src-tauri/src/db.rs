@@ -783,6 +783,10 @@ pub struct HarvestRecord {
     pub batch_id: Option<i32>,
     pub harvest_date: NaiveDate,
     pub quantity: rust_decimal::Decimal,
+    #[sqlx(default)]
+    pub defective_quantity: Option<rust_decimal::Decimal>,
+    #[sqlx(default)]
+    pub loss_quantity: Option<rust_decimal::Decimal>,
     pub unit: String,
     pub grade: Option<String>,
     pub traceability_code: Option<String>,

@@ -42,6 +42,7 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
         activeBatches: 0,
         todayLogs: 0,
         harvestThisMonth: 0,
+        monthlyYield: 0,
         pendingActions: 0
     });
     const [recentLogs, setRecentLogs] = useState([]);
@@ -77,12 +78,17 @@ const ProductionManager = ({ initialTab = 'dashboard' }) => {
             const today = dayjs().format('YYYY-MM-DD');
             const thisMonth = dayjs().format('YYYY-MM');
 
+            const monthlyHarvests = harvests.filter(h => h.harvest_date.startsWith(thisMonth));
+            const totalGood = monthlyHarvests.reduce((sum, h) => sum + (parseFloat(h.quantity) || 0), 0);
+            const totalDefective = monthlyHarvests.reduce((sum, h) => sum + (parseFloat(h.defective_quantity) || 0), 0);
+            const totalLoss = monthlyHarvests.reduce((sum, h) => sum + (parseFloat(h.loss_quantity) || 0), 0);
+            const totalProduction = totalGood + totalDefective + totalLoss;
+
             setStats({
                 activeBatches: batches.filter(b => b.status === 'active' || b.status === 'growing').length,
                 todayLogs: logs.filter(l => l.log_date === today).length,
-                harvestThisMonth: harvests
-                    .filter(h => h.harvest_date.startsWith(thisMonth))
-                    .reduce((sum, h) => sum + (parseFloat(h.quantity) || 0), 0),
+                harvestThisMonth: totalGood,
+                monthlyYield: totalProduction > 0 ? ((totalGood / totalProduction) * 100).toFixed(1) : 100,
                 pendingActions: batches.filter(b => b.status === 'growing' && dayjs(b.expected_harvest_date).isBefore(dayjs().add(2, 'day'))).length
             });
         } catch (err) {
@@ -278,7 +284,7 @@ const ProductionDashboard = ({ stats, recentLogs = [], spaces = [] }) => {
                 {[
                     { label: '활성 배치', value: `${stats.activeBatches}개`, icon: FlaskConical, color: 'blue' },
                     { label: '금일 작성 일지', value: `${stats.todayLogs}건`, icon: ClipboardList, color: 'indigo' },
-                    { label: '이달의 수확량', value: `${stats.harvestThisMonth.toLocaleString()}kg`, icon: Boxes, color: 'teal' },
+                    { label: '이달의 수율', value: `${stats.monthlyYield}% (${stats.harvestThisMonth}kg)`, icon: Boxes, color: 'teal' },
                     { label: '임박한 작업', value: `${stats.pendingActions}건`, icon: AlertCircle, color: 'amber' },
                 ].map((item, i) => (
                     <div key={i} className="bg-white p-6 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 flex items-center gap-5">

@@ -170,6 +170,7 @@ pub fn run() {
             commands::customer::check_duplicate_customer,
             commands::customer::search_best_customers,
             commands::customer::update_customer_membership_batch,
+            commands::customer::update_customer_memo_batch,
             commands::customer::get_sales_by_customer_id,
             commands::sales::create_sale,
             commands::product::get_product_list,

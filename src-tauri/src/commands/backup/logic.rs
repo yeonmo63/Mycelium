@@ -558,10 +558,10 @@ pub async fn restore_database(
                 }
                 "harvest_records" => {
                     let d: HarvestRecord = serde_json::from_value(data.clone())?;
-                    sqlx::query("INSERT INTO harvest_records (harvest_id, batch_id, harvest_date, quantity, unit, grade, traceability_code, lot_number, package_count, weight_per_package, package_unit, memo, created_at, updated_at) 
-                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
-                                 ON CONFLICT (harvest_id) DO UPDATE SET batch_id=$2, harvest_date=$3, quantity=$4, unit=$5, grade=$6, traceability_code=$7, lot_number=$8, package_count=$9, weight_per_package=$10, package_unit=$11, memo=$12, updated_at=$14")
-                        .bind(d.harvest_id).bind(d.batch_id).bind(d.harvest_date).bind(d.quantity).bind(&d.unit).bind(&d.grade).bind(&d.traceability_code).bind(&d.lot_number).bind(d.package_count).bind(d.weight_per_package).bind(&d.package_unit).bind(&d.memo).bind(d.created_at).bind(d.updated_at)
+                    sqlx::query("INSERT INTO harvest_records (harvest_id, batch_id, harvest_date, quantity, unit, grade, traceability_code, lot_number, package_count, weight_per_package, package_unit, memo, created_at, updated_at, defective_quantity, loss_quantity) 
+                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) 
+                                 ON CONFLICT (harvest_id) DO UPDATE SET batch_id=$2, harvest_date=$3, quantity=$4, unit=$5, grade=$6, traceability_code=$7, lot_number=$8, package_count=$9, weight_per_package=$10, package_unit=$11, memo=$12, updated_at=$14, defective_quantity=$15, loss_quantity=$16")
+                        .bind(d.harvest_id).bind(d.batch_id).bind(d.harvest_date).bind(d.quantity).bind(&d.unit).bind(&d.grade).bind(&d.traceability_code).bind(&d.lot_number).bind(d.package_count).bind(d.weight_per_package).bind(&d.package_unit).bind(&d.memo).bind(d.created_at).bind(d.updated_at).bind(d.defective_quantity).bind(d.loss_quantity)
                         .execute(&mut *tx).await?;
                 }
                 "deletion_log" => {

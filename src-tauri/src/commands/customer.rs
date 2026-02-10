@@ -700,6 +700,30 @@ pub async fn update_customer_membership_batch(
 }
 
 #[command]
+pub async fn update_customer_memo_batch(
+    state: State<'_, DbPool>,
+    customerIds: Vec<String>,
+    newMemo: String,
+    append: bool,
+) -> MyceliumResult<()> {
+    DB_MODIFIED.store(true, Ordering::Relaxed);
+    if append {
+        sqlx::query("UPDATE customers SET memo = COALESCE(memo, '') || '\n' || $1 WHERE customer_id = ANY($2)")
+            .bind(newMemo)
+            .bind(&customerIds)
+            .execute(&*state)
+            .await?;
+    } else {
+        sqlx::query("UPDATE customers SET memo = $1 WHERE customer_id = ANY($2)")
+            .bind(newMemo)
+            .bind(&customerIds)
+            .execute(&*state)
+            .await?;
+    }
+    Ok(())
+}
+
+#[command]
 pub async fn get_sales_by_customer_id(
     state: State<'_, DbPool>,
     customer_id: String,
