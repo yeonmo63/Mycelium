@@ -25,7 +25,7 @@ import {
     Database,
     Zap
 } from 'lucide-react';
-import LabelPrinter, { printLabel } from '../production/components/LabelPrinter';
+import { printLabel } from '../production/components/LabelPrinter';
 
 const SettingsProduct = () => {
     const navigate = useNavigate();
@@ -1440,8 +1440,7 @@ const SettingsProduct = () => {
                     </div>
                 )
             }
-            {/* Print Label Component */}
-            <LabelPrinter type="product" data={printData} />
+
         </div>
     );
 };

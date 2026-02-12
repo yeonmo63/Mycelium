@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { QRCodeSVG } from 'qrcode.react';
 import { useModal } from '../../../contexts/ModalContext';
 import {
     Plus, Boxes, Calendar, User, History,
@@ -7,7 +8,7 @@ import {
     Tag, Scale, Info, QrCode, Zap, Speaker, CheckCircle2
 } from 'lucide-react';
 import dayjs from 'dayjs';
-import LabelPrinter, { printLabel } from './LabelPrinter';
+import { printLabel } from './LabelPrinter';
 
 const HarvestRecords = () => {
     const [records, setRecords] = useState([]);
@@ -17,6 +18,7 @@ const HarvestRecords = () => {
     const { showAlert, showConfirm } = useModal();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
+    const [companyInfo, setCompanyInfo] = useState(null);
 
     const [formData, setFormData] = useState({
         harvest_id: 0,
@@ -34,7 +36,8 @@ const HarvestRecords = () => {
         package_unit: '박스'
     });
     const [completeBatch, setCompleteBatch] = useState(false);
-    const [printData, setPrintData] = useState(null);
+    const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
+    const [printJob, setPrintJob] = useState(null);
 
     // Continuous Scanner Mode States
     const [isScannerMode, setIsScannerMode] = useState(false);
@@ -75,7 +78,16 @@ const HarvestRecords = () => {
         }
     };
 
-    useEffect(() => { loadData(); }, []);
+    useEffect(() => {
+        loadData();
+        const fetchCompany = () => invoke('get_company_info')
+            .then(info => setCompanyInfo(info))
+            .catch(e => console.error("[Harvest] Company fetch failed:", e));
+
+        fetchCompany();
+        window.addEventListener('company-info-changed', fetchCompany);
+        return () => window.removeEventListener('company-info-changed', fetchCompany);
+    }, []);
 
     const handleOpenModal = (record = null) => {
         if (record) {
@@ -155,13 +167,24 @@ const HarvestRecords = () => {
         const displayCode = record.traceability_code ||
             (batch?.batch_code ? `B-${batch.batch_code}` : `H-${record.harvest_id}`);
 
-        printLabel('harvest', {
-            title: product?.product_name || '수확물(상품미정)',
+        const jobData = {
+            title: `${product?.product_name || '수확물'} ${record.grade}등급`,
             code: displayCode,
-            spec: `${record.grade}등급 / ${record.quantity}${record.unit}`,
-            date: `수확: ${dayjs(record.harvest_date).format('YY/MM/DD')}`,
-            qrValue: `[${product?.product_name || '수확물'}] ${dayjs(record.harvest_date).format('YYYY-MM-DD')} | ${record.grade}등급 | ${record.quantity}${record.unit} | ${displayCode}`
-        });
+            date: dayjs(record.harvest_date).format('YYYY.MM.DD'),
+            producer: companyInfo?.representative_name || '관리자',
+            qrValue: `${product?.product_name || '수확물'} | ${record.grade}등급 | ${dayjs(record.harvest_date).format('YYYY-MM-DD')} | ${companyInfo?.representative_name || '관리자'} | ${displayCode}`
+        };
+
+        setPrintJob(jobData);
+        setIsPrintPreviewOpen(true);
+    };
+
+    const executePrint = () => {
+        console.log("[Harvest] 📤 executePrint button clicked. Job Data:", printJob);
+        if (printJob) {
+            printLabel('harvest', printJob);
+            setIsPrintPreviewOpen(false);
+        }
     };
 
     const handleQuickScan = async (e) => {
@@ -396,6 +419,7 @@ const HarvestRecords = () => {
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">수율</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">등급</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">이력번호</th>
+                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">QR코드</th>
                                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">관리</th>
                             </tr>
                         </thead>
@@ -465,13 +489,15 @@ const HarvestRecords = () => {
                                         <td className="px-6 py-5 text-xs text-slate-500 font-bold">
                                             {record.traceability_code || '-'}
                                         </td>
+                                        <td className="px-6 py-5 text-center">
+                                            <button onClick={() => handlePrint(record)} className="p-2 text-slate-500 hover:text-indigo-600 transition-colors">
+                                                <span className="material-symbols-rounded text-[18px]">qr_code</span>
+                                            </button>
+                                        </td>
                                         <td className="px-6 py-5 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => handlePrint(record)} className="p-2 text-slate-500 hover:text-indigo-600 transition-colors">
-                                                    <span className="material-symbols-rounded text-[18px]">qr_code</span>
-                                                </button>
-                                                <button onClick={() => handleDelete(record.harvest_id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-                                            </div>
+                                            <button onClick={() => handleDelete(record.harvest_id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors">
+                                                <Trash2 size={16} />
+                                            </button>
                                         </td>
                                     </tr>
                                 );
@@ -617,8 +643,68 @@ const HarvestRecords = () => {
                 </div>
             )}
 
-            {/* Print Label Component */}
-            <LabelPrinter type="harvest" data={printData} />
+            {/* QR Print Preview Modal */}
+            {isPrintPreviewOpen && printJob && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm"></div>
+                    <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-8 flex flex-col items-center">
+                            <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center text-indigo-600 mb-6">
+                                <QrCode size={40} />
+                            </div>
+
+                            <h3 className="text-xl font-black text-slate-800 mb-2">QR코드 인쇄 미리보기</h3>
+                            <p className="text-xs font-bold text-slate-400 mb-8 text-center px-6">
+                                생성된 정보를 확인하고 라벨 프린터로<br />인쇄를 진행하시겠습니까?
+                            </p>
+
+                            {/* QR Preview Card */}
+                            <div className="w-full bg-slate-50 rounded-[2rem] p-6 border border-slate-100 mb-8 flex flex-col items-center">
+                                <div className="bg-white p-4 rounded-2xl shadow-sm mb-4 border border-slate-100">
+                                    <QRCodeSVG
+                                        value={printJob.qrValue}
+                                        size={140}
+                                        level="M"
+                                    />
+                                </div>
+                                <div className="w-full space-y-2 mt-4 text-left border-t border-slate-100 pt-4 px-2">
+                                    <div className="flex justify-between items-center bg-white p-2 rounded-xl mb-1">
+                                        <span className="text-[10px] font-black text-slate-400 w-12">품&nbsp;&nbsp;&nbsp;명:</span>
+                                        <span className="text-xs font-black text-slate-700 flex-1">{printJob.title}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center bg-white p-2 rounded-xl mb-1">
+                                        <span className="text-[10px] font-black text-slate-400 w-12">생산일:</span>
+                                        <span className="text-xs font-black text-slate-700 flex-1">{printJob.date}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center bg-white p-2 rounded-xl mb-1">
+                                        <span className="text-[10px] font-black text-slate-400 w-12">생산자:</span>
+                                        <span className="text-xs font-black text-slate-700 flex-1">{printJob.producer}</span>
+                                    </div>
+                                    <p className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg mt-3 text-center tracking-wider">
+                                        {printJob.code}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 w-full">
+                                <button
+                                    onClick={() => setIsPrintPreviewOpen(false)}
+                                    className="flex-1 h-14 rounded-2xl font-black text-slate-400 hover:bg-slate-50 transition-colors"
+                                >
+                                    취소
+                                </button>
+                                <button
+                                    onClick={executePrint}
+                                    className="flex-[2] h-14 bg-slate-900 rounded-2xl font-black text-white shadow-xl shadow-slate-200 flex items-center justify-center gap-2 hover:bg-slate-800 transition-all active:scale-[0.98]"
+                                >
+                                    <span className="material-symbols-rounded text-[20px]">print</span>
+                                    라벨 인쇄 시작
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
