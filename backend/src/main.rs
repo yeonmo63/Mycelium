@@ -1,9 +1,12 @@
 #![allow(unused_imports, dead_code, unused_variables, non_snake_case)]
+use axum::http::{header, StatusCode, Uri};
+use axum::response::IntoResponse;
 use axum::{
     routing::{get, post},
     Router,
 };
 use dotenvy::dotenv;
+use rust_embed::RustEmbed;
 use std::env;
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
@@ -75,7 +78,7 @@ async fn main() {
 
     // Build our application with routes
     let app = Router::new()
-        .route("/", get(root))
+        // .route("/", get(root)) // 이 줄을 주석 처리하거나 삭제합니다.
         // Utility Routes
         .route("/api/utility/greet/:name", get(commands::utility::greet))
         .route(
@@ -519,7 +522,8 @@ async fn main() {
                 .allow_headers(Any),
         )
         .with_state(app_state)
-        .merge(bridge_router);
+        .merge(bridge_router)
+        .fallback(static_handler);
 
     // Run it
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
@@ -533,4 +537,38 @@ async fn main() {
 
 async fn root() -> &'static str {
     "Hello, Celium is running!"
+}
+
+#[derive(RustEmbed)]
+#[folder = "../frontend/dist/"]
+struct Assets;
+
+async fn static_handler(uri: Uri) -> impl IntoResponse {
+    let path = uri.path().trim_start_matches('/');
+
+    if path.is_empty() || path == "index.html" {
+        return index_html().await;
+    }
+
+    match Assets::get(path) {
+        Some(content) => {
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
+            ([(header::CONTENT_TYPE, mime.as_ref())], content.data).into_response()
+        }
+        None => {
+            // If it's a file request (has extension) but not found, return 404
+            if path.contains('.') {
+                return (StatusCode::NOT_FOUND, "Not Found").into_response();
+            }
+            // For SPA roots, return index.html
+            index_html().await
+        }
+    }
+}
+
+async fn index_html() -> axum::response::Response {
+    match Assets::get("index.html") {
+        Some(content) => ([(header::CONTENT_TYPE, "text/html")], content.data).into_response(),
+        None => (StatusCode::NOT_FOUND, "index.html not found").into_response(),
+    }
 }
