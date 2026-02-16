@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 
 #[derive(Deserialize)]
 pub struct EventSearchQuery {
+    #[serde(alias = "name")]
     pub query: Option<String>,
 }
 

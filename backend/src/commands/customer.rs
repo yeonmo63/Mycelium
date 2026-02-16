@@ -17,6 +17,7 @@ pub struct AiCustomerInsight {
 
 #[derive(Deserialize)]
 pub struct CustomerSearchQuery {
+    #[serde(alias = "name", alias = "mobile")]
     pub query: String,
 }
 

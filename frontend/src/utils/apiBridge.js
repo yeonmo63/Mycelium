@@ -144,6 +144,7 @@ export async function callBridge(commandName, args = {}) {
         'create_schedule': '/api/schedule/create',
         'update_schedule': '/api/schedule/update',
         'delete_schedule': '/api/schedule/delete',
+        'login': '/api/auth/login',
     };
 
     const route = routeMap[commandName];
@@ -210,7 +211,8 @@ export async function callBridge(commandName, args = {}) {
         'fetch_naver_search',
         'analyze_online_sentiment',
         'send_sms_simulation',
-        'push_sensor_data'
+        'push_sensor_data',
+        'login'
     ];
     const isPost = postCommands.includes(commandName) || commandName.startsWith('save_');
 
@@ -248,7 +250,11 @@ export async function callBridge(commandName, args = {}) {
         // Simulate Tauri command error behavior:
         // If the backend returns { success: false, error: "..." }, throw an error.
         if (result && typeof result === 'object' && result.success === false) {
-            throw new Error(result.error || 'Unknown backend error');
+            if (result.error) {
+                throw new Error(result.error);
+            }
+            // If success is false but no error field (e.g. login returns 'message'), 
+            // we return the result so the component can handle it.
         }
 
         return result;

@@ -898,9 +898,25 @@ pub async fn save_mobile_config_axum(
     Ok(Json(()))
 }
 
-pub async fn get_local_ip_axum() -> MyceliumResult<Json<String>> {
-    let ip = local_ip_address::local_ip()
-        .map(|ip| ip.to_string())
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
-    Ok(Json(ip))
+pub async fn get_local_ip_axum() -> MyceliumResult<Json<Vec<String>>> {
+    let mut ips = Vec::new();
+
+    // Get all network interfaces
+    if let Ok(ifaces) = local_ip_address::list_afinet_netifas() {
+        for (_name, ip) in ifaces {
+            if ip.is_ipv4() && !ip.is_loopback() {
+                ips.push(ip.to_string());
+            }
+        }
+    }
+
+    // Fallback if none found
+    if ips.is_empty() {
+        ips.push("127.0.0.1".to_string());
+    }
+
+    // Sort so consistency is better
+    ips.sort();
+
+    Ok(Json(ips))
 }

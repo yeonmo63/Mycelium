@@ -1,5 +1,4 @@
-<?xml version='1.0' encoding='windows-1252'?>
-<!--
+﻿<!--
   Copyright (C) 2017 Christopher R. Field.
 
   Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,161 +51,22 @@
 -->
 <?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
     <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
-<?else ?>
+<?else?>
     <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
-<?endif ?>
+<?endif?>
 
-<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi' xmlns:util='http://schemas.microsoft.com/wix/2006/util'>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
-    <Product
-        Id='*'
-        Name='celium-backend'
-        UpgradeCode='10F40259-C041-41E7-8AA7-6C65B9B1165B'
-        Manufacturer='yeonmo'
-        Language='1033'
-        Codepage='1252'
-        Version='$(var.Version)'>
+    <Package Name="celium-backend" UpgradeCode="10F40259-C041-41E7-8AA7-6C65B9B1165B" Manufacturer="yeonmo" Language="1033" Codepage="949" Version="$(var.Version)" InstallerVersion="450"><SummaryInformation Keywords="Installer" Manufacturer="yeonmo" Codepage="949" />
 
-        <Package Id='*'
-            Keywords='Installer'
-            Manufacturer='yeonmo'
-            InstallerVersion='450'
-            Languages='1033'
-            Compressed='yes'
-            InstallScope='perMachine'
-            SummaryCodepage='1252'
-            />
+        <MajorUpgrade Schedule="afterInstallValidate" AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed. Setup will now exit." />
 
-        <MajorUpgrade
-            Schedule='afterInstallInitialize'
-            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" DiskPrompt="CD-ROM #1" />
+        <Property Id="DiskPrompt" Value="celium-backend Installation" />
 
-        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
-        <Property Id='DiskPrompt' Value='celium-backend Installation'/>
+        
 
-        <Directory Id='TARGETDIR' Name='SourceDir'>
-            <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
-                <Directory Id='APPLICATIONFOLDER' Name='celium-backend'>
-                    
-                    <!--
-                      Enabling the license sidecar file in the installer is a four step process:
-
-                      1. Uncomment the `Component` tag and its contents.
-                      2. Change the value for the `Source` attribute in the `File` tag to a path
-                         to the file that should be included as the license sidecar file. The path
-                         can, and probably should be, relative to this file.
-                      3. Change the value for the `Name` attribute in the `File` tag to the
-                         desired name for the file when it is installed alongside the `bin` folder
-                         in the installation directory. This can be omitted if the desired name is
-                         the same as the file name.
-                      4. Uncomment the `ComponentRef` tag with the Id attribute value of "License"
-                         further down in this file.
-                    -->
-                    <!--
-                    <Component Id='License' Guid='*'>
-                        <File Id='LicenseFile' Name='ChangeMe' DiskId='1' Source='C:\Path\To\File' KeyPath='yes'/>
-                    </Component>
-                    -->
-
-                    <Directory Id='Bin' Name='bin'>
-                        <Component Id='Path' Guid='696236A6-5CD5-497A-9207-39F6481E9361' KeyPath='yes'>
-                            <Environment
-                                Id='PATH'
-                                Name='PATH'
-                                Value='[Bin]'
-                                Permanent='no'
-                                Part='last'
-                                Action='set'
-                                System='yes'/>
-                        </Component>
-                        <Component Id='binary0' Guid='DE8A3A4F-CC30-4C9D-9F62-581F6D64753F'>
-                            <File
-                                Id='exe0'
-                                Name='celium-backend.exe'
-                                DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\celium-backend.exe'
-                                KeyPath='yes'/>
-                            <!-- .env 파일 추가 -->
-                            <File
-                                Id='env_file'
-                                Name='.env'
-                                DiskId='1'
-                                Source='d:\workspace\rust\mycelium\backend\.env'/>
-                        </Component>
-                        <Directory Id='Resources' Name='resources' />
-                    </Directory>
-                </Directory>
-            </Directory>
-            <Directory Id='DesktopFolder' Name='Desktop'>
-                <Component Id='ApplicationShortcutDesktop' Guid='A3B4C5D6-E7F8-4901-B2C3-D4E5F6A7B8C9'>
-                    <Shortcut Id='ApplicationDesktopShortcut'
-                        Name='Celium'
-                        Description='Mycelium Agricultural Management'
-                        Target='[Bin]celium-backend.exe'
-                        WorkingDirectory='Bin'/>
-                    <RemoveFolder Id='DesktopFolder' On='uninstall'/>
-                    <RegistryValue
-                        Root='HKCU'
-                        Key='Software\yeonmo\Celium'
-                        Name='installed'
-                        Type='integer'
-                        Value='1'
-                        KeyPath='yes'/>
-                </Component>
-                <Component Id='WebShortcutDesktop' Guid='C1D2E3F4-A5B6-4789-9876-543210ABCDEF'>
-                    <util:InternetShortcut Id='OnlineDashboardShortcut'
-                        Name='Celium 웹 대시보드'
-                        Target='http://localhost:3000'/>
-                    <RegistryValue
-                        Root='HKCU'
-                        Key='Software\yeonmo\Celium'
-                        Name='web_installed'
-                        Type='integer'
-                        Value='1'
-                        KeyPath='yes'/>
-                </Component>
-            </Directory>
-
-            <!-- 시작 시 자동 실행 -->
-            <Component Id='AppAutoStart' Guid='BD48F1B3-47E4-48E0-9E11-2354CDA102A2'>
-                <RegistryValue Root='HKCU'
-                               Key='Software\Microsoft\Windows\CurrentVersion\Run'
-                               Name='Celium'
-                               Value='&quot;[Bin]celium-backend.exe&quot;'
-                               Type='string'
-                               KeyPath='yes' />
-            </Component>
-
-            <!-- 시작 메뉴 및 삭제 바로가기 -->
-            <Directory Id='ProgramMenuFolder'>
-                <Directory Id='ApplicationProgramsFolder' Name='Celium'>
-                    <Component Id='ApplicationShortcut' Guid='B2C3D4E5-F6A7-4811-9234-567890ABCDEF'>
-                        <Shortcut Id='ApplicationStartMenuShortcut'
-                                  Name='Celium'
-                                  Description='Mycelium Agricultural Management'
-                                  Target='[Bin]celium-backend.exe'
-                                  WorkingDirectory='Bin'/>
-                        <Shortcut Id='UninstallProduct'
-                                  Name='Uninstall Celium'
-                                  Description='Uninstalls Celium'
-                                  Target='[System64Folder]msiexec.exe'
-                                  Arguments='/x [ProductCode]'/>
-                        <RemoveFolder Id='ApplicationProgramsFolder' On='uninstall'/>
-                        <RegistryValue Root='HKCU' Key='Software\yeonmo\Celium' Name='installed_shortcut' Type='integer' Value='1' KeyPath='yes'/>
-                    </Component>
-                </Directory>
-            </Directory>
-        </Directory>
-
-        <Feature
-            Id='Binaries'
-            Title='Application'
-            Description='Installs all binaries and the license.'
-            Level='1'
-            ConfigurableDirectory='APPLICATIONFOLDER'
-            AllowAdvertise='no'
-            Display='expand'
-            Absent='disallow'>
+        <Feature Id="Binaries" Title="Application" Description="Installs all binaries and the license." Level="1" ConfigurableDirectory="APPLICATIONFOLDER" AllowAdvertise="no" Display="expand" AllowAbsent="no">
             
             <!--
               Uncomment the following `ComponentRef` tag to add the license
@@ -214,24 +74,19 @@
             -->
             <!--<ComponentRef Id='License'/>-->
 
-            <ComponentRef Id='binary0'/>
-            <ComponentGroupRef Id='ResourcesGroup'/>
-            <ComponentRef Id='ApplicationShortcutDesktop'/>
-            <ComponentRef Id='WebShortcutDesktop'/>
-            <ComponentRef Id='AppAutoStart'/>
-            <ComponentRef Id='ApplicationShortcut'/>
+            <ComponentRef Id="binary0" />
+            <ComponentGroupRef Id="ResourcesGroup" />
+            <ComponentRef Id="ApplicationShortcutDesktop" />
+            <ComponentRef Id="WebShortcutDesktop" />
+            <ComponentRef Id="AppAutoStart" />
+            <ComponentRef Id="ApplicationShortcut" />
 
-            <Feature
-                Id='Environment'
-                Title='PATH Environment Variable'
-                Description='Add the install location of the [ProductName] executable to the PATH system environment variable. This allows the [ProductName] executable to be called from any location.'
-                Level='1'
-                Absent='allow'>
-                <ComponentRef Id='Path'/>
+            <Feature Id="Environment" Title="PATH Environment Variable" Description="Add the install location of the [ProductName] executable to the PATH system environment variable. This allows the [ProductName] executable to be called from any location." Level="1">
+                <ComponentRef Id="Path" />
             </Feature>
         </Feature>
 
-        <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
+        <SetProperty Id="ARPINSTALLLOCATION" Value="[APPLICATIONFOLDER]" After="CostFinalize" />
 
         
         <!--
@@ -256,7 +111,7 @@
         <!--<Property Id='ARPHELPLINK' Value='ChangeMe'/>-->
 
         <UI>
-            <UIRef Id='WixUI_FeatureTree'/>
+            <ui:WixUI Id="WixUI_FeatureTree" />
             
             <!--
               Enabling the EULA dialog in the installer is a three step process:
@@ -268,8 +123,8 @@
                    the path to a RTF file that will be used as the EULA and
                    displayed in the license agreement dialog.
             -->
-            <Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>
-            <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
+            <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="CustomizeDlg" Order="99" />
+            <Publish Dialog="CustomizeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="99" />
 
         </UI>
 
@@ -303,6 +158,71 @@
         -->
         <!--<WixVariable Id='WixUIDialogBmp' Value='wix\Dialog.bmp'/>-->
 
-    </Product>
+    
+            <StandardDirectory Id="$(var.PlatformProgramFilesFolder)">
+                <Directory Id="APPLICATIONFOLDER" Name="celium-backend">
+                    
+                    <!--
+                      Enabling the license sidecar file in the installer is a four step process:
+
+                      1. Uncomment the `Component` tag and its contents.
+                      2. Change the value for the `Source` attribute in the `File` tag to a path
+                         to the file that should be included as the license sidecar file. The path
+                         can, and probably should be, relative to this file.
+                      3. Change the value for the `Name` attribute in the `File` tag to the
+                         desired name for the file when it is installed alongside the `bin` folder
+                         in the installation directory. This can be omitted if the desired name is
+                         the same as the file name.
+                      4. Uncomment the `ComponentRef` tag with the Id attribute value of "License"
+                         further down in this file.
+                    -->
+                    <!--
+                    <Component Id='License' Guid='*'>
+                        <File Id='LicenseFile' Name='ChangeMe' DiskId='1' Source='C:\Path\To\File' KeyPath='yes'/>
+                    </Component>
+                    -->
+
+                    <Directory Id="Bin" Name="bin">
+                        <Component Id="Path" Guid="696236A6-5CD5-497A-9207-39F6481E9361" KeyPath="yes">
+                            <Environment Id="PATH" Name="PATH" Value="[Bin]" Permanent="no" Part="last" Action="set" System="yes" />
+                        </Component>
+                        <Component Id="binary0" Guid="DE8A3A4F-CC30-4C9D-9F62-581F6D64753F">
+                            <File Id="exe0" Name="celium-backend.exe" DiskId="1" Source="$(var.CargoTargetBinDir)\celium-backend.exe" KeyPath="yes" />
+                            <!-- .env 파일 추가 -->
+                            <File Id="env_file" Name=".env" DiskId="1" Source="d:\workspace\rust\mycelium\backend\.env" />
+                        </Component>
+                        <Directory Id="Resources" Name="resources" />
+                    </Directory>
+                </Directory>
+            </StandardDirectory>
+            <StandardDirectory Id="DesktopFolder">
+                <Component Id="ApplicationShortcutDesktop" Guid="A3B4C5D6-E7F8-4901-B2C3-D4E5F6A7B8C9">
+                    <Shortcut Id="ApplicationDesktopShortcut" Name="Celium" Description="Mycelium Agricultural Management" Target="[Bin]celium-backend.exe" WorkingDirectory="Bin" />
+                    <RemoveFolder Id="DesktopFolder" On="uninstall" />
+                    <RegistryValue Root="HKCU" Key="Software\yeonmo\Celium" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+                </Component>
+                <Component Id="WebShortcutDesktop" Guid="C1D2E3F4-A5B6-4789-9876-543210ABCDEF">
+                    <util:InternetShortcut Id="OnlineDashboardShortcut" Name="Celium 웹 대시보드" Target="http://localhost:3000" />
+                    <RegistryValue Root="HKCU" Key="Software\yeonmo\Celium" Name="web_installed" Type="integer" Value="1" KeyPath="yes" />
+                </Component>
+            </StandardDirectory>
+
+            <!-- 시작 시 자동 실행 -->
+            <Component Id="AppAutoStart" Guid="BD48F1B3-47E4-48E0-9E11-2354CDA102A2" Directory="TARGETDIR">
+                <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Celium" Value="&quot;[Bin]celium-backend.exe&quot;" Type="string" KeyPath="yes" />
+            </Component>
+
+            <!-- 시작 메뉴 및 삭제 바로가기 -->
+            <StandardDirectory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Celium">
+                    <Component Id="ApplicationShortcut" Guid="B2C3D4E5-F6A7-4811-9234-567890ABCDEF">
+                        <Shortcut Id="ApplicationStartMenuShortcut" Name="Celium" Description="Mycelium Agricultural Management" Target="[Bin]celium-backend.exe" WorkingDirectory="Bin" />
+                        <Shortcut Id="UninstallProduct" Name="Uninstall Celium" Description="Uninstalls Celium" Target="[System64Folder]msiexec.exe" Arguments="/x [ProductCode]" />
+                        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+                        <RegistryValue Root="HKCU" Key="Software\yeonmo\Celium" Name="installed_shortcut" Type="integer" Value="1" KeyPath="yes" />
+                    </Component>
+                </Directory>
+            </StandardDirectory>
+        </Package>
 
 </Wix>

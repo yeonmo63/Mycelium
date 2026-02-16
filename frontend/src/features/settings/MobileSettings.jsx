@@ -6,7 +6,9 @@ import { Smartphone, Laptop, QrCode, Wifi, ShieldCheck, ArrowRight, Lock, Globe,
 
 const MobileSettings = () => {
     const { showAlert, showConfirm } = useModal();
-    const [localIp, setLocalIp] = useState('Checking...');
+    const [allIps, setAllIps] = useState([]);
+    const [wifiIp, setWifiIp] = useState('');
+    const [tailscaleIp, setTailscaleIp] = useState('');
     const [port] = useState('8989');
     const [isServerActive, setIsServerActive] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -26,16 +28,34 @@ const MobileSettings = () => {
 
     const loadData = async () => {
         try {
-            const [ip, mobileConfig] = await Promise.all([
-                invoke('get_local_ip_command').catch(() => '127.0.0.1'),
+            const [ips, mobileConfig] = await Promise.all([
+                invoke('get_local_ip_command').catch(() => ['127.0.0.1']),
                 invoke('get_mobile_config')
             ]);
-            setLocalIp(ip || '127.0.0.1');
-            setConfig(mobileConfig || { remote_ip: '', access_pin: '', use_pin: false });
+
+            setAllIps(ips);
+
+            // Identify Tailscale IP (typically starts with 100.)
+            const tsIp = ips.find(ip => ip.startsWith('100.')) || '';
+            setTailscaleIp(tsIp);
+
+            // Identify Local/Wifi IP (not 100. and not loopback)
+            const local = ips.find(ip => !ip.startsWith('100.') && ip !== '127.0.0.1') || ips[0] || '127.0.0.1';
+            setWifiIp(local);
+
+            // Apply mobile config
+            const initialConfig = mobileConfig || { remote_ip: '', access_pin: '', use_pin: false };
+
+            // If we found a Tailscale IP and config doesn't have one, suggest it
+            if (tsIp && !initialConfig.remote_ip) {
+                initialConfig.remote_ip = tsIp;
+            }
+
+            setConfig(initialConfig);
             setIsServerActive(true);
         } catch (e) {
             console.error(e);
-            setLocalIp('127.0.0.1');
+            setWifiIp('127.0.0.1');
         }
     };
 
@@ -52,12 +72,13 @@ const MobileSettings = () => {
         }
     };
 
-    const localUrl = `http://${localIp}:${port}/mobile-dashboard`;
+    const localUrl = `http://${wifiIp}:${port}/mobile-dashboard`;
     const remoteUrl = config.remote_ip ? `http://${config.remote_ip}:${port}/mobile-dashboard` : null;
     const activeUrl = viewMode === 'local' ? localUrl : remoteUrl;
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] animate-in fade-in duration-700 overflow-y-auto">
+
             <div className="max-w-4xl mx-auto w-full py-12 px-6 pb-24">
                 {/* Header */}
                 <div className="mb-10 text-center">
@@ -87,7 +108,7 @@ const MobileSettings = () => {
                                 className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${viewMode === 'remote' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-400'}`}
                             >
                                 <div className="flex items-center justify-center gap-2">
-                                    <Globe size={14} /> 외부망 (노지)
+                                    <Globe size={14} /> 외부망 (Tailscale)
                                 </div>
                             </button>
                         </div>
@@ -118,8 +139,8 @@ const MobileSettings = () => {
                             </h3>
                             <p className="text-sm text-slate-400 font-bold">
                                 {viewMode === 'local'
-                                    ? '같은 네트워크 환경에서 사용합니다.'
-                                    : 'Tailscale 연결 후 어디서든 접속 가능합니다.'}
+                                    ? '같은 Wi-Fi 네트워크에서 접속합니다.'
+                                    : 'Tailscale(VPN)을 통해 외부에서 접속합니다.'}
                             </p>
                         </div>
 
@@ -142,7 +163,14 @@ const MobileSettings = () => {
 
                             {/* Remote IP */}
                             <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 ml-1">Tailscale IP 주소</label>
+                                <div className="flex justify-between items-center ml-1">
+                                    <label className="text-xs font-black text-slate-400">Tailscale IP 주소</label>
+                                    {tailscaleIp && (
+                                        <span className="text-[10px] font-black text-green-500 bg-green-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> 감지됨
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="group">
                                     <input
                                         type="text"
@@ -152,6 +180,14 @@ const MobileSettings = () => {
                                         onChange={(e) => setConfig({ ...config, remote_ip: e.target.value })}
                                     />
                                 </div>
+                                {tailscaleIp && tailscaleIp !== config.remote_ip && (
+                                    <button
+                                        onClick={() => setConfig({ ...config, remote_ip: tailscaleIp })}
+                                        className="w-full text-[10px] font-bold text-indigo-500 hover:text-indigo-600 py-1 transition-colors"
+                                    >
+                                        감지된 Tailscale IP 사용하기: {tailscaleIp}
+                                    </button>
+                                )}
                             </div>
 
                             {/* PIN Use Toggle */}
@@ -203,13 +239,24 @@ const MobileSettings = () => {
 
                 {/* Footer Warning */}
                 <div className="mt-8 p-6 bg-slate-100/50 rounded-2xl border border-dashed border-slate-200">
-                    <h4 className="text-xs font-black text-slate-500 mb-2">노지/외부에서 접속하시나요?</h4>
-                    <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
-                        1. 각 기기에 **Tailscale**을 설치하고 로그인하세요.<br />
-                        2. 메인 컴퓨터의 Tailscale IP를 상단 설정에 입력하세요.<br />
-                        3. 외부망 모드(Globe 아이콘)로 변경된 QR코드를 스마트폰으로 스캔하세요.<br />
-                        4. 보안을 위해 반드시 **PIN 보안 사용**을 권장합니다.
-                    </p>
+                    <h4 className="text-xs font-black text-slate-500 mb-2">연동 가이드</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <h5 className="text-[11px] font-black text-slate-600 mb-1">1. 내부망 (Wi-Fi)</h5>
+                            <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                                • PC와 모바일이 같은 공유기에 연결되어야 합니다.<br />
+                                • 공유기의 방화벽 설정에 따라 접속이 차단될 수 있습니다.
+                            </p>
+                        </div>
+                        <div>
+                            <h5 className="text-[11px] font-black text-slate-600 mb-1">2. 외부망 (Tailscale)</h5>
+                            <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                                • 각 기기에 **Tailscale**을 설치하고 로그인하세요.<br />
+                                • PC의 100.x.x.x IP를 사용하여 어디서든 접속 가능합니다.<br />
+                                • 보안을 위해 **PIN 보안** 사용을 권장합니다.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

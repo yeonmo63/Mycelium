@@ -25,21 +25,20 @@ dist-ssr
 
 # Rust
 target/
-src-tauri/target/
-src-tauri/target_tmp*/
-src-tauri/gen/
+backend/target/
 
 # SQL and Backups
 *.sql
-!src-tauri/migrations/*.sql
+backend/migrations/*.sql
 *.db
 *.sqlite
 *.gz
 *.zip
 
-# Database related (if any)
+# Database related
 /db/
 /backup/
+/data/
 
 # Environment
 .env
@@ -53,9 +52,17 @@ src-tauri/gen/
 
 # Temporary files
 *.txt
+wix/*.wixobj
+wix/*.wixpdb
 
 # PostgreSQL Binaries & Libraries (Local setup)
-src-tauri/bin/
-src-tauri/lib/
-src-tauri/share/
+# (Included in resources during installation)
+backend/resources/bin/
+backend/resources/lib/
+backend/resources/share/
 test_db/
+
+# Build artifacts
+*.msi
+wix/*.msi
+!wix/.gitignore

@@ -128,8 +128,9 @@ function AppContent() {
 
           {/* Desktop/Admin Routes */}
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="sales" element={<SalesReception />} />
-          <Route path="sales-special" element={<SalesSpecial />} />
+          <Route path="sales/reception" element={<SalesReception />} />
+          <Route path="sales/special" element={<SalesSpecial />} />
+          <Route path="sales" element={<Navigate to="/sales/reception" replace />} />
           <Route path="sales/online-sync" element={<SalesOnlineSync />} />
           <Route path="sales/shipping" element={<SalesShipping />} />
           <Route path="sales/claims" element={<SalesClaims />} />
