@@ -1,5 +1,4 @@
-// Release 빌드 시 Windows 콘솔 창 숨김 (자동 실행, 바로가기 등에서 콘솔 안 보임)
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // 콘솔 창 숨기기 설정
 #![allow(unused_imports, dead_code, unused_variables, non_snake_case)]
 use axum::http::{header, StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -13,6 +12,11 @@ use std::env;
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use tray_icon::{
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    TrayIconBuilder,
+};
 
 mod commands;
 mod db;
@@ -31,8 +35,58 @@ pub static DB_MODIFIED: AtomicBool = AtomicBool::new(false);
 pub static IS_EXITING: AtomicBool = AtomicBool::new(false);
 pub static BACKUP_CANCELLED: AtomicBool = AtomicBool::new(false);
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // 1. Setup Tray Icon
+    let event_loop = tao::event_loop::EventLoopBuilder::new().build();
+
+    let tray_menu = Menu::new();
+    let show_item = MenuItem::new("대시보드 열기", true, None);
+    let quit_item = MenuItem::new("종료", true, None);
+
+    let _ = tray_menu.append_items(&[&show_item, &PredefinedMenuItem::separator(), &quit_item]);
+
+    // Load icon
+    let icon_bytes = include_bytes!("../icons/icon.ico");
+
+    let icon_image = image::load_from_memory(icon_bytes)
+        .expect("Failed to load icon")
+        .to_rgba8();
+    let (width, height) = icon_image.dimensions();
+    let tray_icon = tray_icon::Icon::from_rgba(icon_image.into_raw(), width, height)
+        .expect("Failed to create icon");
+
+    let _tray_icon = TrayIconBuilder::new()
+        .with_menu(Box::new(tray_menu))
+        .with_tooltip("Mycelium Smart Farm")
+        .with_icon(tray_icon)
+        .build()
+        .unwrap();
+
+    // 2. Start Axum in a background thread
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            run_server().await;
+        });
+    });
+
+    // 3. Tray Event Loop
+    let menu_channel = MenuEvent::receiver();
+
+    event_loop.run(move |_event, _, control_flow| {
+        *control_flow = tao::event_loop::ControlFlow::Wait;
+
+        if let Ok(event) = menu_channel.try_recv() {
+            if event.id == show_item.id() {
+                let _ = open::that("http://localhost:3000");
+            } else if event.id == quit_item.id() {
+                std::process::exit(0);
+            }
+        }
+    });
+}
+
+async fn run_server() {
     // Load .env from executable's directory first (critical for shortcuts/auto-start),
     // then fall back to CWD-based loading.
     if let Ok(exe_path) = std::env::current_exe() {
@@ -54,12 +108,33 @@ async fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info,sqlx=warn,sqlx::postgres::notice=warn".into()),
+                .unwrap_or_else(|_| "info,sqlx=error,sqlx::postgres::notice=error".into()),
         ))
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(true))
         .init();
 
-    tracing::info!("Starting Celium Backend...");
+    // Print Startup Splash
+    println!(
+        r#"
+    __  ___                     _   _                 
+   /  |/  /_  ___________  ____/ /(_)_  ______ ___    
+  / /|_/ / / / / ___/ _ \/ / / / / / / / / __ `__ \   
+ / /  / / /_/ / /__/  __/ /_/ / / / /_/ / / / / / /   
+/_/  /_/\__, /\___/\___/\__,_/_/_/\__,_/_/ /_/ /_/    
+       /____/                                         
+
+    "#
+    );
+    println!("--------------------------------------------------");
+    println!("  CELIUM INTELLIGENT FARM SYSTEM - BACKEND        ");
+    println!("  Status: INITIALIZING...                         ");
+    println!(
+        "  Listen: http://0.0.0.0:{}                       ",
+        env::var("PORT").unwrap_or_else(|_| "3000".to_string())
+    );
+    println!("--------------------------------------------------");
+
+    tracing::info!("Starting Celium Backend core services...");
 
     // Initialize Database
     // Initialize Database (Lazy connect)
@@ -101,9 +176,8 @@ async fn main() {
     };
 
     // Build bridge router (for sales, customers, shipments, etc.)
-    let config_dir = env::var("APPDATA")
-        .map(|p| std::path::PathBuf::from(p).join("com.mycelium"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let config_dir =
+        commands::config::get_app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let bridge_router = bridge::create_mobile_router(pool.clone(), config_dir);
 
     // Build our application with routes
@@ -124,6 +198,10 @@ async fn main() {
         .route("/api/auth/login", post(commands::config::login))
         .route("/api/auth/logout", post(commands::config::logout))
         .route("/api/auth/check", get(commands::config::check_auth_status))
+        .route(
+            "/api/auth/verify",
+            post(commands::config::verify_mobile_pin),
+        )
         .route("/api/auth/users", get(commands::config::get_all_users))
         .route(
             "/api/auth/users/create",

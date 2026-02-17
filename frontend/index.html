@@ -49,10 +49,9 @@
   <script>
     (function () {
       var isTauri = !!window.__TAURI__;
-      var isMobilePort = window.location.port === '8989';
       var isMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       var isSmallScreen = window.innerWidth < 1024;
-      var isMobile = !isTauri && (isMobilePort || isMobileUA || isSmallScreen);
+      var isMobile = !isTauri && (isMobileUA || isSmallScreen);
 
       // Meta tag reference for theme
       var themeMeta = document.querySelector('meta[name="color-scheme"]');

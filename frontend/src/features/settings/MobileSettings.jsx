@@ -1,17 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { callBridge as invoke } from '../../utils/apiBridge';
+import { invoke } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
-import { Smartphone, Laptop, QrCode, Wifi, ShieldCheck, ArrowRight, Lock, Globe, Save, RefreshCw } from 'lucide-react';
+import {
+    Smartphone,
+    Laptop,
+    QrCode,
+    Wifi,
+    ShieldCheck,
+    ArrowRight,
+    Lock,
+    Globe,
+    Save,
+    RefreshCw,
+    Info,
+    CheckCircle2,
+    Settings2
+} from 'lucide-react';
 
 const MobileSettings = () => {
-    const { showAlert, showConfirm } = useModal();
+    const { showAlert } = useModal();
     const [allIps, setAllIps] = useState([]);
     const [wifiIp, setWifiIp] = useState('');
     const [tailscaleIp, setTailscaleIp] = useState('');
-    const [port] = useState('8989');
-    const [isServerActive, setIsServerActive] = useState(false);
+    const [port, setPort] = useState(window.location.port || '3000');
     const [isSaving, setIsSaving] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
 
     // Mobile Config State
     const [config, setConfig] = useState({
@@ -27,21 +41,35 @@ const MobileSettings = () => {
     }, []);
 
     const loadData = async () => {
+        setIsLoading(true);
         try {
             const [ips, mobileConfig] = await Promise.all([
                 invoke('get_local_ip_command').catch(() => ['127.0.0.1']),
-                invoke('get_mobile_config')
+                invoke('get_mobile_config').catch(() => ({ remote_ip: '', access_pin: '', use_pin: false }))
             ]);
 
             setAllIps(ips);
 
-            // Identify Tailscale IP (typically starts with 100.)
+            // 1. Identify Tailscale IP (typically starts with 100.)
             const tsIp = ips.find(ip => ip.startsWith('100.')) || '';
             setTailscaleIp(tsIp);
 
-            // Identify Local/Wifi IP (not 100. and not loopback)
-            const local = ips.find(ip => !ip.startsWith('100.') && ip !== '127.0.0.1') || ips[0] || '127.0.0.1';
-            setWifiIp(local);
+            // 2. Identify Local/Wifi IP with smart filtering
+            // Exclude loopback (127.0.0.1), Tailscale (100.), and APIPA (169.254.)
+            const validIps = ips.filter(ip =>
+                ip !== '127.0.0.1' &&
+                !ip.startsWith('100.') &&
+                !ip.startsWith('169.254.')
+            );
+
+            // Prioritize common private ranges like 192.168.x.x
+            const preferredIp = validIps.find(ip => ip.startsWith('192.168.'))
+                || validIps.find(ip => ip.startsWith('10.'))
+                || validIps.find(ip => ip.startsWith('172.'))
+                || validIps[0]
+                || '127.0.0.1';
+
+            setWifiIp(preferredIp);
 
             // Apply mobile config
             const initialConfig = mobileConfig || { remote_ip: '', access_pin: '', use_pin: false };
@@ -52,10 +80,11 @@ const MobileSettings = () => {
             }
 
             setConfig(initialConfig);
-            setIsServerActive(true);
         } catch (e) {
-            console.error(e);
+            console.error("Failed to load mobile settings:", e);
             setWifiIp('127.0.0.1');
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -63,7 +92,7 @@ const MobileSettings = () => {
         setIsSaving(true);
         try {
             await invoke('save_mobile_config', { config });
-            showAlert("저장 완료", "모바일 연동 설정이 안전하게 저장되었습니다.");
+            showAlert("저장 완료", "모바일 연동 설정이 성공적으로 저장되었습니다.");
         } catch (e) {
             console.error(e);
             showAlert("저장 실패", "설정 저장 중 오류가 발생했습니다.");
@@ -72,110 +101,218 @@ const MobileSettings = () => {
         }
     };
 
-    const localUrl = `http://${wifiIp}:${port}/mobile-dashboard`;
-    const remoteUrl = config.remote_ip ? `http://${config.remote_ip}:${port}/mobile-dashboard` : null;
+    // Robust URL Building
+    const buildUrl = (ip) => {
+        if (!ip || ip === '127.0.0.1') return null;
+
+        // Remove existing port if present in IP string
+        const cleanIp = ip.split(':')[0];
+        const portSuffix = port ? `:${port}` : '';
+
+        return `http://${cleanIp}${portSuffix}/mobile-dashboard`;
+    };
+
+    const localUrl = buildUrl(wifiIp);
+    const remoteUrl = buildUrl(config.remote_ip);
     const activeUrl = viewMode === 'local' ? localUrl : remoteUrl;
 
-    return (
-        <div className="flex flex-col h-full bg-[#f8fafc] animate-in fade-in duration-700 overflow-y-auto">
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center h-full bg-slate-50">
+                <div className="flex flex-col items-center gap-4">
+                    <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+                    <p className="text-slate-400 font-bold text-sm">연동 정보 로딩 중...</p>
+                </div>
+            </div>
+        );
+    }
 
-            <div className="max-w-4xl mx-auto w-full py-12 px-6 pb-24">
+    return (
+        <div className="flex flex-col h-full bg-[#f8fafc] animate-in fade-in duration-700 overflow-y-auto custom-scrollbar font-sans">
+            <div className="max-w-5xl mx-auto w-full px-6 pt-6 lg:pt-8 min-[2000px]:pt-12 pb-24">
                 {/* Header */}
-                <div className="mb-10 text-center">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-black tracking-widest uppercase mb-4">
-                        <Smartphone size={12} />
-                        Connected Farm Ecosystem
+                <div className="mb-8">
+                    <div className="flex items-center gap-2 mb-0.5">
+                        <span className="w-6 h-1 bg-indigo-600 rounded-full"></span>
+                        <span className="text-[9px] font-black tracking-[0.2em] text-indigo-600 uppercase">Connected Farm Ecosystem</span>
                     </div>
-                    <h1 className="text-4xl font-black text-slate-800 tracking-tight">모바일 연동 센터</h1>
-                    <p className="mt-3 text-slate-500 font-medium">현장 작업자의 기기를 연결하여 생산성을 극대화하세요.</p>
+                    <h1 className="text-2xl font-black text-slate-600 tracking-tighter" style={{ fontFamily: '"Noto Sans KR", sans-serif' }}>
+                        모바일 연동 센터 <span className="text-slate-300 font-light ml-1 text-base">Mobile Center</span>
+                    </h1>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-                    {/* Left: QR Section */}
-                    <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-slate-100 flex flex-col items-center justify-center text-center relative overflow-hidden">
-                        {/* View Mode Switch */}
-                        <div className="absolute top-6 left-6 right-6 flex p-1 bg-slate-50 rounded-2xl">
-                            <button
-                                onClick={() => setViewMode('local')}
-                                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${viewMode === 'local' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-400'}`}
-                            >
-                                <div className="flex items-center justify-center gap-2">
-                                    <Wifi size={14} /> 내부망 (Wi-Fi)
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
+                    {/* Left: QR Section (7 cols) */}
+                    <div className="lg:col-span-7 bg-white p-1 rounded-[2.5rem] shadow-2xl shadow-indigo-100/50 border border-slate-100 flex flex-col relative overflow-hidden group">
+                        <div className="p-10 flex flex-col items-center justify-center text-center relative z-10">
+                            {/* View Mode Switch */}
+                            <div className="inline-flex p-1.5 bg-slate-100/80 backdrop-blur-sm rounded-2xl mb-10 border border-slate-200/50">
+                                <button
+                                    onClick={() => setViewMode('local')}
+                                    className={`px-6 py-2.5 text-xs font-black rounded-xl transition-all duration-300 ${viewMode === 'local' ? 'bg-white shadow-lg text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Wifi size={16} /> 내부망 (Wi-Fi)
+                                    </div>
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('remote')}
+                                    className={`px-6 py-2.5 text-xs font-black rounded-xl transition-all duration-300 ${viewMode === 'remote' ? 'bg-white shadow-lg text-indigo-600 ring-1 ring-slate-200/50' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Globe size={16} /> 외부망 (Tailscale)
+                                    </div>
+                                </button>
+                            </div>
+
+                            <div className="relative mb-8 group/qr">
+                                <div className="absolute -inset-4 bg-gradient-to-tr from-indigo-500/10 to-purple-500/10 blur-2xl rounded-full scale-0 group-hover/qr:scale-100 transition-transform duration-700"></div>
+                                {activeUrl ? (
+                                    <div
+                                        key={activeUrl} // Force re-render when URL changes
+                                        className="relative p-8 bg-white rounded-[2.5rem] shadow-xl border border-slate-50 ring-1 ring-slate-100 group-hover/qr:translate-y-[-4px] transition-transform duration-500 cursor-pointer"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(activeUrl);
+                                            showAlert("주소 복사됨", "연동 주소가 클립보드에 복사되었습니다.");
+                                        }}
+                                    >
+                                        <QRCodeSVG
+                                            value={activeUrl}
+                                            size={220}
+                                            level="H"
+                                            includeMargin={true}
+                                            className="relative z-10"
+                                        />
+                                        <div className="absolute bottom-4 right-4 bg-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-indigo-200">
+                                            <QrCode size={18} />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="w-[300px] h-[300px] bg-slate-50 rounded-[2.5rem] flex flex-col items-center justify-center text-slate-300 gap-4 border-2 border-dashed border-slate-200">
+                                        <div className="relative">
+                                            <Globe size={48} />
+                                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full border-2 border-white animate-pulse"></div>
+                                        </div>
+                                        <div className="px-12 text-center">
+                                            <span className="text-sm font-black text-slate-400">연동 준비 안됨</span><br />
+                                            <span className="text-[10px] font-bold text-slate-400 leading-tight block mt-2">
+                                                {viewMode === 'local'
+                                                    ? "유효한 내부 IP가 감지되지 않았습니다.\n네트워크 설정을 확인해 주세요."
+                                                    : "외부 IP(Tailscale)가 설정되지 않았습니다.\n아래 설정에서 입력해 주세요."}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-2">
+                                <h3 className="font-black text-slate-800 text-lg tracking-tight">
+                                    {viewMode === 'local' ? '로컬 접속 QR 코드' : '원격 접속 QR 코드'}
+                                </h3>
+                                <p className="text-slate-400 font-bold max-w-sm mx-auto leading-relaxed">
+                                    {viewMode === 'local'
+                                        ? '현장의 Wi-Fi에 연결된 기기에서 이 코드를 스캔하여 대시보드에 즉시 접속합니다.'
+                                        : 'Tailscale VPN이 활성화된 기기에서 외부 어디서나 농장 상태를 확인합니다.'}
+                                </p>
+                            </div>
+
+                            <div className="mt-10 bg-slate-50 px-8 py-4 rounded-[1.5rem] border border-slate-100 flex items-center justify-between gap-4 w-full max-w-lg group/url hover:bg-white hover:shadow-md transition-all duration-300">
+                                <div className="flex flex-col items-start gap-1 min-w-0">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Connect URL</span>
+                                    <code className="text-indigo-600 font-black tracking-wide text-xs truncate w-full">
+                                        {activeUrl || '주소 정보가 없습니다'}
+                                    </code>
                                 </div>
-                            </button>
-                            <button
-                                onClick={() => setViewMode('remote')}
-                                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${viewMode === 'remote' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-400'}`}
-                            >
-                                <div className="flex items-center justify-center gap-2">
-                                    <Globe size={14} /> 외부망 (Tailscale)
+                                <div className="shrink-0 w-8 h-8 rounded-lg bg-white flex items-center justify-center text-slate-300 group-hover/url:text-indigo-500 transition-colors shadow-sm">
+                                    <ArrowRight size={16} />
                                 </div>
-                            </button>
+                            </div>
                         </div>
 
-                        <div className="mt-12 mb-6">
-                            {activeUrl ? (
-                                <div className="relative p-6 bg-slate-50 rounded-[2rem] group">
-                                    <div className="absolute inset-0 bg-indigo-500/5 blur-2xl rounded-full scale-0 group-hover:scale-100 transition-transform duration-700"></div>
-                                    <QRCodeSVG
-                                        value={activeUrl}
-                                        size={180}
-                                        level="H"
-                                        includeMargin={true}
-                                        className="relative z-10"
-                                    />
-                                </div>
-                            ) : (
-                                <div className="w-[228px] h-[228px] bg-slate-50 rounded-[2rem] flex flex-col items-center justify-center text-slate-300 gap-3 border-2 border-dashed border-slate-100">
-                                    <Globe size={40} />
-                                    <span className="text-xs font-bold px-8">외부 IP(Tailscale)를<br />먼저 입력해주세요.</span>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="space-y-1">
-                            <h3 className="font-black text-slate-700 text-lg">
-                                {viewMode === 'local' ? '로컬 접속 QR' : '원격 접속 QR'}
-                            </h3>
-                            <p className="text-sm text-slate-400 font-bold">
-                                {viewMode === 'local'
-                                    ? '같은 Wi-Fi 네트워크에서 접속합니다.'
-                                    : 'Tailscale(VPN)을 통해 외부에서 접속합니다.'}
-                            </p>
-                        </div>
-
-                        <div className="mt-8 bg-indigo-50/50 px-6 py-3 rounded-2xl border border-indigo-100 flex items-center gap-3 max-w-full">
-                            <code className="text-indigo-600 font-black tracking-wider text-[10px] truncate">
-                                {activeUrl || '주소 정보 없음'}
-                            </code>
-                        </div>
+                        {/* Background Decoration */}
+                        <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-indigo-500/5 blur-[100px] rounded-full"></div>
+                        <div className="absolute -top-24 -left-24 w-64 h-64 bg-purple-500/5 blur-[100px] rounded-full"></div>
                     </div>
 
-                    {/* Right: Security & Remote Config */}
-                    <div className="space-y-6">
-                        <div className="bg-white p-8 rounded-[2rem] shadow-lg border border-slate-100 space-y-6">
-                            <div className="flex items-center gap-4 mb-2">
-                                <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
-                                    <ShieldCheck size={20} />
+                    {/* Right: Security & Remote Config (5 cols) */}
+                    <div className="lg:col-span-5 space-y-8">
+                        {/* Status Card */}
+                        <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100 relative overflow-hidden">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="font-black text-slate-800 flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                        <CheckCircle2 size={18} />
+                                    </div>
+                                    서버 상태
+                                </h3>
+                                <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full border border-emerald-100 flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                    ACTIVE
+                                </span>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-400 font-bold">내부 IP 선택</span>
+                                    <select
+                                        value={wifiIp}
+                                        onChange={(e) => setWifiIp(e.target.value)}
+                                        className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                    >
+                                        {allIps.filter(ip => !ip.startsWith('100.') && ip !== '127.0.0.1').length > 0 ? (
+                                            allIps.filter(ip => !ip.startsWith('100.') && ip !== '127.0.0.1').map(ip => (
+                                                <option key={ip} value={ip}>{ip} {ip.startsWith('169.254.') ? '(비활성)' : ''}</option>
+                                            ))
+                                        ) : (
+                                            <option value="127.0.0.1">127.0.0.1</option>
+                                        )}
+                                    </select>
                                 </div>
-                                <h3 className="font-black text-slate-800">보안 및 원격 설정</h3>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-400 font-bold">운영 포트</span>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={port}
+                                            onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))}
+                                            className="w-16 h-8 bg-slate-50 border border-slate-200 rounded-lg text-center text-xs font-black text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                        />
+                                        <Settings2 size={14} className="text-slate-300" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Config Card */}
+                        <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-8 relative">
+                            <div className="absolute top-0 right-0 p-8 text-slate-50/50 pointer-events-none">
+                                <ShieldCheck size={80} strokeWidth={1} />
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shadow-inner">
+                                    <ShieldCheck size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="font-black text-slate-800">보안 및 원격 설정</h3>
+                                    <p className="text-[11px] text-slate-400 font-bold">연동 기기의 보안 정책을 관리합니다.</p>
+                                </div>
                             </div>
 
                             {/* Remote IP */}
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-center ml-1">
-                                    <label className="text-xs font-black text-slate-400">Tailscale IP 주소</label>
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center px-1">
+                                    <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Tailscale IP 주소</label>
                                     {tailscaleIp && (
-                                        <span className="text-[10px] font-black text-green-500 bg-green-50 px-2 py-0.5 rounded-md flex items-center gap-1">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> 감지됨
+                                        <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 px-2 py-1 rounded-lg flex items-center gap-1 border border-indigo-100">
+                                            감지됨
                                         </span>
                                     )}
                                 </div>
-                                <div className="group">
+                                <div className="relative group">
                                     <input
                                         type="text"
                                         placeholder="100.xx.xx.xx"
-                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl px-6 text-sm font-bold text-slate-700 placeholder:text-slate-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all text-center"
+                                        className="w-full h-14 bg-slate-50 border border-transparent rounded-[1.25rem] px-6 text-sm font-bold text-slate-700 placeholder:text-slate-300 focus:bg-white focus:border-indigo-500/30 focus:shadow-lg focus:shadow-indigo-500/5 transition-all text-center tracking-wider"
                                         value={config.remote_ip}
                                         onChange={(e) => setConfig({ ...config, remote_ip: e.target.value })}
                                     />
@@ -183,20 +320,22 @@ const MobileSettings = () => {
                                 {tailscaleIp && tailscaleIp !== config.remote_ip && (
                                     <button
                                         onClick={() => setConfig({ ...config, remote_ip: tailscaleIp })}
-                                        className="w-full text-[10px] font-bold text-indigo-500 hover:text-indigo-600 py-1 transition-colors"
+                                        className="w-full text-[10px] font-black text-indigo-500 hover:text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 py-2 rounded-xl transition-all border border-dashed border-indigo-200"
                                     >
-                                        감지된 Tailscale IP 사용하기: {tailscaleIp}
+                                        감지된 {tailscaleIp} 자동 입력
                                     </button>
                                 )}
                             </div>
 
                             {/* PIN Use Toggle */}
-                            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-                                <div className="flex items-center gap-3">
-                                    <Lock size={18} className="text-slate-500" />
+                            <div className="p-5 bg-slate-50/80 rounded-[1.5rem] border border-slate-100 flex items-center justify-between group hover:bg-slate-50 transition-colors">
+                                <div className="flex items-center gap-4">
+                                    <div className={`p-2 rounded-xl transition-colors ${config.use_pin ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-400'}`}>
+                                        <Lock size={18} />
+                                    </div>
                                     <div>
-                                        <div className="text-xs font-black text-slate-700">모바일 PIN 보안 사용</div>
-                                        <div className="text-[10px] text-slate-400 font-bold">로그인 없이 바로 접속 방지</div>
+                                        <div className="text-xs font-black text-slate-800">모바일 PIN 보안 사용</div>
+                                        <div className="text-[10px] text-slate-400 font-bold">비인가 사용자의 접속을 차단합니다</div>
                                     </div>
                                 </div>
                                 <label className="relative inline-flex items-center cursor-pointer">
@@ -212,13 +351,13 @@ const MobileSettings = () => {
 
                             {/* PIN Code */}
                             {config.use_pin && (
-                                <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-                                    <label className="text-xs font-black text-slate-400 ml-1">접속 PIN 번호 (4~6자리)</label>
+                                <div className="space-y-3 animate-in slide-in-from-top-4 duration-500 ease-out">
+                                    <label className="text-xs font-black text-slate-500 px-1">접속 PIN 번호 (4~6자리)</label>
                                     <input
                                         type="password"
                                         maxLength={6}
-                                        placeholder="설정할 PIN 번호 입력"
-                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl px-4 text-center text-lg font-black tracking-[0.5em] text-slate-700 placeholder:text-sm placeholder:tracking-normal focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                                        placeholder="······"
+                                        className="w-full h-14 bg-white border-2 border-indigo-500/20 rounded-[1.25rem] px-4 text-center text-2xl font-black tracking-[0.5em] text-indigo-600 placeholder:text-indigo-200 placeholder:tracking-normal focus:border-indigo-500 focus:shadow-xl focus:shadow-indigo-500/10 transition-all"
                                         value={config.access_pin}
                                         onChange={(e) => setConfig({ ...config, access_pin: e.target.value.replace(/[^0-9]/g, '') })}
                                     />
@@ -228,37 +367,82 @@ const MobileSettings = () => {
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving}
-                                className="w-full h-12 bg-indigo-600 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 active:scale-[0.98] transition-all disabled:opacity-50"
+                                className="w-full h-14 bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-[1.25rem] text-white font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98] transition-all disabled:opacity-50"
                             >
-                                {isSaving ? <RefreshCw size={18} className="animate-spin" /> : <Save size={18} />}
-                                설정사항 저장하기
+                                {isSaving ? <RefreshCw size={20} className="animate-spin" /> : <Save size={20} />}
+                                설정사항 안전하게 저장
                             </button>
                         </div>
                     </div>
                 </div>
 
-                {/* Footer Warning */}
-                <div className="mt-8 p-6 bg-slate-100/50 rounded-2xl border border-dashed border-slate-200">
-                    <h4 className="text-xs font-black text-slate-500 mb-2">연동 가이드</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <h5 className="text-[11px] font-black text-slate-600 mb-1">1. 내부망 (Wi-Fi)</h5>
-                            <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                                • PC와 모바일이 같은 공유기에 연결되어야 합니다.<br />
-                                • 공유기의 방화벽 설정에 따라 접속이 차단될 수 있습니다.
-                            </p>
+                {/* Info Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 opacity-80">
+                    <div className="p-6 bg-slate-100/50 rounded-[2rem] border border-slate-200/60 flex gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-indigo-400 shrink-0 shadow-sm">
+                            <Wifi size={18} />
                         </div>
                         <div>
-                            <h5 className="text-[11px] font-black text-slate-600 mb-1">2. 외부망 (Tailscale)</h5>
-                            <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                                • 각 기기에 **Tailscale**을 설치하고 로그인하세요.<br />
-                                • PC의 100.x.x.x IP를 사용하여 어디서든 접속 가능합니다.<br />
-                                • 보안을 위해 **PIN 보안** 사용을 권장합니다.
+                            <h4 className="text-xs font-black text-slate-700 mb-1">내부 네트워크 연동 가이드</h4>
+                            <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                                PC와 모바일 기기가 동일한 Wi-Fi(공유기)에 연결되어 있어야 합니다. <br />
+                                방화벽 설정에 따라 접속이 원활하지 않을 수 있으니 확인이 필요합니다.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="p-6 bg-slate-100/50 rounded-[2rem] border border-slate-200/60 flex gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-purple-400 shrink-0 shadow-sm">
+                            <Globe size={18} />
+                        </div>
+                        <div>
+                            <h4 className="text-xs font-black text-slate-700 mb-1">Tailscale 원격 연동 가이드</h4>
+                            <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                                각 기기에 Tailscale을 설치하고 로그인하면 외부에서도 안전하게 접속됩니다. <br />
+                                보안을 위해 6자리 PIN 번호 사용 설정을 강력히 권장합니다.
                             </p>
                         </div>
                     </div>
                 </div>
+
+                {/* Bottom Banner */}
+                <div className="mt-12 p-6 rounded-[2rem] bg-indigo-600 flex items-center justify-between text-white shadow-2xl shadow-indigo-200 overflow-hidden relative group">
+                    <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12 group-hover:rotate-[20deg] transition-transform duration-700">
+                        <Smartphone size={120} />
+                    </div>
+                    <div className="flex items-center gap-6 relative z-10">
+                        <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center">
+                            <Info size={28} />
+                        </div>
+                        <div>
+                            <h4 className="text-lg font-black tracking-tight">도움이 필요하신가요?</h4>
+                            <p className="text-indigo-100 text-xs font-bold leading-relaxed opacity-80">
+                                모바일 연동에 문제가 있다면 사용자 메뉴얼을 확인하거나<br />
+                                기술지원 센터(cs@mycelium.farm)로 문의해 주세요.
+                            </p>
+                        </div>
+                    </div>
+                    <button className="relative z-10 px-6 py-3 bg-white text-indigo-600 rounded-xl font-black text-xs hover:bg-indigo-50 transition-colors shadow-lg">
+                        사용자 메뉴얼 보기
+                    </button>
+                </div>
             </div>
+
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .custom-scrollbar::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: #e2e8f0;
+                    border-radius: 10px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: #cbd5e1;
+                }
+            `}} />
         </div>
     );
 };

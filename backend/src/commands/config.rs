@@ -275,21 +275,25 @@ pub async fn logout(State(state): State<AppState>) -> Json<()> {
 pub struct AuthStatusResponse {
     pub logged_in: bool,
     pub user: Option<SessionState>,
-    pub require_pin: bool, // For mobile compatibility check
+    pub mobile_auth_required: bool, // Renamed for frontend App.jsx compatibility
 }
 
-pub async fn check_auth_status(State(state): State<AppState>) -> Json<AuthStatusResponse> {
+pub async fn check_auth_status(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Json<AuthStatusResponse> {
     let session = state.session.lock().unwrap();
     let logged_in = session.user_id.is_some();
 
-    // Check if PIN is required (Mobile Config)
-    // For now, hardcode false or implement config read
-    let require_pin = false;
+    // Check if PIN is required from mobile_config.json
+    let mobile_config = load_mobile_config_from_file().unwrap_or_default();
+
+    let mobile_auth_required = mobile_config.use_pin;
 
     Json(AuthStatusResponse {
         logged_in,
         user: Some(session.clone()),
-        require_pin,
+        mobile_auth_required,
     })
 }
 
@@ -866,11 +870,18 @@ pub struct SaveMobileConfigPayload {
 
 fn load_mobile_config_from_file() -> MyceliumResult<MobileConfig> {
     let path = get_app_config_dir()?.join("mobile_config.json");
+    tracing::info!("Loading mobile config from: {:?}", path);
     if path.exists() {
         let content = std::fs::read_to_string(path)?;
         let data: MobileConfig = serde_json::from_str(&content).unwrap_or_default();
+        tracing::info!(
+            "Mobile config loaded: use_pin={}, pin_len={}",
+            data.use_pin,
+            data.access_pin.len()
+        );
         Ok(data)
     } else {
+        tracing::info!("Mobile config file not found, using defaults");
         Ok(MobileConfig {
             remote_ip: "".to_string(),
             access_pin: "".to_string(),
@@ -919,4 +930,56 @@ pub async fn get_local_ip_axum() -> MyceliumResult<Json<Vec<String>>> {
     ips.sort();
 
     Ok(Json(ips))
+}
+
+#[derive(Deserialize)]
+pub struct VerifyPinRequest {
+    pub pin: String,
+}
+
+#[derive(Serialize)]
+pub struct VerifyPinResponse {
+    pub success: bool,
+    pub username: String,
+    pub role: String,
+    pub error: Option<String>,
+}
+
+pub async fn verify_mobile_pin(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<VerifyPinRequest>,
+) -> MyceliumResult<Json<VerifyPinResponse>> {
+    let config = load_mobile_config_from_file().unwrap_or_default();
+    tracing::info!("PIN Verification Attempt: Input={}", payload.pin);
+
+    // Bypass if: PIN is disabled globally OR PIN matches
+    if !config.use_pin || config.access_pin == payload.pin {
+        tracing::info!("PIN Verification SUCCESS (use_pin={})", config.use_pin);
+        // Update session state for mobile access
+        if let Ok(mut session) = state.session.lock() {
+            session.user_id = Some(0); // Dummy ID for mobile session
+            session.username = Some("mobile_user".to_string());
+            session.role = Some("worker".to_string());
+        }
+
+        Ok(Json(VerifyPinResponse {
+            success: true,
+            username: "mobile_user".to_string(),
+            role: "worker".to_string(),
+            error: None,
+        }))
+    } else {
+        tracing::warn!(
+            "PIN Verification FAILED: Expected={}, Got={}",
+            config.access_pin,
+            payload.pin
+        );
+        Ok(Json(VerifyPinResponse {
+            success: false,
+            username: "".to_string(),
+            role: "".to_string(),
+            error: Some("PIN 번호가 올바르지 않습니다.".to_string()),
+        }))
+    }
 }

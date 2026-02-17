@@ -62,11 +62,13 @@ import UserManual from './features/manual/UserManual';
 const getEnvironment = () => {
   if (window.__MYCELIUM_MOBILE__ !== undefined) return window.__MYCELIUM_MOBILE__;
 
-  const isMobilePort = window.location.port === '8989';
-  const isMobilePath = window.location.pathname.toLowerCase().startsWith('/mobile-');
-  const isMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const isTauri = !!window.__TAURI__;
+  if (isTauri) return false;
 
-  return isMobilePort || isMobilePath || isMobileUA;
+  const isMobilePath = window.location.pathname.toLowerCase().startsWith('/mobile-');
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+  return isMobileUA || isMobilePath;
 };
 
 // Admin Guard
@@ -79,28 +81,53 @@ const AdminRoute = () => {
 function AppContent() {
   const { showConfirm } = useModal();
 
-  // Detection happens ONCE and is stable
   const IS_MOBILE = useMemo(() => getEnvironment(), []);
 
-  // Initial State Sync
   const [isConfigured, setIsConfigured] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem('isLoggedIn') === 'true');
+  const [isPinVerified, setIsPinVerified] = useState(() => sessionStorage.getItem('pin_verified') === 'true');
   const [mobileAuthRequired, setMobileAuthRequired] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Mobile Auth Check
   useEffect(() => {
-    if (IS_MOBILE) {
-      const checkAuth = async () => {
-        try {
-          const res = await fetch('/api/auth/status');
-          const data = await res.json();
-          setMobileAuthRequired(data.mobile_auth_required);
-        } catch (e) {
-          console.error("Mobile auth check failed", e);
+    const initApp = async () => {
+      try {
+        // 1. Check Setup Status
+        const statusRes = await fetch('/api/auth/status');
+        const statusData = await statusRes.json();
+        setIsConfigured(statusData === 'Configured');
+
+        // 2. Check Auth Status
+        const authRes = await fetch('/api/auth/check');
+        const authData = await authRes.json();
+
+        setMobileAuthRequired(authData.mobile_auth_required);
+        if (authData.logged_in) {
+          setIsLoggedIn(true);
+          sessionStorage.setItem('isLoggedIn', 'true');
+
+          if (sessionStorage.getItem('pin_verified') === 'true') {
+            setIsPinVerified(true);
+          }
+
+          if (authData.user) {
+            sessionStorage.setItem('userRole', authData.user.role || 'worker');
+            sessionStorage.setItem('username', authData.user.username || 'mobile_user');
+          }
         }
-      };
-      checkAuth();
-    }
+      } catch (e) {
+        console.error("App initialization failed", e);
+        setIsConfigured(false);
+      } finally {
+        setIsLoading(false);
+        const spl = document.getElementById('app-spinner');
+        if (spl) {
+          spl.style.opacity = '0';
+          setTimeout(() => spl.remove(), 400);
+        }
+      }
+    };
+    initApp();
   }, [IS_MOBILE]);
 
   const Layout = ({ isMobile }) => (
@@ -116,7 +143,6 @@ function AppContent() {
     createBrowserRouter(
       createRoutesFromElements(
         <Route element={<Layout isMobile={IS_MOBILE} />}>
-          {/* Public Routes */}
           <Route path="/" element={IS_MOBILE ? <Navigate to="/mobile-dashboard" replace /> : <Navigate to="/dashboard" replace />} />
           <Route path="setup" element={<SystemSetup />} />
           <Route path="login" element={<Login />} />
@@ -126,7 +152,6 @@ function AppContent() {
           <Route path="mobile-harvest" element={<MobileHarvestEntry />} />
           <Route path="mobile-event-sales" element={<MobileEventSales />} />
 
-          {/* Desktop/Admin Routes */}
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="sales/reception" element={<SalesReception />} />
           <Route path="sales/special" element={<SalesSpecial />} />
@@ -177,40 +202,24 @@ function AppContent() {
           <Route path="schedule" element={<ScheduleMgmt />} />
           <Route path="manual" element={<UserManual />} />
 
-          {/* Catch-all for Mobile */}
           {IS_MOBILE && <Route path="*" element={<Navigate to="/mobile-dashboard" replace />} />}
         </Route>
       )
     ), [IS_MOBILE]);
 
-  useEffect(() => {
-    // Check Configuration Status
-    fetch('/api/auth/status')
-      .then(res => res.json())
-      .then(status => {
-        console.log("✅ Config Status:", status);
-        setIsConfigured(status === 'Configured');
-      })
-      .catch(err => {
-        console.error("❌ Config Status Check Failed:", err);
-        setIsConfigured(false);
-      })
-      .finally(() => {
-        const spl = document.getElementById('app-spinner');
-        if (spl) { spl.style.opacity = '0'; setTimeout(() => spl.remove(), 400); }
-      });
-  }, []);
-
-  if (isConfigured === null) return null;
+  if (isLoading || isConfigured === null) return null;
 
   return (
     <div id="app-root" className={`fixed inset-0 overflow-hidden ${IS_MOBILE ? 'bg-slate-50' : 'bg-slate-950'} font-sans`}>
-      {isConfigured && isLoggedIn ? (
+      {isConfigured && isLoggedIn && (!IS_MOBILE || !mobileAuthRequired || isPinVerified) ? (
         <RouterProvider router={router} />
       ) : !isConfigured ? (
         <SystemSetup onComplete={() => setIsConfigured(true)} />
-      ) : IS_MOBILE && mobileAuthRequired ? (
-        <MobileLogin onLoginSuccess={() => setIsLoggedIn(true)} />
+      ) : IS_MOBILE ? (
+        <MobileLogin onLoginSuccess={() => {
+          setIsPinVerified(true);
+          setIsLoggedIn(true);
+        }} />
       ) : (
         <Login onLoginSuccess={() => setIsLoggedIn(true)} />
       )}

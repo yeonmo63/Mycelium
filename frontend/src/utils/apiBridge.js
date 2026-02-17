@@ -212,7 +212,8 @@ export async function callBridge(commandName, args = {}) {
         'analyze_online_sentiment',
         'send_sms_simulation',
         'push_sensor_data',
-        'login'
+        'login',
+        'verify_mobile_pin'
     ];
     const isPost = postCommands.includes(commandName) || commandName.startsWith('save_');
 

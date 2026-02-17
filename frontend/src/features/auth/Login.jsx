@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
+
 import { invoke } from '../../utils/apiBridge';
 
 const Login = ({ onLoginSuccess }) => {
@@ -8,8 +8,8 @@ const Login = ({ onLoginSuccess }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [companyName, setCompanyName] = useState('마이셀리움');
-    const [localIp, setLocalIp] = useState('');
-    const [showQR, setShowQR] = useState(false);
+
+
 
     useEffect(() => {
         sessionStorage.clear();
@@ -26,15 +26,7 @@ const Login = ({ onLoginSuccess }) => {
         };
         loadCompanyName();
 
-        const fetchIp = async () => {
-            try {
-                const ip = await invoke('get_local_ip_command');
-                if (ip) setLocalIp(ip);
-            } catch (err) {
-                console.error("Failed to fetch IP:", err);
-            }
-        };
-        fetchIp();
+
     }, []);
 
     const handleLogin = async (e) => {
@@ -119,31 +111,7 @@ const Login = ({ onLoginSuccess }) => {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 blur-[50px] rounded-full pointer-events-none"></div>
                     <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/20 blur-[50px] rounded-full pointer-events-none"></div>
 
-                    {/* Tiny QR Code (Top Left) - Always Visible */}
-                    <div style={{
-                        position: 'absolute',
-                        top: '24px',
-                        left: '24px',
-                        background: '#fff',
-                        padding: '6px',
-                        borderRadius: '14px',
-                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.2)',
-                        zIndex: 20,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        transition: 'transform 0.2s',
-                        cursor: 'pointer'
-                    }} className="hover:scale-110" title={`접속 주소: ${localIp}:8989`}>
-                        <QRCodeSVG
-                            value={`http://${localIp || 'localhost'}:8989`}
-                            size={40}
-                            level="M"
-                            includeMargin={false}
-                        />
-                        <span style={{ fontSize: '7px', fontWeight: '900', color: '#1e293b', marginTop: '2px', opacity: 0.6 }}>QR LINK</span>
-                    </div>
+
 
                     {/* UI Close Button (Top Right) */}
                     <button
