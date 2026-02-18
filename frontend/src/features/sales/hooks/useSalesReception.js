@@ -17,6 +17,8 @@ export const useSalesReception = (showAlert, showConfirm) => {
     const [companyInfo, setCompanyInfo] = useState(null);
     const [isDraftRestored, setIsDraftRestored] = useState(false);
     const [showStatement, setShowStatement] = useState(false);
+    const [paymentMethod, setPaymentMethod] = useState('현금');
+    const [memo, setMemo] = useState('');
 
     // Form Input State
     const initialInputState = {
@@ -60,7 +62,11 @@ export const useSalesReception = (showAlert, showConfirm) => {
     const loadProducts = useCallback(async () => {
         try {
             const list = await callBridge('get_product_list');
-            setProducts(list.filter(p => (p.item_type || 'product') === 'product') || []);
+            const finishedProducts = (list || []).filter(p =>
+                (!p.item_type || p.item_type === 'product') &&
+                p.status !== '단종상품'
+            );
+            setProducts(finishedProducts);
         } catch (e) {
             console.error(e);
         }
@@ -257,6 +263,20 @@ export const useSalesReception = (showAlert, showConfirm) => {
         setIsDirty(true);
     };
 
+    const updateRowQty = (tempId, delta) => {
+        setSalesRows(prev => prev.map(row => {
+            if (row.tempId === tempId) {
+                const q = Math.max(1, Number(row.qty) + delta);
+                const p = Number(row.price) || 0;
+                const d = Number(row.discountRate) || 0;
+                const newAmount = calculateAmount(q, p, d);
+                return { ...row, qty: q, amount: newAmount, isDirty: true };
+            }
+            return row;
+        }));
+        setIsDirty(true);
+    };
+
     const handleSaveAll = async () => {
         if (salesRows.length === 0 && deletedSalesIds.length === 0) return;
         if (!await showConfirm('저장 확인', '모든 변경 사항을 저장하시겠습니까?')) return;
@@ -271,15 +291,16 @@ export const useSalesReception = (showAlert, showConfirm) => {
                 quantity: Number(r.qty),
                 totalAmount: Number(r.amount),
                 status: r.status,
-                memo: r.shipMemo || null,
+                memo: r.shipMemo || memo || null, // Use row memo if exists, else global memo
                 orderDateStr: orderDate,
                 shippingName: r.shipName || null,
                 shippingZipCode: r.shipZip || null,
                 shippingAddressPrimary: r.shipAddr1 || null,
                 shippingAddressDetail: r.shipAddr2 || null,
                 shippingMobileNumber: r.shipMobile || null,
-                paidAmount: 0,
-                paymentStatus: null,
+                paidAmount: paymentMethod === '현금' || paymentMethod === '카드' || paymentMethod === '계좌이체' ? Number(r.amount) : 0,
+                paymentStatus: '입금완료', // default to finished for mobile/general sales
+                paymentMethod: paymentMethod,
                 discountRate: Number(r.discountRate),
                 isDirty: r.isDirty ? "true" : "false"
             }));
@@ -431,6 +452,9 @@ export const useSalesReception = (showAlert, showConfirm) => {
         isDraftRestored,
         tempDraft,
         handleRestoreDraft,
-        handleDiscardDraft
+        handleDiscardDraft,
+        paymentMethod, setPaymentMethod,
+        memo, setMemo,
+        updateRowQty
     };
 };

@@ -190,26 +190,6 @@ const MobileDashboard = () => {
                     </p>
                 </div>
             </div>
-
-            {/* Bottom Tab Bar */}
-            <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex items-center justify-around h-[calc(5rem+env(safe-area-inset-bottom))] px-4 pb-[env(safe-area-inset-bottom)] z-50">
-                <button onClick={() => navigate('/mobile-dashboard')} className="flex flex-col items-center gap-1 text-indigo-600">
-                    <LayoutDashboard size={24} />
-                    <span className="text-[10px] font-black">현황판</span>
-                </button>
-                <button onClick={() => navigate('/mobile-event-sales')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <Store size={24} />
-                    <span className="text-[10px] font-black">특판접수</span>
-                </button>
-                <button onClick={() => navigate('/mobile-worklog')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <ClipboardList size={24} />
-                    <span className="text-[10px] font-black">작업일지</span>
-                </button>
-                <button onClick={() => navigate('/mobile-harvest')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <PlusCircle size={24} />
-                    <span className="text-[10px] font-black">수확입력</span>
-                </button>
-            </div>
         </div>
     );
 };

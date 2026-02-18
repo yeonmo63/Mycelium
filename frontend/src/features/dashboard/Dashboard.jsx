@@ -205,16 +205,16 @@ const Dashboard = () => {
 
                     <StatCard
                         icon="inventory_2" iconColor="text-rose-600" iconBg="bg-rose-50"
-                        label="재고 알림" value={`${stats?.total_alert_count || (forecastAlerts.length + freshnessAlerts.length)}건`}
+                        label="재고 알림" value={`${formatCurrency(stats?.total_alert_count || (forecastAlerts.length + freshnessAlerts.length))}건`}
                         badge="재고" isLoading={isLoading}
                         className={`border-l-4 border-l-rose-500 ${expandedAlert === 'inventory' ? 'ring-2 ring-rose-500' : ''}`}
                         onClick={() => toggleAlert('inventory')}
-                        secondaryValue={<span className="text-[10px] font-bold text-rose-400 mb-1.5 flex gap-1"><span>소진:{forecastAlerts.length}</span><span>/</span><span>신선:{freshnessAlerts.length}</span></span>}
+                        secondaryValue={<span className="text-[10px] font-bold text-rose-400 mb-1.5 flex gap-1"><span>소진:{formatCurrency(forecastAlerts.length)}</span><span>/</span><span>신선:{formatCurrency(freshnessAlerts.length)}</span></span>}
                     />
 
                     <StatCard
                         icon="forum" iconColor="text-blue-600" iconBg="bg-blue-50"
-                        label="상담 대기" value={`${stats?.pending_consultation_count || 0}건`}
+                        label="상담 대기" value={`${formatCurrency(stats?.pending_consultation_count || 0)}건`}
                         badge="상담" isLoading={isLoading}
                         className="border-l-4 border-l-blue-500"
                         onClick={() => navigate('/customer/consultation')}

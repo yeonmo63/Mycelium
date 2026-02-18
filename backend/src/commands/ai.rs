@@ -749,12 +749,92 @@ async fn fetch_open_weather(api_key: &str, location: &str) -> MyceliumResult<Ope
     Ok(data)
 }
 
+async fn get_intelligence_context(pool: &DbPool) -> String {
+    fn format_num(val: i64) -> String {
+        let s = val.to_string();
+        let mut result = String::new();
+        let mut count = 0;
+        for c in s.chars().rev() {
+            if count > 0 && count % 3 == 0 {
+                result.push(',');
+            }
+            result.push(c);
+            count += 1;
+        }
+        result.chars().rev().collect()
+    }
+
+    let mut ctx = String::new();
+
+    // 1. Inventory Summary
+    let low_stock: Vec<(String,)> = sqlx::query_as(
+        "SELECT product_name || ' (' || COALESCE(specification, '') || ')' FROM products WHERE status = '판매중' AND stock_quantity <= safety_stock ORDER BY stock_quantity ASC LIMIT 3"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    let high_stock: Vec<(String,)> = sqlx::query_as(
+        "SELECT product_name || ' (' || COALESCE(specification, '') || ')' FROM products WHERE status = '판매중' ORDER BY stock_quantity DESC LIMIT 3"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    if !low_stock.is_empty() {
+        ctx.push_str(&format!(
+            "\n[재고 부족 주의]: {}\n",
+            low_stock
+                .iter()
+                .map(|x| x.0.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !high_stock.is_empty() {
+        ctx.push_str(&format!(
+            "[재고 여유(판매 권장)]: {}\n",
+            high_stock
+                .iter()
+                .map(|x| x.0.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    // 2. Recent Sales Trend (14 days)
+    let top_sales: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT product_name, CAST(SUM(quantity) AS BIGINT) as q FROM sales WHERE order_date >= CURRENT_DATE - INTERVAL '14 days' AND status != '취소' GROUP BY 1 ORDER BY 2 DESC LIMIT 3"
+    ).fetch_all(pool).await.unwrap_or_default();
+
+    if !top_sales.is_empty() {
+        ctx.push_str(&format!(
+            "[최근 인기 품목]: {}\n",
+            top_sales
+                .iter()
+                .map(|x| format!("{} ({}건)", x.0, format_num(x.1)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    // 3. Last Year Comparison
+    let last_year_sales: Option<(i64,)> = sqlx::query_as(
+        "SELECT CAST(SUM(total_amount) AS BIGINT) FROM sales WHERE order_date >= CURRENT_DATE - INTERVAL '1 year' - INTERVAL '7 days' AND order_date <= CURRENT_DATE - INTERVAL '1 year' + INTERVAL '7 days' AND status != '취소'"
+    ).fetch_one(pool).await.ok();
+
+    if let Some((amount,)) = last_year_sales {
+        if amount > 0 {
+            ctx.push_str(&format!(
+                "[작년 동기 매출 기록]: 약 {}원\n",
+                format_num(amount)
+            ));
+        }
+    }
+
+    ctx
+}
+
 pub async fn get_weather_marketing_advice(
     state: State<'_, DbPool>,
 ) -> MyceliumResult<serde_json::Value> {
     use crate::commands::config::load_integration_settings;
 
-    // 1. Get Integration Settings
+    // 1. Get Integration Settings & Weather
     let settings = load_integration_settings().ok();
     let weather_settings = settings.as_ref().and_then(|s| s.weather.as_ref());
 
@@ -770,29 +850,40 @@ pub async fn get_weather_marketing_advice(
         (12.5, "맑음".to_string())
     };
 
-    // 2. Get AI Advice (Cache handled by call_gemini_ai_internal)
+    // 2. Get Intelligence Context (New)
+    let intel_context = get_intelligence_context(&state).await;
+
+    // 3. Get AI Advice with Multi-dimensional data
     let api_key = get_gemini_api_key().unwrap_or_default();
     let advice = if !api_key.is_empty() {
         let prompt = format!(
-            "오늘 농장 소재지 기온은 {}도, 날씨는 '{}'입니다. \
-             이 날씨 상황을 고려하여 스마트 농장 직영몰 고객들에게 보낼 \
-             친절하고 센스 있는 마케팅 한 줄 조언을 작성해 주세요. \
-             구체적인 상품(예: 버섯 세트, 체험 프로모션)을 언급해도 좋습니다.",
-            temp, desc
+            "당신은 스마트 농장 전문 마케팅 컨설턴트입니다. \n\
+             [오늘의 상황]\n\
+             - 날씨: {}도, '{}'\n\
+             - 데이터 분석 결과: {}\n\n\
+             이 무드와 데이터를 결합하여 최고의 마케팅 전략을 제시하세요.\n\
+             1. 재고 여유 품목을 우선 추천하되, 재고 부족 품목은 언급을 최소화하세요.\n\
+             2. 최근 트렌드와 작년 기록을 참고해 신뢰도 높은 한 줄 마케팅 문구를 제안하세요.\n\
+             3. 농장 직영몰 고객들에게 보낼 친절하고 센스 있는 멘트여야 합니다.",
+            temp, desc, intel_context
         );
         match call_gemini_ai_internal(Some(&*state), &api_key, &prompt).await {
             Ok(res) => res,
-            Err(_) => "맑은 날씨에 어울리는 신선한 농산물을 추천해보세요!".to_string(),
+            Err(e) => {
+                tracing::error!("Gemini Error: {}", e);
+                "오늘의 데이터 기반 마케팅 분석을 신선하게 전달해보세요!".to_string()
+            }
         }
     } else {
-        "AI 설정이 완료되면 날씨 맞춤형 전략을 추천해 드립니다.".to_string()
+        "AI 설정이 완료되면 다차원 데이터 분석 전략을 추천해 드립니다.".to_string()
     };
 
     Ok(serde_json::json!({
         "temperature": temp,
         "weather_desc": desc,
         "marketing_advice": advice,
-        "location_name": weather_settings.map(|s| s.location.clone()).unwrap_or_else(|| "강릉".to_string())
+        "location_name": weather_settings.map(|s| s.location.clone()).unwrap_or_else(|| "강릉".to_string()),
+        "intel_summary": intel_context // Added for transparency in frontend if needed
     }))
 }
 

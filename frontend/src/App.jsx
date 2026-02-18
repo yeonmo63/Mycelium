@@ -12,6 +12,7 @@ import MobileDashboard from './features/mobile/MobileDashboard';
 import MobileWorkLog from './features/mobile/MobileWorkLog';
 import MobileHarvestEntry from './features/mobile/MobileHarvestEntry';
 import MobileEventSales from './features/mobile/MobileEventSales';
+import MobileSalesReception from './features/mobile/MobileSalesReception';
 
 // Desktop Components (Lazy check if needed)
 import CustomerRegister from './features/customer/CustomerRegister';
@@ -82,6 +83,8 @@ const AdminRoute = () => {
   return <Outlet />;
 };
 
+import MobileLayout from './components/MobileLayout';
+
 function AppContent() {
   const { showConfirm } = useModal();
 
@@ -137,7 +140,7 @@ function AppContent() {
   const Layout = ({ isMobile }) => (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
       {!isMobile && <MainLayout />}
-      <div className={`flex-1 overflow-auto ${isMobile ? 'pb-20' : ''}`}>
+      <div className="flex-1 overflow-auto">
         <Outlet />
       </div>
     </div>
@@ -151,10 +154,14 @@ function AppContent() {
           <Route path="setup" element={<SystemSetup />} />
           <Route path="login" element={<Login />} />
 
-          <Route path="mobile-dashboard" element={<MobileDashboard />} />
-          <Route path="mobile-worklog" element={<MobileWorkLog />} />
-          <Route path="mobile-harvest" element={<MobileHarvestEntry />} />
-          <Route path="mobile-event-sales" element={<MobileEventSales />} />
+          {/* Mobile Group with Swipe Layout */}
+          <Route element={IS_MOBILE ? <MobileLayout /> : <Outlet />}>
+            <Route path="mobile-dashboard" element={<MobileDashboard />} />
+            <Route path="mobile-reception" element={<MobileSalesReception />} />
+            <Route path="mobile-event-sales" element={<MobileEventSales />} />
+            <Route path="mobile-worklog" element={<MobileWorkLog />} />
+            <Route path="mobile-harvest" element={<MobileHarvestEntry />} />
+          </Route>
 
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="sales/reception" element={<SalesReception />} />

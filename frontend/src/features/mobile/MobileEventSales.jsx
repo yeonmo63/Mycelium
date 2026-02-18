@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import { callBridge } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
@@ -19,7 +20,8 @@ import {
     Percent,
     ChevronDown,
     CalendarDays,
-    Save
+    Save,
+    X
 } from 'lucide-react';
 
 const MobileEventSales = () => {
@@ -34,6 +36,87 @@ const MobileEventSales = () => {
     const [selectedEventId, setSelectedEventId] = useState('');
     const [discountRate, setDiscountRate] = useState(0);
     const [isScanning, setIsScanning] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scannerValue, setScannerValue] = useState('');
+    const scannerInputRef = useRef(null);
+    const html5QrCodeRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const qtyInputRef = useRef(null);
+    const [cameraError, setCameraError] = useState(null);
+
+    useEffect(() => {
+        if (isScannerOpen) {
+            const timer = setTimeout(async () => {
+                if (scannerInputRef.current) scannerInputRef.current.focus();
+
+                try {
+                    const html5QrCode = new Html5Qrcode("reader-event");
+                    html5QrCodeRef.current = html5QrCode;
+
+                    const config = { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+
+                    await html5QrCode.start(
+                        { facingMode: { exact: "environment" } },
+                        config,
+                        (decodedText) => {
+                            setCameraError(null);
+                            processQrCode(decodedText);
+                        },
+                        (errorMessage) => { /* quiet */ }
+                    ).catch(async () => {
+                        await html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+                            setCameraError(null);
+                            processQrCode(decodedText);
+                        }, () => { });
+                    });
+                } catch (err) {
+                    console.error("Camera start failed:", err);
+                    if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+                        setCameraError("🔐 WiFi(HTTP) 접속 중에는 실시간 화면을 쓸 수 없습니다. 아래 [사진 촬영] 버튼을 눌러주세요.");
+                    } else {
+                        setCameraError("🔐 카메라 연결을 확인해 주세요. (권한 승인이 필요할 수 있습니다)");
+                    }
+                }
+            }, 500);
+
+            return () => {
+                clearTimeout(timer);
+                if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+                    html5QrCodeRef.current.stop().catch(e => console.error("Stop failed", e));
+                }
+            };
+        }
+    }, [isScannerOpen]);
+
+    const handleFileScan = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            const html5QrCode = new Html5Qrcode("reader-event");
+            const result = await html5QrCode.scanFileV2(file, false);
+            processQrCode(result.decodedText);
+            setIsScannerOpen(false);
+        } catch (err) {
+            alert("사진에서 코드를 읽을 수 없습니다. 다시 찍어주세요.");
+        }
+    };
+    const [showInputSection, setShowInputSection] = useState(true);
+
+    const initialInputState = {
+        product: '',
+        qty: 1,
+        price: '',
+        amount: 0
+    };
+    const [inputState, setInputState] = useState(initialInputState);
+
+    const formatCurrency = (amount) => {
+        if (typeof amount !== 'number') {
+            amount = parseFloat(String(amount).replace(/[^0-9.-]/g, '')) || 0;
+        }
+        return amount.toLocaleString('ko-KR');
+    };
 
     // Persistence: Load from localStorage on mount
     useEffect(() => {
@@ -67,7 +150,12 @@ const MobileEventSales = () => {
                 callBridge('get_product_list'),
                 callBridge('get_all_events')
             ]);
-            setProducts(pRes || []);
+            // Filter only finished products (완제품)
+            const finishedProducts = (pRes || []).filter(p =>
+                (!p.item_type || p.item_type === 'product') &&
+                p.status !== '단종상품'
+            );
+            setProducts(finishedProducts);
             setEvents(eRes || []);
         } catch (e) {
             console.error(e);
@@ -77,100 +165,126 @@ const MobileEventSales = () => {
         }
     };
 
-    const addToCart = (product) => {
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        let newState = { ...inputState, [name]: value };
+
+        if (name === 'product') {
+            const p = products.find(prod => prod.product_name === value);
+            if (p) {
+                newState.price = p.unit_price;
+            }
+        }
+
+        const qty = Number(newState.qty) || 0;
+        const price = Number(String(newState.price).replace(/[^0-9]/g, '')) || 0;
+        newState.amount = qty * price;
+
+        setInputState(newState);
+    };
+
+    const handleAdd = () => {
+        if (!selectedEventId) return showAlert("행사 미선택", "진행 중인 행사를 먼저 선택해 주세요.");
+        if (!inputState.product) return showAlert("품목 미선택", "품목을 먼저 선택해 주세요.");
+        if (Number(inputState.qty) <= 0) return showAlert("수량 확인", "수량은 1개 이상이어야 합니다.");
+
+        const product = products.find(p => p.product_name === inputState.product);
+        if (!product) return;
+
         const existing = cart.find(item => item.product_id === product.product_id);
+        const finalPrice = Number(String(inputState.price).replace(/[^0-9]/g, ''));
+
         if (existing) {
             setCart(cart.map(item =>
                 item.product_id === product.product_id
-                    ? { ...item, quantity: item.quantity + 1 }
+                    ? { ...item, quantity: item.quantity + Number(inputState.qty), unit_price: finalPrice }
                     : item
             ));
         } else {
-            setCart([...cart, { ...product, quantity: 1 }]);
+            setCart([...cart, { ...product, quantity: Number(inputState.qty), unit_price: finalPrice }]);
         }
+
+        setInputState(initialInputState);
     };
 
     const handleQrScan = () => {
-        const rawInput = prompt("상품 QR 코드를 스캔하세요.");
-        if (!rawInput) return;
+        setIsScannerOpen(true);
+        setScannerValue('');
+    };
 
-        const rawCode = rawInput.trim();
+    const processQrCode = (code) => {
+        if (!code) return;
+        const rawCode = code.trim();
         setIsScanning(true);
-        setTimeout(() => {
-            setIsScanning(false);
-            console.log("Scanned QR Content:", rawCode);
 
-            const parts = rawCode.split('|').map(p => p.trim());
-            let foundProduct = null;
+        console.log("Processing Scanned Content:", rawCode);
 
-            if (parts[0] === 'PRODUCT' && parts[1]) {
-                const pid = parseInt(parts[1]);
-                const nameInQr = parts[3];
-                const specInQr = (parts[4] === 'NA' || !parts[4]) ? '' : parts[4];
+        const parts = rawCode.split('|').map(p => p.trim());
+        let foundProduct = null;
 
-                // 1. Primary: Match by Unique ID
-                foundProduct = products.find(p => Number(p.product_id) === pid);
+        if (parts[0] === 'PRODUCT' && parts[1]) {
+            const pid = parseInt(parts[1]);
+            const nameInQr = parts[3];
+            const specInQr = (parts[4] === 'NA' || !parts[4]) ? '' : parts[4];
 
-                // 2. Defensive: If ID match fails OR name doesn't match, try Name+Spec
-                if (!foundProduct || (foundProduct && nameInQr && foundProduct.product_name !== nameInQr)) {
-                    const matchedNameSpec = products.find(p =>
-                        p.product_name === nameInQr &&
-                        (specInQr ? p.specification === specInQr : true)
-                    );
-                    if (matchedNameSpec) foundProduct = matchedNameSpec;
-                }
-                console.log(`Matched by PRODUCT structure: ${pid} | ${nameInQr}`, foundProduct);
-            } else if (parts[0] === 'HARVEST' && parts[3]) {
-                const name = parts[3];
-                const gradeOrSpec = parts[4] || '';
+            foundProduct = products.find(p => Number(p.product_id) === pid);
 
-                // Try to find by name + spec match first
-                foundProduct = products.find(p =>
-                    p.product_name === name &&
-                    (p.specification === gradeOrSpec || (p.specification && gradeOrSpec && p.specification.includes(gradeOrSpec)))
+            if (!foundProduct || (foundProduct && nameInQr && foundProduct.product_name !== nameInQr)) {
+                const matchedNameSpec = products.find(p =>
+                    p.product_name === nameInQr &&
+                    (specInQr ? p.specification === specInQr : true)
                 );
+                if (matchedNameSpec) foundProduct = matchedNameSpec;
+            }
+        } else if (parts[0] === 'HARVEST' && parts[3]) {
+            const name = parts[3];
+            const gradeOrSpec = parts[4] || '';
 
-                // If not found, check if only one product exists with this name
-                if (!foundProduct) {
-                    const sameNameProducts = products.filter(p => p.product_name === name);
-                    if (sameNameProducts.length === 1) {
-                        foundProduct = sameNameProducts[0];
-                    } else if (sameNameProducts.length > 1) {
-                        // User needs to select manually if name is ambiguous
-                        showAlert("인식 모호함", `[${name}] 상품이 여러 규격으로 존재합니다. 목록에서 직접 선택해 주세요.`);
-                        return;
-                    }
+            foundProduct = products.find(p =>
+                p.product_name === name &&
+                (p.specification === gradeOrSpec || (p.specification && gradeOrSpec && p.specification.includes(gradeOrSpec)))
+            );
+
+            if (!foundProduct) {
+                const sameNameProducts = products.filter(p => p.product_name === name);
+                if (sameNameProducts.length === 1) {
+                    foundProduct = sameNameProducts[0];
+                } else if (sameNameProducts.length > 1) {
+                    showAlert("인식 모호함", `[${name}] 상품이 여러 규격으로 존재합니다. 목록에서 직접 선택해 주세요.`);
+                    setIsScanning(false);
+                    return;
                 }
-                console.log(`Matched by HARVEST Name/Spec: ${name}`, foundProduct);
-            } else if (rawCode.includes('ID:')) {
-                // Legacy support for labels like "... | ID:123"
-                const idPart = rawCode.split('ID:').pop().trim();
-                const pid = parseInt(idPart.replace(/[^0-9]/g, ''));
+            }
+        } else if (rawCode.includes('ID:')) {
+            const idPart = rawCode.split('ID:').pop().trim();
+            const pid = parseInt(idPart.replace(/[^0-9]/g, ''));
+            foundProduct = products.find(p => Number(p.product_id) === pid);
+        } else {
+            foundProduct = products.find(p =>
+                (p.product_code && p.product_code === rawCode) ||
+                p.product_name === rawCode ||
+                `${p.product_name} ${p.specification || ''}`.trim() === rawCode ||
+                `${p.product_name}(${p.specification || ''})`.trim() === rawCode
+            );
+
+            if (!foundProduct && /^\d+$/.test(rawCode)) {
+                const pid = parseInt(rawCode);
                 foundProduct = products.find(p => Number(p.product_id) === pid);
-                console.log(`Matched by Legacy ID: ${pid}`, foundProduct);
-            } else {
-                // Last resort: search by exact code or name or combined name+spec
-                foundProduct = products.find(p =>
-                    (p.product_code && p.product_code === rawCode) ||
-                    p.product_name === rawCode ||
-                    `${p.product_name} ${p.specification || ''}`.trim() === rawCode ||
-                    `${p.product_name}(${p.specification || ''})`.trim() === rawCode
-                );
-
-                // Numeric ID fallback
-                if (!foundProduct && /^\d+$/.test(rawCode)) {
-                    const pid = parseInt(rawCode);
-                    foundProduct = products.find(p => Number(p.product_id) === pid);
-                }
-                console.log(`Matched by fallback/numeric: ${rawCode}`, foundProduct);
             }
+        }
 
-            if (foundProduct) {
-                addToCart(foundProduct);
-            } else {
-                showAlert("인식 실패", `[${rawCode}] 상품을 찾을 수 없습니다. 상품명과 규격이 정확히 일치하는지 확인해 주세요.`);
-            }
-        }, 300);
+        setIsScanning(false);
+        if (foundProduct) {
+            handleInputChange({ target: { name: 'product', value: foundProduct.product_name } });
+            setIsScannerOpen(false);
+            // Auto-focus quantity for faster entry
+            setTimeout(() => {
+                qtyInputRef.current?.focus();
+                qtyInputRef.current?.select();
+            }, 300);
+        } else {
+            showAlert("인식 실패", `[${rawCode}] 상품을 찾을 수 없습니다.`);
+        }
     };
 
     const updateQuantity = (productId, delta) => {
@@ -188,6 +302,10 @@ const MobileEventSales = () => {
     const totalAmount = subTotal - discountAmount;
 
     const handleCheckout = async () => {
+        if (!selectedEventId) {
+            showAlert("행사 미선택", "진행 중인 행사를 먼저 선택해 주세요.");
+            return;
+        }
         if (cart.length === 0) {
             showAlert("체크아웃 실패", "장바구니가 비어 있습니다.");
             return;
@@ -234,18 +352,19 @@ const MobileEventSales = () => {
     };
 
     return (
-        <div className="mobile-fullscreen bg-slate-50 flex flex-col font-sans overflow-x-hidden pb-44">
+        <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden">
             {/* Header */}
-            <div className="bg-white border-b border-slate-100 p-4 pt-8 sticky top-0 z-50">
-                <div className="flex items-center justify-between mb-4">
-                    <button className="p-2 hover:bg-slate-50 rounded-xl text-slate-400" onClick={() => navigate('/mobile-dashboard')}>
-                        <ArrowLeft size={20} />
-                    </button>
-                    <div className="flex items-center gap-2 text-center">
-                        <Store className="text-amber-500" size={20} />
-                        <h1 className="text-lg font-black text-slate-800">특판 행사 접수</h1>
+            <div className="bg-white px-5 pt-6 pb-4 border-b border-slate-100 shrink-0">
+                <div className="flex justify-between items-center mb-4">
+                    <h1 className="text-xl font-black text-slate-900 tracking-tight">특판접수</h1>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => navigate('/mobile-dashboard')}
+                            className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 transition-colors"
+                        >
+                            <ArrowLeft size={18} />
+                        </button>
                     </div>
-                    <div className="w-10"></div> {/* Spacer for symmetry */}
                 </div>
 
                 {/* Event Selector */}
@@ -254,7 +373,7 @@ const MobileEventSales = () => {
                         <CalendarDays size={18} />
                     </div>
                     <select
-                        className="w-full h-12 bg-slate-50 border-none rounded-xl pl-12 pr-10 text-sm font-black text-slate-700 appearance-none"
+                        className="w-full h-12 bg-slate-50 border-none rounded-2xl pl-12 pr-10 text-sm font-black text-slate-700 appearance-none focus:ring-2 focus:ring-indigo-500 transition-all"
                         value={selectedEventId}
                         onChange={(e) => setSelectedEventId(e.target.value)}
                     >
@@ -275,7 +394,7 @@ const MobileEventSales = () => {
                 </div>
             </div>
 
-            <div className="p-4 space-y-6">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 pt-4 pb-44 space-y-6">
                 {/* QR Scanner & Discount Row */}
                 <div className="grid grid-cols-2 gap-4">
                     <button
@@ -290,38 +409,157 @@ const MobileEventSales = () => {
                         <div className="flex items-center gap-1">
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">적용 할인율</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                            <input
-                                type="number"
-                                className="w-12 text-center bg-transparent border-none text-xl font-black text-rose-500 p-0 focus:ring-0"
-                                value={discountRate}
-                                onChange={(e) => setDiscountRate(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-                            />
-                            <Percent size={14} className="text-rose-500" />
+                        <div className="flex items-center gap-3 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
+                            <button
+                                type="button"
+                                onClick={() => setDiscountRate(Math.max(0, discountRate - 1))}
+                                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-rose-500 shadow-sm border border-slate-200 active:scale-90 transition-all"
+                            >
+                                <span className="text-2xl font-black leading-none select-none">-</span>
+                            </button>
+                            <div className="flex items-center justify-center min-w-[3rem]">
+                                <input
+                                    type="number"
+                                    className="w-10 text-center bg-transparent border-none text-xl font-black text-rose-600 p-0 focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    value={discountRate}
+                                    onChange={(e) => setDiscountRate(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                                />
+                                <Percent size={14} className="text-rose-400 ml-0.5" strokeWidth={3} />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setDiscountRate(Math.min(100, discountRate + 1))}
+                                className="w-10 h-10 flex items-center justify-center bg-rose-500 rounded-xl text-white active:scale-90 transition-all shadow-md shadow-rose-100"
+                            >
+                                <span className="text-2xl font-black leading-none select-none">+</span>
+                            </button>
                         </div>
                     </div>
                 </div>
 
                 {/* Quick Selection List */}
-                <div className="space-y-3">
+                <div className={`space-y-3 transition-opacity ${!selectedEventId ? 'opacity-30 pointer-events-none' : ''}`}>
                     <div className="flex items-center gap-2 text-slate-400 font-black text-xs uppercase tracking-widest pl-1">
-                        <Tag size={12} />
-                        <span>또는 수동 선택</span>
+                        <Plus size={12} className="text-indigo-500" />
+                        <span>품목 퀵 선택</span>
                     </div>
                     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                         {products.map(p => (
                             <button
                                 key={p.product_id}
-                                onClick={() => addToCart(p)}
-                                className="bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-100 whitespace-nowrap active:scale-95 transition-all flex flex-col items-center"
+                                onClick={() => {
+                                    handleInputChange({ target: { name: 'product', value: p.product_name } });
+                                }}
+                                className="bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-100 whitespace-nowrap active:scale-95 transition-all flex flex-col items-center min-w-[120px]"
                             >
                                 <div className="text-sm font-black text-slate-700">{p.product_name}</div>
                                 {p.specification && <div className="text-[10px] text-slate-400 font-bold mb-1">{p.specification}</div>}
-                                <div className="text-[10px] text-indigo-500 font-bold">{p.unit_price.toLocaleString()}원</div>
+                                <div className="text-[10px] text-indigo-500 font-black">{formatCurrency(p.unit_price)}원</div>
                             </button>
                         ))}
                     </div>
                 </div>
+
+                {!selectedEventId && (
+                    <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-center gap-3 animate-pulse">
+                        <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-white shrink-0">
+                            <Tag size={20} />
+                        </div>
+                        <div className="text-sm font-black text-amber-900 leading-tight">
+                            상단 대기 중인 행사를 먼저 선택해야<br />판매 등록이 가능합니다.
+                        </div>
+                    </div>
+                )}
+
+                {/* Quick Input Toggle */}
+                <div className="flex items-center justify-between px-2">
+                    <h2 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">접수 품목 ({cart.length})</h2>
+                    <button
+                        onClick={() => setShowInputSection(!showInputSection)}
+                        className={`text-[11px] font-black h-8 px-4 rounded-full transition-all ${showInputSection ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white border border-slate-100 text-indigo-600'}`}
+                    >
+                        {showInputSection ? '접기' : '품목 추가'}
+                    </button>
+                </div>
+
+                {/* Sales Input Form */}
+                {showInputSection && (
+                    <div className={`bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-xl space-y-5 animate-in slide-in-from-top-4 duration-300 transition-opacity ${!selectedEventId ? 'opacity-30 pointer-events-none' : ''}`}>
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">상품 선택</label>
+                            <select
+                                name="product"
+                                className="w-full h-12 bg-slate-50 border-none rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
+                                value={inputState.product}
+                                onChange={handleInputChange}
+                            >
+                                <option value="">품목을 선택하세요</option>
+                                {products.map(p => (
+                                    <option key={p.product_id} value={p.product_name}>
+                                        {p.product_name} ({p.specification || '규격 없음'}) - {formatCurrency(p.unit_price)}원
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">단가</label>
+                                <input
+                                    name="price"
+                                    className="w-full h-12 bg-slate-50 border-none rounded-2xl text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all text-right px-4"
+                                    value={formatCurrency(inputState.price)}
+                                    onChange={(e) => handleInputChange({ target: { name: 'price', value: e.target.value.replace(/[^0-9]/g, '') } })}
+                                    placeholder="0"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">수량</label>
+                                <div className="h-12 bg-slate-50 rounded-2xl flex items-center px-1 border border-slate-100 overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleInputChange({ target: { name: 'qty', value: Math.max(1, Number(inputState.qty) - 1) } })}
+                                        className="w-10 h-10 shrink-0 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-200 text-slate-700 active:scale-90 transition-all"
+                                    >
+                                        <span className="text-2xl font-black leading-none select-none">-</span>
+                                    </button>
+                                    <input
+                                        ref={qtyInputRef}
+                                        type="number"
+                                        name="qty"
+                                        className="flex-1 w-full bg-transparent border-none text-center font-black text-lg text-slate-800 focus:ring-0 p-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        value={inputState.qty}
+                                        onChange={handleInputChange}
+                                        inputMode="numeric"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleInputChange({ target: { name: 'qty', value: Number(inputState.qty) + 1 } })}
+                                        className="w-10 h-10 shrink-0 flex items-center justify-center bg-indigo-600 rounded-xl shadow-sm text-white active:scale-90 transition-all"
+                                    >
+                                        <span className="text-2xl font-black leading-none select-none">+</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">합계 금액</label>
+                            <div className="h-12 bg-indigo-50/50 rounded-2xl flex items-center px-4 justify-between border border-indigo-100/50">
+                                <ShoppingCart size={18} className="text-indigo-300" />
+                                <span className="text-lg font-black text-indigo-600">{formatCurrency(inputState.amount)}원</span>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleAdd}
+                            className="w-full h-14 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100 flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
+                        >
+                            <Plus size={20} />
+                            담기
+                        </button>
+                    </div>
+                )}
 
                 {/* Shopping Cart Area */}
                 <div className="space-y-3">
@@ -350,27 +588,31 @@ const MobileEventSales = () => {
                             <span className="text-sm font-bold text-center px-4">상품 QR을 스캔하거나 하단 리스트에서 선택하세요</span>
                         </div>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                             {cart.map(item => (
-                                <div key={item.product_id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-50 flex items-center justify-between">
+                                <div key={item.product_id} className="bg-white px-5 py-3 rounded-[1.5rem] border border-slate-100 shadow-sm flex items-center gap-4 animate-in fade-in slide-in-from-left-2 transition-all">
                                     <div className="flex-1 min-w-0 pr-4">
                                         <div className="text-sm font-black text-slate-800 truncate">{item.product_name}</div>
-                                        {item.specification && <div className="text-[10px] text-slate-400 font-bold mb-1">{item.specification}</div>}
-                                        <div className="flex items-center gap-2">
+                                        {item.specification && <div className="text-[10px] text-slate-400 font-bold mt-0.5">{item.specification}</div>}
+                                        <div className="flex items-center gap-2 mt-1">
                                             <span className="text-[10px] text-slate-400 font-bold line-through">{item.unit_price.toLocaleString()}원</span>
                                             <span className="text-[10px] text-indigo-600 font-black">
                                                 {Math.round(item.unit_price * (1 - discountRate / 100)).toLocaleString()}원
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3 bg-slate-50 p-1 rounded-xl">
-                                        <button onClick={() => updateQuantity(item.product_id, -1)} className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center text-slate-600 active:scale-90">
-                                            <Minus size={14} />
-                                        </button>
+                                    <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100 scale-95 origin-right">
+                                        <button
+                                            type="button"
+                                            onClick={() => updateQuantity(item.product_id, -1)}
+                                            className="w-7 h-7 rounded-lg bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-700 active:scale-90"
+                                        ><span className="text-xl font-black leading-none select-none">-</span></button>
                                         <span className="text-sm font-black text-slate-800 min-w-[20px] text-center">{item.quantity}</span>
-                                        <button onClick={() => updateQuantity(item.product_id, 1)} className="w-8 h-8 rounded-lg bg-indigo-600 shadow-sm flex items-center justify-center text-white active:scale-90">
-                                            <Plus size={14} />
-                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => updateQuantity(item.product_id, 1)}
+                                            className="w-7 h-7 rounded-lg bg-indigo-600 shadow-sm flex items-center justify-center text-white active:scale-90"
+                                        ><span className="text-xl font-black leading-none select-none">+</span></button>
                                     </div>
                                 </div>
                             ))}
@@ -414,57 +656,106 @@ const MobileEventSales = () => {
                 </div>
             </div>
 
-            {/* Bottom Sticky Action Bar (Always visible but dynamic height) */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 pb-24 bg-white/95 backdrop-blur-xl border-t border-slate-100 z-40 transition-all">
-                <div className="space-y-2 mb-4 px-2">
-                    <div className="flex justify-between items-end border-b border-slate-50 pb-2">
-                        <div className="flex flex-col">
-                            <span className="text-slate-400 font-bold text-[10px] uppercase">SUBTOTAL</span>
-                            <span className="text-slate-500 font-black text-sm">{subTotal.toLocaleString()}원</span>
+            {/* Bottom Sticky Action Bar */}
+            <div className="fixed bottom-0 left-0 right-0 z-50 animate-in slide-in-from-bottom-full duration-500">
+                <div className="bg-white border-t border-slate-100 p-5 pb-24 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                    <div className="flex gap-4 items-center">
+                        <div className="flex-1 flex flex-col justify-center px-4 h-14 bg-slate-50 rounded-[1.5rem]">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">최종 결제 금액</span>
+                            <span className="text-lg font-black text-indigo-600 leading-none">{totalAmount.toLocaleString()}원</span>
                         </div>
-                        <div className="flex flex-col items-end">
-                            <span className="text-rose-400 font-bold text-[10px] uppercase">DISCOUNT ({discountRate}%)</span>
-                            <span className="text-rose-500 font-black text-sm">-{discountAmount.toLocaleString()}원</span>
-                        </div>
-                    </div>
-                    <div className="flex justify-between items-center py-1">
-                        <span className="text-slate-800 font-black text-lg">최종 금액</span>
-                        <div className="text-right">
-                            <span className="text-3xl font-black text-indigo-600">{totalAmount.toLocaleString()}</span>
-                            <span className="text-lg font-black text-indigo-600 ml-1">원</span>
-                        </div>
+                        <button
+                            onClick={handleCheckout}
+                            disabled={cart.length === 0}
+                            className={`w-20 h-14 bg-indigo-600 text-white rounded-[1.5rem] flex items-center justify-center shadow-lg shadow-indigo-100 active:scale-[0.95] transition-all ${cart.length === 0 ? 'opacity-50' : ''}`}
+                        >
+                            <Save size={24} />
+                        </button>
                     </div>
                 </div>
-                <button
-                    onClick={handleCheckout}
-                    disabled={cart.length === 0}
-                    className="w-full h-16 bg-indigo-600 disabled:bg-slate-200 rounded-3xl text-white font-black text-xl flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 active:scale-95 transition-transform"
-                >
-                    <Save size={24} />
-                    농장 PC로 저장 및 전송
-                </button>
             </div>
 
-            {/* Bottom Tab Bar */}
-            <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 flex items-center justify-around h-20 px-4 pb-4 z-50">
-                <button onClick={() => navigate('/mobile-dashboard')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <LayoutDashboard size={24} />
-                    <span className="text-[10px] font-black">현황판</span>
-                </button>
-                <button onClick={() => navigate('/mobile-event-sales')} className="flex flex-col items-center gap-1 text-indigo-600">
-                    <Store size={24} />
-                    <span className="text-[10px] font-black">특판접수</span>
-                </button>
-                <button onClick={() => navigate('/mobile-worklog')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <ClipboardList size={24} />
-                    <span className="text-[10px] font-black">작업일지</span>
-                </button>
-                <button onClick={() => navigate('/mobile-harvest')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <PlusCircle size={24} />
-                    <span className="text-[10px] font-black">수확입력</span>
-                </button>
-            </div>
-        </div>
+            {/* QR Scanner Overlay */}
+            {
+                isScannerOpen && (
+                    <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+                        {/* Camera View Area */}
+                        <div className="relative w-full max-w-xs aspect-square border-2 border-indigo-500/50 rounded-[3rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center">
+                            <div id="reader-event" className="absolute inset-0 z-0"></div>
+
+                            {cameraError && (
+                                <div className="z-20 flex flex-col items-center gap-4 px-6 py-4 bg-slate-800/95 text-white rounded-3xl text-center mx-4 border border-white/10 shadow-2xl">
+                                    <p className="text-xs font-black leading-relaxed">
+                                        {cameraError}
+                                    </p>
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="px-6 py-3 bg-indigo-600 rounded-2xl text-sm font-black shadow-lg active:scale-95 transition-all"
+                                    >
+                                        카메라 촬영으로 인식하기
+                                    </button>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        capture="environment"
+                                        className="hidden"
+                                        onChange={handleFileScan}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Scanning Overlay Decoration */}
+                            <div className="absolute inset-0 pointer-events-none z-10">
+                                <div className="absolute inset-x-0 h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-scan" />
+                                <div className="absolute top-8 left-8 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
+                                <div className="absolute top-8 right-8 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-lg" />
+                                <div className="absolute bottom-8 left-8 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-lg" />
+                                <div className="absolute bottom-8 right-8 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
+                            </div>
+                        </div>
+
+                        <div className="mt-12 text-center text-white space-y-4 w-full">
+                            <h3 className="text-xl font-black">특판 품목 스캔 중</h3>
+                            <p className="text-sm text-slate-400">사각형 안에 상품 QR 코드를 맞춰주세요.</p>
+
+                            <div className="max-w-xs mx-auto pt-6 space-y-2">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
+                                <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
+                                    <input
+                                        ref={scannerInputRef}
+                                        type="text"
+                                        className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-6 text-white text-center font-black focus:border-indigo-500 focus:ring-0 transition-all outline-none text-xs"
+                                        placeholder="여기에 직접 입력"
+                                        value={scannerValue}
+                                        onChange={(e) => setScannerValue(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && processQrCode(scannerValue)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => setIsScannerOpen(false)}
+                            className="mt-auto mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90"
+                        >
+                            <X size={32} />
+                        </button>
+
+                        <style dangerouslySetInnerHTML={{
+                            __html: `
+                        @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
+                        .animate-scan { position: absolute; animation: scan 3s infinite linear; }
+                        #reader-event video { 
+                            object-fit: cover !important;
+                            height: 100% !important;
+                            width: 100% !important;
+                        }
+                    `}} />
+                    </div>
+                )
+            }
+        </div >
     );
 };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '../../../utils/apiBridge';
 import { Thermometer, Droplets, Wind, Activity, RefreshCw, Info } from 'lucide-react';
+import { formatCurrency } from '../../../utils/common';
 import IotGuideModal from './modals/IotGuideModal';
 
 const VirtualIotHub = () => {
@@ -77,17 +78,17 @@ const VirtualIotHub = () => {
                             <div className="flex flex-col items-center">
                                 <Thermometer size={18} className="text-rose-400 mb-1" />
                                 <span className="text-[10px] font-black text-slate-400 mb-1">온도</span>
-                                <span className="text-lg font-black text-slate-700">{data?.temperature || '0.0'}°C</span>
+                                <span className="text-lg font-black text-slate-700">{formatCurrency(data?.temperature || 0)}°C</span>
                             </div>
                             <div className="flex flex-col items-center border-x border-slate-100 px-2">
-                                <Droppets size={18} className="text-blue-400 mb-1" />
+                                <Droplets size={18} className="text-blue-400 mb-1" />
                                 <span className="text-[10px] font-black text-slate-400 mb-1">습도</span>
-                                <span className="text-lg font-black text-slate-700">{data?.humidity || '0.0'}%</span>
+                                <span className="text-lg font-black text-slate-700">{formatCurrency(data?.humidity || 0)}%</span>
                             </div>
                             <div className="flex flex-col items-center leading-tight">
                                 <Wind size={18} className="text-emerald-500 mb-1" />
                                 <span className="text-[10px] font-black text-slate-400 mb-1">CO2 농도</span>
-                                <span className="text-lg font-black text-slate-700">{data?.co2 || '0'}<small className="text-[10px] ml-0.5">ppm</small></span>
+                                <span className="text-lg font-black text-slate-700">{formatCurrency(data?.co2 || 0)}<small className="text-[10px] ml-0.5">ppm</small></span>
                             </div>
                         </div>
                     );

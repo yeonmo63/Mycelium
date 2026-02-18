@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import { callBridge } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
@@ -28,34 +29,106 @@ const MobileHarvestEntry = () => {
     });
 
     const [isScanning, setIsScanning] = useState(false);
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scannerValue, setScannerValue] = useState('');
+    const scannerInputRef = useRef(null);
+    const html5QrCodeRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const qtyInputRef = useRef(null);
+    const [cameraError, setCameraError] = useState(null);
+
+    useEffect(() => {
+        if (isScannerOpen) {
+            const timer = setTimeout(async () => {
+                if (scannerInputRef.current) scannerInputRef.current.focus();
+
+                try {
+                    const html5QrCode = new Html5Qrcode("reader-harvest");
+                    html5QrCodeRef.current = html5QrCode;
+
+                    const config = { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+
+                    await html5QrCode.start(
+                        { facingMode: { exact: "environment" } },
+                        config,
+                        (decodedText) => {
+                            setCameraError(null);
+                            processQrCode(decodedText);
+                        },
+                        (errorMessage) => { /* quiet */ }
+                    ).catch(async () => {
+                        await html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+                            setCameraError(null);
+                            processQrCode(decodedText);
+                        }, () => { });
+                    });
+                } catch (err) {
+                    console.error("Camera start failed:", err);
+                    if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+                        setCameraError("🔐 WiFi(HTTP) 접속 중에는 실시간 화면을 쓸 수 없습니다. 아래 [사진 촬영] 버튼을 눌러주세요.");
+                    } else {
+                        setCameraError("🔐 카메라 연결을 확인해 주세요. (권한 승인이 필요할 수 있습니다)");
+                    }
+                }
+            }, 500);
+
+            return () => {
+                clearTimeout(timer);
+                if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+                    html5QrCodeRef.current.stop().catch(e => console.error("Stop failed", e));
+                }
+            };
+        }
+    }, [isScannerOpen]);
+
+    const handleFileScan = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            const html5QrCode = new Html5Qrcode("reader-harvest");
+            const result = await html5QrCode.scanFileV2(file, false);
+            processQrCode(result.decodedText);
+            setIsScannerOpen(false);
+        } catch (err) {
+            alert("사진에서 코드를 읽을 수 없습니다. 다시 찍어주세요.");
+        }
+    };
 
     const handleQrScan = () => {
-        const rawInput = prompt("배치 QR 코드를 스캔하세요.");
-        if (!rawInput) return;
+        setIsScannerOpen(true);
+        setScannerValue('');
+    };
 
-        const rawCode = rawInput.trim();
+    const processQrCode = (code) => {
+        if (!code) return;
+        const rawCode = code.trim();
         setIsScanning(true);
-        setTimeout(() => {
-            setIsScanning(false);
-            console.log("Harvest Scanned QR:", rawCode);
+        console.log("Harvest Processing Scanned QR:", rawCode);
 
-            const parts = rawCode.split('|').map(p => p.trim());
-            let foundBatch = null;
+        const parts = rawCode.split('|').map(p => p.trim());
+        let foundBatch = null;
 
-            if (parts[0] === 'BATCH' && parts[1]) {
-                const bid = parseInt(parts[1]);
-                foundBatch = batches.find(b => Number(b.batch_id) === bid);
-            } else {
-                // Precise match by code
-                foundBatch = batches.find(b => b.batch_code === rawCode);
-            }
+        if (parts[0] === 'BATCH' && parts[1]) {
+            const bid = parseInt(parts[1]);
+            foundBatch = batches.find(b => Number(b.batch_id) === bid);
+        } else {
+            foundBatch = batches.find(b => b.batch_code === rawCode);
+        }
 
-            if (foundBatch) {
-                setFormData(prev => ({ ...prev, batch_id: foundBatch.batch_id }));
-            } else {
-                showAlert("인식 실패", `[${rawCode}] 배치 정보를 찾을 수 없습니다.`);
-            }
-        }, 300);
+        setIsScanning(false);
+        if (foundBatch) {
+            setFormData(prev => ({ ...prev, batch_id: foundBatch.batch_id }));
+            setIsScannerOpen(false);
+            // Auto-focus quantity for faster entry
+            setTimeout(() => {
+                qtyInputRef.current?.focus();
+                qtyInputRef.current?.select();
+            }, 300);
+            showAlert("인식 완료", `[${foundBatch.batch_code}] 배치가 선택되었습니다.`);
+        } else {
+            showAlert("인식 실패", `[${rawCode}] 배치 정보를 찾을 수 없습니다.`);
+        }
     };
 
     useEffect(() => {
@@ -194,11 +267,13 @@ const MobileHarvestEntry = () => {
 
                     <div className="flex items-end gap-3">
                         <input
+                            ref={qtyInputRef}
                             type="number"
                             className="w-full bg-transparent border-b-2 border-white/30 focus:border-white text-4xl font-black text-white placeholder:text-white/30 outline-none pb-2"
                             placeholder="0.00"
                             value={formData.quantity || ''}
                             onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                            inputMode="decimal"
                         />
                         <span className="text-2xl font-black mb-2">kg</span>
                     </div>
@@ -280,25 +355,84 @@ const MobileHarvestEntry = () => {
                 </button>
             </div>
 
-            {/* Bottom Tab Bar */}
-            <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 flex items-center justify-around h-20 px-4 pb-4 z-50">
-                <button onClick={() => navigate('/mobile-dashboard')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <LayoutDashboard size={24} />
-                    <span className="text-[10px] font-black">현황판</span>
-                </button>
-                <button onClick={() => navigate('/mobile-event-sales')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <Store size={24} />
-                    <span className="text-[10px] font-black">특판접수</span>
-                </button>
-                <button onClick={() => navigate('/mobile-worklog')} className="flex flex-col items-center gap-1 text-slate-400">
-                    <ClipboardList size={24} />
-                    <span className="text-[10px] font-black">작업일지</span>
-                </button>
-                <button onClick={() => navigate('/mobile-harvest')} className="flex flex-col items-center gap-1 text-indigo-600">
-                    <CirclePlus size={24} />
-                    <span className="text-[10px] font-black">수확입력</span>
-                </button>
-            </div>
+            {/* QR Scanner Overlay */}
+            {isScannerOpen && (
+                <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+                    {/* Camera View Area */}
+                    <div className="relative w-full max-w-xs aspect-square border-2 border-indigo-500/50 rounded-[3rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center">
+                        <div id="reader-harvest" className="absolute inset-0 z-0"></div>
+
+                        {cameraError && (
+                            <div className="z-20 flex flex-col items-center gap-4 px-6 py-4 bg-slate-800/95 text-white rounded-3xl text-center mx-4 border border-white/10 shadow-2xl">
+                                <p className="text-xs font-black leading-relaxed">
+                                    {cameraError}
+                                </p>
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="px-6 py-3 bg-indigo-600 rounded-2xl text-sm font-black shadow-lg active:scale-95 transition-all"
+                                >
+                                    카메라 촬영으로 인식하기
+                                </button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    className="hidden"
+                                    onChange={handleFileScan}
+                                />
+                            </div>
+                        )}
+
+                        {/* Scanning Overlay Decoration */}
+                        <div className="absolute inset-0 pointer-events-none z-10">
+                            <div className="absolute inset-x-0 h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-scan" />
+                            <div className="absolute top-8 left-8 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
+                            <div className="absolute top-8 right-8 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-lg" />
+                            <div className="absolute bottom-8 left-8 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-lg" />
+                            <div className="absolute bottom-8 right-8 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
+                        </div>
+                    </div>
+
+                    <div className="mt-12 text-center text-white space-y-4 w-full">
+                        <h3 className="text-xl font-black">현장 QR 스캔 중</h3>
+                        <p className="text-sm text-slate-400">구역이나 배치 QR 코드를 맞춰주세요.</p>
+
+                        <div className="max-w-xs mx-auto pt-6 space-y-2">
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
+                            <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
+                                <input
+                                    ref={scannerInputRef}
+                                    type="text"
+                                    className="w-full h-12 bg-white/5 border border-white/10 rounded-2xl px-6 text-white text-center font-black focus:border-indigo-500/50 focus:ring-0 transition-all outline-none text-xs"
+                                    placeholder="여기에 직접 입력"
+                                    value={scannerValue}
+                                    onChange={(e) => setScannerValue(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && processQrCode(scannerValue)}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={() => setIsScannerOpen(false)}
+                        className="mt-auto mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90"
+                    >
+                        <X size={32} />
+                    </button>
+
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
+                        @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
+                        .animate-scan { position: absolute; animation: scan 3s infinite linear; }
+                        #reader-harvest video { 
+                            object-fit: cover !important;
+                            height: 100% !important;
+                            width: 100% !important;
+                        }
+                    `}} />
+                </div>
+            )}
         </div>
     );
 };
