@@ -66,3 +66,5 @@ test_db/
 *.msi
 wix/*.msi
 !wix/.gitignore
+# Tailscale Certs
+backend/resources/certs/

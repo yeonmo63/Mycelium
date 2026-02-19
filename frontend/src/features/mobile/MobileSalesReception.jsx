@@ -771,9 +771,9 @@ const MobileSalesReception = () => {
             }
             {/* QR Scanner Overlay */}
             {isScannerOpen && (
-                <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+                <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-start p-6 pt-12 animate-in fade-in duration-300 overflow-y-auto">
                     {/* Camera View Area */}
-                    <div className="relative w-full max-w-xs aspect-square border-2 border-indigo-500/50 rounded-[3rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center">
+                    <div className="relative w-full max-w-[280px] aspect-square border-2 border-indigo-500/50 rounded-[2.5rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center shrink-0">
                         <div id="reader" className="absolute inset-0 z-0"></div>
 
                         {cameraError && (
@@ -808,11 +808,11 @@ const MobileSalesReception = () => {
                         </div>
                     </div>
 
-                    <div className="mt-12 text-center text-white space-y-4 w-full">
+                    <div className="mt-6 text-center text-white space-y-4 w-full">
                         <h3 className="text-xl font-black">QR 코드 스캔 중</h3>
                         <p className="text-sm text-slate-400">사각형 안에 QR 코드를 맞춰주세요.</p>
 
-                        <div className="max-w-xs mx-auto pt-6 space-y-2">
+                        <div className="max-w-xs mx-auto pt-2 space-y-2">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
                             <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
                                 <input
@@ -830,7 +830,7 @@ const MobileSalesReception = () => {
 
                     <button
                         onClick={() => setIsScannerOpen(false)}
-                        className="mt-auto mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90"
+                        className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
                         <X size={32} />
                     </button>

@@ -6,84 +6,124 @@ use std::sync::Mutex;
 
 static CADDY_CHILD: Mutex<Option<Child>> = Mutex::new(Option::None);
 
+/// Helper to get the current Tailscale domain name
+fn get_tailscale_info() -> Option<String> {
+    let output = Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    v["Self"]["DNSName"]
+        .as_str()
+        .map(|s| s.trim_end_matches('.').to_string())
+}
+
 /// Starts the Caddy reverse proxy using the Tailscale domain.
 pub fn start_caddy() {
-    // 1. Try to load from mobile_config.json first (user's UI setting)
-    let config_path = dirs::config_dir()
-        .map(|p| p.join("com.mycelium").join("mobile_config.json"))
-        .unwrap_or_else(|| PathBuf::from("./data/config/mobile_config.json"));
-
-    let mut tailscale_domain = String::new();
-
-    if config_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&config_path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(domain) = json["domain_name"].as_str() {
-                    tailscale_domain = domain.to_string();
-                }
-            }
-        }
-    }
-
-    // 2. Fallback to .env if not in config file
-    if tailscale_domain.is_empty() {
-        tailscale_domain = env::var("TAILSCALE_DOMAIN").unwrap_or_default();
-    }
+    // 1. Detect Tailscale Domain
+    let tailscale_domain = get_tailscale_info().unwrap_or_else(|| {
+        tracing::warn!("⚠️  Could not detect Tailscale domain via CLI. Falling back to .env.");
+        env::var("TAILSCALE_DOMAIN").unwrap_or_default()
+    });
 
     if tailscale_domain.is_empty() {
-        println!("⚠️  Tailscale domain not found. Skipping Caddy HTTPS proxy.");
+        tracing::warn!("⚠️  Tailscale domain not found. Skipping Caddy HTTPS proxy.");
         return;
     }
 
-    println!(
-        "🚀 Starting Caddy Reverse Proxy for Tailscale: {}...",
+    tracing::info!("🚀 Tailscale Domain Detected: {}", tailscale_domain);
+
+    // 2. Locate Resources
+    let exe_dir = env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_default();
+    let cwd = env::current_dir().unwrap_or_default();
+
+    let mut resources_dir = PathBuf::new();
+    let mut caddy_path = PathBuf::new();
+
+    let search_paths = vec![
+        exe_dir.join("resources"),
+        cwd.join("resources"),
+        exe_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("resources"))
+            .unwrap_or_default(),
+    ];
+
+    for path in search_paths {
+        if path.join("bin").join("caddy.exe").exists() {
+            resources_dir = path;
+            caddy_path = resources_dir.join("bin").join("caddy.exe");
+            break;
+        }
+    }
+
+    if caddy_path.as_os_str().is_empty() {
+        tracing::error!("❌ Caddy executable not found in resources/bin.");
+        return;
+    }
+
+    // 3. Auto-provision Tailscale Certificates
+    let cert_dir = resources_dir.join("certs");
+    if !cert_dir.exists() {
+        let _ = std::fs::create_dir_all(&cert_dir);
+    }
+
+    tracing::info!(
+        "🔐 Provisioning Tailscale certificates for {}...",
         tailscale_domain
     );
+    let cert_status = Command::new("tailscale")
+        .args(["cert", &tailscale_domain])
+        .current_dir(&cert_dir)
+        .status();
 
-    // Get the path to caddy.exe and Caddyfile relative to the executable or CWD
-    let mut caddy_path = PathBuf::from("./resources/bin/caddy.exe");
-    let mut caddyfile_path = PathBuf::from("./resources/Caddyfile");
-
-    // If not found in CWD, try relative to the executable path
-    if !caddy_path.exists() {
-        if let Ok(exe_path) = env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let rel_caddy = exe_dir.join("resources").join("bin").join("caddy.exe");
-                let rel_caddyfile = exe_dir.join("resources").join("Caddyfile");
-                if rel_caddy.exists() {
-                    caddy_path = rel_caddy;
-                    caddyfile_path = rel_caddyfile;
-                }
-            }
-        }
+    match cert_status {
+        Ok(s) if s.success() => tracing::info!("✅ Certificates provisioned successfully."),
+        _ => tracing::error!("❌ Failed to provision Tailscale certificates. Check if Tailscale is running and you have permissions."),
     }
 
-    if !caddy_path.exists() {
-        println!(
-            "❌ Caddy executable not found at {:?}. Please ensure it is in the resources/bin folder.",
-            caddy_path
-        );
-        return;
-    }
+    // 4. Start Caddy
+    let caddyfile_path = resources_dir.join("Caddyfile");
 
-    let child = Command::new(caddy_path)
+    #[cfg(windows)]
+    let mut command = Command::new(&caddy_path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    #[cfg(not(windows))]
+    let mut command = Command::new(&caddy_path);
+
+    // Inject domain for Caddyfile to use
+    command.env("TAILSCALE_DOMAIN", &tailscale_domain);
+    command.current_dir(&resources_dir);
+
+    let child = command
         .arg("run")
         .arg("--config")
-        .arg(caddyfile_path)
+        .arg("Caddyfile")
         .arg("--adapter")
         .arg("caddyfile")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn();
 
     match child {
         Ok(c) => {
             let mut guard = CADDY_CHILD.lock().unwrap();
             *guard = Some(c);
-            println!("✨ Caddy is now running in the background.");
+            tracing::info!("✨ Caddy is now running in the background.");
         }
         Err(e) => {
-            eprintln!("❌ Failed to spawn Caddy process: {}", e);
+            tracing::error!("❌ Failed to spawn Caddy process: {}", e);
         }
     }
 }
