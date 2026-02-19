@@ -65,7 +65,9 @@ const MobileHarvestEntry = () => {
 
             const timer = setTimeout(async () => {
                 if (!isInstanceMounted) return;
-                if (scannerInputRef.current) scannerInputRef.current.focus();
+                // Removed automatic focus to prevent keyboard from covering the camera
+                // if (scannerInputRef.current) scannerInputRef.current.focus();
+
 
                 const readerElement = document.getElementById("reader-harvest");
                 if (!readerElement) return;
@@ -479,7 +481,13 @@ const MobileHarvestEntry = () => {
                                     placeholder="여기에 직접 입력"
                                     value={scannerValue}
                                     onChange={(e) => setScannerValue(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && processQrCode(scannerValue)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            processQrCode(scannerValue);
+                                            e.target.blur();
+                                        }
+                                    }}
+
                                 />
                             </div>
                         </div>

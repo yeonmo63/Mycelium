@@ -89,7 +89,9 @@ const MobileSalesReception = () => {
             // Give layout a moment to render the target div
             const timer = setTimeout(async () => {
                 if (!isInstanceMounted) return;
-                if (scannerInputRef.current) scannerInputRef.current.focus();
+                // Removed automatic focus to prevent keyboard from covering the camera
+                // if (scannerInputRef.current) scannerInputRef.current.focus();
+
 
                 const readerElement = document.getElementById("reader");
                 if (!readerElement) return;
@@ -822,7 +824,13 @@ const MobileSalesReception = () => {
                                     placeholder="여기에 직접 입력"
                                     value={scannerValue}
                                     onChange={(e) => setScannerValue(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && processQrCode(scannerValue)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            processQrCode(scannerValue);
+                                            e.target.blur();
+                                        }
+                                    }}
+
                                 />
                             </div>
                         </div>

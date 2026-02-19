@@ -7,6 +7,7 @@ import { callBridge } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
 import { Camera, Save, ArrowLeft, Thermometer, Droplets, MapPin, LayoutDashboard, ClipboardList, CirclePlus, Store, QrCode, X } from 'lucide-react';
 import dayjs from 'dayjs';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
 
 const MobileWorkLog = () => {
     const navigate = useNavigate();
@@ -14,6 +15,13 @@ const MobileWorkLog = () => {
     const [spaces, setSpaces] = useState([]);
     const [batches, setBatches] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const scrollContainerRef = useRef(null);
+
+    const { pullDistance, isRefreshing: isPTRRefreshing, bind } = usePullToRefresh(async () => {
+        await loadBaseData();
+    }, {
+        scrollEltRef: scrollContainerRef
+    });
 
     const [formData, setFormData] = useState({
         log_id: 0,
@@ -64,7 +72,9 @@ const MobileWorkLog = () => {
 
             const timer = setTimeout(async () => {
                 if (!isInstanceMounted) return;
-                if (scannerInputRef.current) scannerInputRef.current.focus();
+                // Removed automatic focus to prevent keyboard from covering the camera
+                // if (scannerInputRef.current) scannerInputRef.current.focus();
+
 
                 const readerElement = document.getElementById("reader-worklog");
                 if (!readerElement) return;
@@ -281,7 +291,27 @@ const MobileWorkLog = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-20">
+        <div ref={scrollContainerRef} {...bind} className="min-h-screen bg-slate-50 flex flex-col font-sans pb-20 overflow-y-auto touch-pan-y">
+            {/* Pull to Refresh Indicator */}
+            <div
+                className="fixed left-0 right-0 top-0 flex justify-center pointer-events-none z-[60] transition-transform"
+                style={{
+                    transform: `translateY(${pullDistance}px)`,
+                    opacity: pullDistance > 20 ? 1 : 0
+                }}
+            >
+                <div className="bg-white/90 backdrop-blur-md p-2 rounded-full shadow-lg border border-slate-200 mt-2">
+                    <RefreshCw
+                        size={20}
+                        className={`text-indigo-600 ${isPTRRefreshing ? 'animate-spin' : ''}`}
+                        style={{
+                            transform: isPTRRefreshing ? 'none' : `rotate(${pullDistance * 3}deg)`,
+                            transition: isPTRRefreshing ? 'none' : 'transform 0.1s'
+                        }}
+                    />
+                </div>
+            </div>
+
             {/* Header */}
             <div className="bg-white border-b border-slate-100 p-4 pt-4 sticky top-0 z-50 flex items-center justify-between">
                 <button className="p-2 hover:bg-slate-50 rounded-xl text-slate-400" onClick={() => window.history.back()}>
@@ -423,9 +453,9 @@ const MobileWorkLog = () => {
 
             {/* QR Scanner Overlay */}
             {isScannerOpen && (
-                <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+                <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-start p-6 pt-12 animate-in fade-in duration-300 overflow-y-auto">
                     {/* Camera View Area */}
-                    <div className="relative w-full max-w-xs aspect-square border-2 border-indigo-500/50 rounded-[3rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center">
+                    <div className="relative w-full max-w-[280px] aspect-square border-2 border-indigo-500/50 rounded-[2.5rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center shrink-0">
                         <div id="reader-worklog" className="absolute inset-0 z-0"></div>
 
                         {cameraError && (
@@ -460,11 +490,11 @@ const MobileWorkLog = () => {
                         </div>
                     </div>
 
-                    <div className="mt-12 text-center text-white space-y-4 w-full">
+                    <div className="mt-6 text-center text-white space-y-4 w-full">
                         <h3 className="text-xl font-black">현장 QR 스캔 중</h3>
                         <p className="text-sm text-slate-400">구역이나 배치 QR 코드를 맞춰주세요.</p>
 
-                        <div className="max-w-xs mx-auto pt-6 space-y-2">
+                        <div className="max-w-xs mx-auto pt-2 space-y-2">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
                             <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
                                 <input
@@ -474,7 +504,13 @@ const MobileWorkLog = () => {
                                     placeholder="여기에 직접 입력"
                                     value={scannerValue}
                                     onChange={(e) => setScannerValue(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && processQrCode(scannerValue)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            processQrCode(scannerValue);
+                                            e.target.blur();
+                                        }
+                                    }}
+
                                 />
                             </div>
                         </div>
@@ -482,7 +518,7 @@ const MobileWorkLog = () => {
 
                     <button
                         onClick={() => setIsScannerOpen(false)}
-                        className="mt-auto mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90"
+                        className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
                         <X size={32} />
                     </button>

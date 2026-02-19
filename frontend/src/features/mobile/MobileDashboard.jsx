@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useMobileDashboard } from './hooks/useMobileDashboard';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { formatCurrency } from '../../utils/common';
 import {
     TrendingUp,
@@ -27,7 +28,17 @@ const MobileDashboard = () => {
         loadData
     } = useMobileDashboard();
 
+    const scrollContainerRef = useRef(null);
     const [lastUpdated, setLastUpdated] = useState(dayjs().format('HH:mm:ss'));
+
+    const handleRefresh = useCallback(async () => {
+        await loadData();
+        setLastUpdated(dayjs().format('HH:mm:ss'));
+    }, [loadData]);
+
+    const { pullDistance, isRefreshing, bind } = usePullToRefresh(handleRefresh, {
+        scrollEltRef: scrollContainerRef
+    });
 
     const loadStats = useCallback(async () => {
         await loadData();
@@ -53,6 +64,26 @@ const MobileDashboard = () => {
         <div className="mobile-fullscreen bg-slate-50 flex flex-col font-sans overflow-x-hidden">
             {/* Header */}
             <div className="bg-indigo-600 px-6 pt-8 pb-16 rounded-b-[40px] relative shadow-lg shrink-0">
+                {/* Pull to Refresh Indicator */}
+                <div
+                    className="absolute left-0 right-0 top-0 flex justify-center pointer-events-none transition-transform"
+                    style={{
+                        transform: `translateY(${pullDistance}px)`,
+                        opacity: pullDistance > 20 ? 1 : 0
+                    }}
+                >
+                    <div className="bg-white/90 backdrop-blur-md p-2 rounded-full shadow-lg border border-white/20 mt-2">
+                        <RefreshCw
+                            size={20}
+                            className={`text-indigo-600 ${isRefreshing ? 'animate-spin' : ''}`}
+                            style={{
+                                transform: isRefreshing ? 'none' : `rotate(${pullDistance * 3}deg)`,
+                                transition: isRefreshing ? 'none' : 'transform 0.1s'
+                            }}
+                        />
+                    </div>
+                </div>
+
                 <div className="relative z-10 flex justify-between items-start mb-6">
                     <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-white p-2 shadow-inner flex items-center justify-center overflow-hidden">
@@ -98,7 +129,11 @@ const MobileDashboard = () => {
             </div>
 
             {/* Scrollable Content Area */}
-            <div className="flex-1 overflow-y-auto px-6 -mt-6 relative z-20 space-y-4 pb-32">
+            <div
+                ref={scrollContainerRef}
+                {...bind}
+                className="flex-1 overflow-y-auto px-6 -mt-6 relative z-20 space-y-4 pb-32 touch-pan-y"
+            >
                 <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white p-5 rounded-3xl shadow-md border border-slate-100 min-h-[140px] flex flex-col justify-between">
                         <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">

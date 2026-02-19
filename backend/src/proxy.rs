@@ -38,6 +38,14 @@ pub fn start_caddy() {
 
     tracing::info!("🚀 Tailscale Domain Detected: {}", tailscale_domain);
 
+    // 1.5 Kill existing Caddy to avoid port conflicts
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", "caddy.exe"])
+            .output();
+    }
+
     // 2. Locate Resources
     let exe_dir = env::current_exe()
         .ok()
@@ -120,10 +128,17 @@ pub fn start_caddy() {
         Ok(c) => {
             let mut guard = CADDY_CHILD.lock().unwrap();
             *guard = Some(c);
-            tracing::info!("✨ Caddy is now running in the background.");
+            tracing::info!(
+                "✨ Caddy is now running (PID: {}). HTTPS proxy is active.",
+                guard.as_ref().unwrap().id()
+            );
         }
         Err(e) => {
-            tracing::error!("❌ Failed to spawn Caddy process: {}", e);
+            tracing::error!(
+                "❌ Failed to spawn Caddy process: {}. Caddy path was: {:?}",
+                e,
+                caddy_path
+            );
         }
     }
 }
