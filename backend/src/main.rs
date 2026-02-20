@@ -28,7 +28,40 @@ mod stubs;
 mod stubs_macros;
 mod bridge;
 mod embedded_db;
-mod proxy;
+
+async fn log_requests(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> impl IntoResponse {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let log_line = format!(">>> Request: {} {}\n", method, uri);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("api_requests.log")
+        .and_then(|mut f| {
+            use std::io::Write;
+            let _ = f.write_all(log_line.as_bytes());
+            Ok(())
+        });
+
+    tracing::info!(">>> Request: {} {}", method, uri);
+    let res = next.run(req).await;
+    let res_log = format!("<<< Response: {} for {} {}\n", res.status(), method, uri);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("api_requests.log")
+        .and_then(|mut f| {
+            use std::io::Write;
+            let _ = f.write_all(res_log.as_bytes());
+            Ok(())
+        });
+
+    tracing::info!("<<< Response: {} for {} {}", res.status(), method, uri);
+    res
+}
 
 use state::{AppState, SessionState, SetupStatus};
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
@@ -39,9 +72,6 @@ pub static BACKUP_CANCELLED: AtomicBool = AtomicBool::new(false);
 fn main() {
     // 0. Load environment variables
     load_env();
-
-    // 0.1 Start Caddy Proxy for HTTPS (Tailscale)
-    proxy::start_caddy();
 
     // 1. Single Instance Check
     let instance = SingleInstance::new("com.mycelium.smartfarm.backend").unwrap();
@@ -96,7 +126,6 @@ fn main() {
             if event.id == show_item.id() {
                 let _ = open::that("http://localhost:3000");
             } else if event.id == quit_item.id() {
-                proxy::stop_caddy();
                 std::process::exit(0);
             }
         }
@@ -224,6 +253,7 @@ async fn run_server() {
             "/api/auth/verify",
             post(commands::config::verify_mobile_pin),
         )
+        .route("/api/ping", get(commands::config::ping))
         .route("/api/auth/users", get(commands::config::get_all_users))
         .route(
             "/api/auth/users/create",
@@ -929,6 +959,7 @@ async fn run_server() {
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
+        .layer(axum::middleware::from_fn(log_requests))
         .with_state(app_state)
         .merge(bridge_router)
         .fallback(static_handler);

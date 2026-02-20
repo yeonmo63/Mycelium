@@ -132,9 +132,7 @@ const MobileSettings = () => {
     };
 
     const localUrl = buildUrl(wifiIp);
-    const remoteUrl = config.domain_name
-        ? `https://${config.domain_name}/mobile-dashboard`
-        : buildUrl(config.remote_ip);
+    const remoteUrl = buildUrl(config.domain_name) || buildUrl(config.remote_ip);
     const activeUrl = viewMode === 'local' ? localUrl : remoteUrl;
 
     if (!isAuthorized) {
@@ -368,10 +366,10 @@ const MobileSettings = () => {
                             {/* Domain Name */}
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center px-1">
-                                    <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Tailscale 도메인 (HTTPS)</label>
-                                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-purple-50 text-purple-600 rounded-lg border border-purple-100">
-                                        <Lock size={10} />
-                                        <span className="text-[10px] font-black">HTTPS 전용</span>
+                                    <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Tailscale 도메인 주소</label>
+                                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+                                        <Globe size={10} />
+                                        <span className="text-[10px] font-black">HTTP 접속</span>
                                     </div>
                                 </div>
                                 <div className="relative group">
@@ -384,7 +382,7 @@ const MobileSettings = () => {
                                     />
                                 </div>
                                 <p className="px-2 text-[10px] text-slate-400 font-medium italic">
-                                    * 도메인이 설정되면 자동으로 HTTPS 보안 접속이 활성화됩니다.
+                                    * 도메인을 입력하면 IP 대신 읽기 쉬운 이름으로 접속할 수 있습니다.
                                 </p>
                             </div>
 

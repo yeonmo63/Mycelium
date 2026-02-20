@@ -99,13 +99,16 @@ function AppContent() {
   useEffect(() => {
     const initApp = async () => {
       try {
+        let baseUrl = localStorage.getItem('API_BASE_URL') || '';
+        if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
         // 1. Check Setup Status
-        const statusRes = await fetch('/api/auth/status');
+        const statusRes = await fetch(`${baseUrl}/api/auth/status`);
         const statusData = await statusRes.json();
         setIsConfigured(statusData === 'Configured');
 
         // 2. Check Auth Status
-        const authRes = await fetch('/api/auth/check');
+        const authRes = await fetch(`${baseUrl}/api/auth/check`);
         const authData = await authRes.json();
 
         setMobileAuthRequired(authData.mobile_auth_required);
@@ -124,7 +127,7 @@ function AppContent() {
         }
       } catch (e) {
         console.error("App initialization failed", e);
-        setIsConfigured(false);
+        setIsConfigured(IS_MOBILE ? true : false);
       } finally {
         setIsLoading(false);
         const spl = document.getElementById('app-spinner');

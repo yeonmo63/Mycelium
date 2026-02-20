@@ -932,40 +932,6 @@ fn save_mobile_config_to_file(config: &MobileConfig) -> MyceliumResult<()> {
     let content = serde_json::to_string_pretty(config)?;
     std::fs::write(&path, content)?;
 
-    // Update .env for Caddy if domain_name is provided
-    if !config.domain_name.is_empty() {
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let env_path = exe_dir.join(".env");
-                if env_path.exists() {
-                    if let Ok(env_content) = std::fs::read_to_string(&env_path) {
-                        let mut new_lines = Vec::new();
-                        let mut found = false;
-                        for line in env_content.lines() {
-                            if line.starts_with("TAILSCALE_DOMAIN=") {
-                                new_lines.push(format!("TAILSCALE_DOMAIN={}", config.domain_name));
-                                found = true;
-                            } else {
-                                new_lines.push(line.to_string());
-                            }
-                        }
-                        if !found {
-                            new_lines.push(format!("TAILSCALE_DOMAIN={}", config.domain_name));
-                        }
-                        let _ = std::fs::write(&env_path, new_lines.join("\n"));
-
-                        // Set environment variable in the current process too
-                        std::env::set_var("TAILSCALE_DOMAIN", &config.domain_name);
-
-                        // Restart Caddy to apply changes
-                        crate::proxy::stop_caddy();
-                        crate::proxy::start_caddy();
-                    }
-                }
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -1017,6 +983,10 @@ pub struct VerifyPinResponse {
     pub error: Option<String>,
 }
 
+pub async fn ping() -> &'static str {
+    "pong"
+}
+
 pub async fn verify_mobile_pin(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -1028,11 +998,15 @@ pub async fn verify_mobile_pin(
     // Bypass if: PIN is disabled globally OR PIN matches
     if !config.use_pin || config.access_pin == payload.pin {
         tracing::info!("PIN Verification SUCCESS (use_pin={})", config.use_pin);
-        // Update session state for mobile access
-        if let Ok(mut session) = state.session.lock() {
+        // Update session state for mobile access - Using try_lock to avoid deadlocks
+        if let Ok(mut session) = state.session.try_lock() {
             session.user_id = Some(0); // Dummy ID for mobile session
             session.username = Some("mobile_user".to_string());
             session.role = Some("worker".to_string());
+        } else {
+            tracing::warn!(
+                "Could not acquire session lock during PIN verification, skipping session update."
+            );
         }
 
         Ok(Json(VerifyPinResponse {

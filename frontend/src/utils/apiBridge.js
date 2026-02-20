@@ -22,8 +22,8 @@ export async function callBridge(commandName, args = {}) {
         'get_daily_sales_stats_by_month': '/api/dashboard/daily-stats',
         'get_production_spaces': '/api/production/spaces',
         'get_production_batches': '/api/production/batches',
-        'save_farming_log': '/api/farming/save-log',
-        'save_harvest_record': '/api/production/save-harvest',
+        'save_farming_log': '/api/production/logs/save',
+        'save_harvest_record': '/api/production/harvest/save',
         'get_all_users': '/api/auth/users',
         'create_user': '/api/auth/users/create',
         'update_user': '/api/auth/users/update',
@@ -220,12 +220,17 @@ export async function callBridge(commandName, args = {}) {
     const isPost = postCommands.includes(commandName) || commandName.startsWith('save_');
 
     try {
-        let url = route;
+        let baseUrl = localStorage.getItem('API_BASE_URL') || '';
+        // Ensure baseUrl doesn't end with slash if present
+        if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+        let url = baseUrl + route;
+
         if (isPost) {
-            // No change
+            // No change to url
         } else {
             const params = new URLSearchParams({ ...args, _t: Date.now() });
-            url = `${route}?${params.toString()}`;
+            url = `${url}?${params.toString()}`;
         }
 
         const response = await fetch(url, {

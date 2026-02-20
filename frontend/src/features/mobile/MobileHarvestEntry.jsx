@@ -156,6 +156,7 @@ const MobileHarvestEntry = () => {
     };
 
     const handleQrScan = () => {
+        setCameraError(null);
         setIsScannerOpen(true);
         setScannerValue('');
     };
@@ -494,7 +495,10 @@ const MobileHarvestEntry = () => {
                     </div>
 
                     <button
-                        onClick={() => setIsScannerOpen(false)}
+                        onClick={() => {
+                            setIsScannerOpen(false);
+                            setCameraError(null);
+                        }}
                         className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
                         <X size={32} />

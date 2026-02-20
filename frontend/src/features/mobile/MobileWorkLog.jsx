@@ -5,7 +5,7 @@ import { scanNativeQr, stopNativeQr } from '../../utils/nativeScanner';
 import { useNavigate } from 'react-router-dom';
 import { callBridge } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
-import { Camera, Save, ArrowLeft, Thermometer, Droplets, MapPin, LayoutDashboard, ClipboardList, CirclePlus, Store, QrCode, X } from 'lucide-react';
+import { Camera, Save, ArrowLeft, Thermometer, Droplets, MapPin, LayoutDashboard, ClipboardList, CirclePlus, Store, QrCode, X, RefreshCw } from 'lucide-react';
 import dayjs from 'dayjs';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 
@@ -38,6 +38,7 @@ const MobileWorkLog = () => {
 
     const [photoPreview, setPhotoPreview] = useState(null);
     const fileInputRef = useRef(null);
+    const scannerFileRef = useRef(null);
 
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [scannerValue, setScannerValue] = useState('');
@@ -162,6 +163,7 @@ const MobileWorkLog = () => {
     };
 
     const handleQrScan = () => {
+        setCameraError(null);
         setIsScannerOpen(true);
         setScannerValue('');
     };
@@ -464,13 +466,13 @@ const MobileWorkLog = () => {
                                     {cameraError}
                                 </p>
                                 <button
-                                    onClick={() => fileInputRef.current?.click()}
+                                    onClick={() => scannerFileRef.current?.click()}
                                     className="px-6 py-3 bg-indigo-600 rounded-2xl text-sm font-black shadow-lg active:scale-95 transition-all"
                                 >
                                     카메라 촬영으로 인식하기
                                 </button>
                                 <input
-                                    ref={fileInputRef}
+                                    ref={scannerFileRef}
                                     type="file"
                                     accept="image/*"
                                     capture="environment"
@@ -517,7 +519,10 @@ const MobileWorkLog = () => {
                     </div>
 
                     <button
-                        onClick={() => setIsScannerOpen(false)}
+                        onClick={() => {
+                            setIsScannerOpen(false);
+                            setCameraError(null);
+                        }}
                         className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
                         <X size={32} />

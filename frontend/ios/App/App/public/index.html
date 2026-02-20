@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Mycelium Smart Farm</title>
+
+  <!-- 1. Immediate Environment Detection -->
+  <style id="print-force-style">
+    @media print {
+
+      /* Only hide root if we are using the robust printing system (printing-active) */
+      html.printing-active #root,
+      html.printing-active #app-root,
+      html.printing-active .tauri-drag-region {
+        display: none !important;
+        visibility: hidden !important;
+      }
+
+      /* In normal print mode, the mount point should be hidden if not active */
+      html:not(.printing-active) #print-mount-point {
+        display: none !important;
+      }
+
+      #print-mount-point {
+        display: block !important;
+        visibility: visible !important;
+      }
+
+      /* Basic resets for light theme printing */
+      html,
+      body {
+        background: white !important;
+        background-color: white !important;
+        color: black !important;
+        color-scheme: light !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  </style>
+
+  <script>
+    (function () {
+      var isTauri = !!window.__TAURI__;
+      var isMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      var isSmallScreen = window.innerWidth < 1024;
+      var isMobile = !isTauri && (isMobileUA || isSmallScreen);
+
+      // Meta tag reference for theme
+      var themeMeta = document.querySelector('meta[name="color-scheme"]');
+      if (!themeMeta) {
+        themeMeta = document.createElement('meta');
+        themeMeta.name = "color-scheme";
+        document.head.appendChild(themeMeta);
+      }
+      themeMeta.content = isMobile ? "light" : "dark";
+
+      // Set theme class AND immediate style to prevent blank screen
+      var bgColor = isMobile ? "#f8fafc" : "#020617";
+      document.documentElement.style.backgroundColor = bgColor;
+
+      if (isMobile) {
+        document.documentElement.classList.add('is-mobile');
+      } else {
+        document.documentElement.classList.add('is-desktop');
+      }
+      window.__MYCELIUM_MOBILE__ = isMobile;
+    })();
+  </script>
+
+  <!-- 2. Essential Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" crossorigin
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+  <style>
+    :root {
+      --primary: #6366f1;
+    }
+
+    body,
+    html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', 'Noto Sans KR', sans-serif;
+    }
+
+    .app-loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.4s ease-out;
+    }
+
+    .logo-area {
+      position: relative;
+      margin-bottom: 2rem;
+    }
+
+    .logo-box {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      border-radius: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+      animation: logo-float 3s ease-in-out infinite;
+    }
+
+    @keyframes logo-float {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-10px);
+      }
+    }
+
+    .title {
+      font-size: 2rem;
+      font-weight: 900;
+      background: linear-gradient(to right, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1rem;
+    }
+
+    .loading-text {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      opacity: 0.8;
+    }
+  </style>
+  <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+  <script type="module" crossorigin src="/assets/index-hdYQAPmN.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BZSCiDWq.css">
+<link rel="manifest" href="/manifest.webmanifest"></head>
+
+<body>
+  <div class="app-loading" id="app-spinner">
+    <div class="logo-area">
+      <div class="logo-box">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="white">
+          <path
+            d="M21 5c-1.1 0-2 .9-2 2v6H5V7c0-1.1-.9-2-2-2s-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-2 12H5v-4h14v4zm-7-6c-2.21 0-4-1.79-4-4 0-1.02.38-1.95 1-2.67V2h2v2c2.21 0 4 1.79 4 4s-1.79 4-4 4z" />
+        </svg>
+      </div>
+    </div>
+    <h2 class="title">Mycelium</h2>
+    <p class="loading-text">지능형 농업 관제 시스템 초기화 중...</p>
+  </div>
+
+  <div id="root"></div>
+  <div id="print-mount-point" class="hidden"></div>
+
+  <script>
+    // Adjust spinner visual state immediately
+    (function () {
+      var s = document.getElementById('app-spinner');
+      if (window.__MYCELIUM_MOBILE__) {
+        if (s) {
+          s.style.backgroundColor = "#f8fafc";
+          var t = s.querySelector('.title');
+          if (t) {
+            t.style.background = "linear-gradient(to right, #1e293b, #64748b)";
+            t.style.webkitBackgroundClip = "text";
+          }
+        }
+      } else {
+        if (s) s.style.backgroundColor = "#020617";
+      }
+    })();
+  </script>
+</body>
+
+</html>
