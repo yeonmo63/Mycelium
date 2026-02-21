@@ -5,7 +5,7 @@ import { scanNativeQr, stopNativeQr } from '../../utils/nativeScanner';
 import { useNavigate } from 'react-router-dom';
 import { callBridge } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
-import { Camera, Save, ArrowLeft, Thermometer, Droplets, MapPin, LayoutDashboard, ClipboardList, CirclePlus, Store, QrCode, X, RefreshCw } from 'lucide-react';
+import { Camera, Save, ArrowLeft, Thermometer, Droplets, MapPin, LayoutDashboard, ClipboardList, PlusCircle, Store, QrCode, X as XIcon, RefreshCw } from 'lucide-react';
 import dayjs from 'dayjs';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 
@@ -50,38 +50,14 @@ const MobileWorkLog = () => {
     useEffect(() => {
         let isInstanceMounted = true;
 
-        if (isScannerOpen) {
-            // Native Scanner logic
-            if (Capacitor.isNativePlatform()) {
-                const runNativeScan = async () => {
-                    try {
-                        const result = await scanNativeQr();
-                        if (result.content && isInstanceMounted) {
-                            processQrCode(result.content);
-                        }
-                    } catch (err) {
-                        console.error("Native scan error", err);
-                        setCameraError("네이티브 스캐너 실행 실패: " + err.message);
-                    }
-                };
-                runNativeScan();
-                return () => {
-                    isInstanceMounted = false;
-                    stopNativeQr();
-                };
-            }
-
+        if (isScannerOpen && !Capacitor.isNativePlatform()) {
             const timer = setTimeout(async () => {
                 if (!isInstanceMounted) return;
-                // Removed automatic focus to prevent keyboard from covering the camera
-                // if (scannerInputRef.current) scannerInputRef.current.focus();
-
 
                 const readerElement = document.getElementById("reader-worklog");
                 if (!readerElement) return;
 
                 try {
-                    // Cleanup existing
                     if (html5QrCodeRef.current) {
                         try {
                             if (html5QrCodeRef.current.isScanning) {
@@ -107,7 +83,7 @@ const MobileWorkLog = () => {
                                     processQrCode(decodedText);
                                 }
                             },
-                            (errorMessage) => { /* quiet */ }
+                            (errorMessage) => { }
                         );
                     } catch (startErr) {
                         console.log("Back camera failed, trying front", startErr);
@@ -162,7 +138,18 @@ const MobileWorkLog = () => {
         }
     };
 
-    const handleQrScan = () => {
+    const handleQrScan = async () => {
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const result = await scanNativeQr();
+                if (result.content) {
+                    processQrCode(result.content);
+                }
+            } catch (err) {
+                console.error("Native scan error", err);
+            }
+            return;
+        }
         setCameraError(null);
         setIsScannerOpen(true);
         setScannerValue('');
@@ -173,7 +160,6 @@ const MobileWorkLog = () => {
         const rawCode = code.trim();
         console.log("WorkLog Processing Scanned QR:", rawCode);
 
-        // Stop scanner immediately
         if (html5QrCodeRef.current) {
             try {
                 const state = html5QrCodeRef.current.getState ? html5QrCodeRef.current.getState() : 0;
@@ -208,7 +194,6 @@ const MobileWorkLog = () => {
             }
         }
 
-        // Fallback or fuzzy match
         const foundBatch = batches.find(b => b.batch_code === rawCode);
         if (foundBatch) {
             setFormData(prev => ({ ...prev, batch_id: foundBatch.batch_id }));
@@ -226,7 +211,7 @@ const MobileWorkLog = () => {
             return;
         }
 
-        setIsScannerOpen(false); // Close even if not found to allow re-trying
+        setIsScannerOpen(false);
         showAlert("인식 실패", `[${rawCode}] 정보를 찾을 수 없습니다.`);
     };
 
@@ -285,7 +270,6 @@ const MobileWorkLog = () => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 setPhotoPreview(reader.result);
-                // In a real app, you might want to save the base64 or file object
                 setFormData(prev => ({ ...prev, photos: reader.result }));
             };
             reader.readAsDataURL(file);
@@ -293,8 +277,7 @@ const MobileWorkLog = () => {
     };
 
     return (
-        <div ref={scrollContainerRef} {...bind} className="min-h-screen bg-slate-50 flex flex-col font-sans pb-20 overflow-y-auto touch-pan-y">
-            {/* Pull to Refresh Indicator */}
+        <div ref={scrollContainerRef} {...bind} className="min-h-screen bg-slate-50 flex flex-col font-sans overflow-hidden">
             <div
                 className="fixed left-0 right-0 top-0 flex justify-center pointer-events-none z-[60] transition-transform"
                 style={{
@@ -315,15 +298,11 @@ const MobileWorkLog = () => {
             </div>
 
             {/* Header */}
-            <div className="bg-white border-b border-slate-100 p-4 pt-4 sticky top-0 z-50 flex items-center justify-between">
-                <button className="p-2 hover:bg-slate-50 rounded-xl text-slate-400" onClick={() => window.history.back()}>
-                    <ArrowLeft size={20} />
-                </button>
-                <h1 className="text-lg font-black text-slate-800">현장 작업 일지</h1>
-                <div className="w-10"></div>
+            <div className="bg-white px-5 pt-10 pb-4 border-b border-slate-100 shrink-0 flex items-center gap-2 sticky top-0 z-50">
+                <h1 className="text-2xl font-black text-slate-800">현장 작업 일지</h1>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 pb-20 space-y-4">
                 <input
                     type="file"
                     accept="image/*"
@@ -332,7 +311,7 @@ const MobileWorkLog = () => {
                     onChange={onFileChange}
                     className="hidden"
                 />
-                {/* Space & Batch Selection */}
+
                 <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3">
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3 text-slate-800 font-black">
@@ -350,7 +329,7 @@ const MobileWorkLog = () => {
 
                     <div className="space-y-3">
                         <select
-                            className="w-full h-14 bg-slate-50 border-none rounded-2xl px-4 text-sm font-bold text-slate-700 appearance-none bg-no-repeat bg-[right_1rem_center]"
+                            className="w-full h-14 bg-slate-50 border-none rounded-2xl px-4 text-sm font-bold text-slate-700"
                             value={formData.space_id || ''}
                             onChange={(e) => setFormData({ ...formData, space_id: e.target.value ? parseInt(e.target.value) : null })}
                         >
@@ -373,7 +352,6 @@ const MobileWorkLog = () => {
                     </div>
                 </div>
 
-                {/* Env Data */}
                 <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-3">
                         <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center">
@@ -405,7 +383,6 @@ const MobileWorkLog = () => {
                     </div>
                 </div>
 
-                {/* Work Content */}
                 <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3">
                     <div className="flex items-center gap-3 text-slate-800 font-black mb-2">
                         <ClipboardList size={18} className="text-indigo-500" />
@@ -419,7 +396,6 @@ const MobileWorkLog = () => {
                     />
                 </div>
 
-                {/* Photo */}
                 <button
                     onClick={handlePhoto}
                     className="w-full bg-white p-6 rounded-3xl shadow-sm border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 group active:bg-slate-50 transition-colors overflow-hidden"
@@ -440,49 +416,34 @@ const MobileWorkLog = () => {
                         </>
                     )}
                 </button>
+
+                <div className="pt-4 pb-12">
+                    <button
+                        onClick={handleSave}
+                        className="w-full h-16 bg-indigo-600 rounded-[2rem] text-white font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 active:scale-[0.98] transition-all"
+                    >
+                        <Save size={24} />
+                        일지 저장하기
+                    </button>
+                </div>
             </div>
 
-            {/* Bottom Action Bar */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 pb-24 bg-white/80 backdrop-blur-xl border-t border-slate-100 z-40">
-                <button
-                    onClick={handleSave}
-                    className="w-full h-14 bg-indigo-600 rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 active:scale-95 transition-transform"
-                >
-                    <Save size={20} />
-                    일지 저장하기
-                </button>
-            </div>
-
-            {/* QR Scanner Overlay */}
             {isScannerOpen && (
                 <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-start p-6 pt-12 animate-in fade-in duration-300 overflow-y-auto">
-                    {/* Camera View Area */}
                     <div className="relative w-full max-w-[280px] aspect-square border-2 border-indigo-500/50 rounded-[2.5rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center shrink-0">
                         <div id="reader-worklog" className="absolute inset-0 z-0"></div>
-
                         {cameraError && (
                             <div className="z-20 flex flex-col items-center gap-4 px-6 py-4 bg-slate-800/95 text-white rounded-3xl text-center mx-4 border border-white/10 shadow-2xl">
-                                <p className="text-xs font-black leading-relaxed">
-                                    {cameraError}
-                                </p>
+                                <p className="text-xs font-black leading-relaxed">{cameraError}</p>
                                 <button
                                     onClick={() => scannerFileRef.current?.click()}
                                     className="px-6 py-3 bg-indigo-600 rounded-2xl text-sm font-black shadow-lg active:scale-95 transition-all"
                                 >
                                     카메라 촬영으로 인식하기
                                 </button>
-                                <input
-                                    ref={scannerFileRef}
-                                    type="file"
-                                    accept="image/*"
-                                    capture="environment"
-                                    className="hidden"
-                                    onChange={handleFileScan}
-                                />
+                                <input ref={scannerFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileScan} />
                             </div>
                         )}
-
-                        {/* Scanning Overlay Decoration */}
                         <div className="absolute inset-0 pointer-events-none z-10">
                             <div className="absolute inset-x-0 h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-scan" />
                             <div className="absolute top-8 left-8 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
@@ -491,11 +452,9 @@ const MobileWorkLog = () => {
                             <div className="absolute bottom-8 right-8 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
                         </div>
                     </div>
-
                     <div className="mt-6 text-center text-white space-y-4 w-full">
                         <h3 className="text-xl font-black">현장 QR 스캔 중</h3>
                         <p className="text-sm text-slate-400">구역이나 배치 QR 코드를 맞춰주세요.</p>
-
                         <div className="max-w-xs mx-auto pt-2 space-y-2">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
                             <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
@@ -512,12 +471,10 @@ const MobileWorkLog = () => {
                                             e.target.blur();
                                         }
                                     }}
-
                                 />
                             </div>
                         </div>
                     </div>
-
                     <button
                         onClick={() => {
                             setIsScannerOpen(false);
@@ -525,9 +482,8 @@ const MobileWorkLog = () => {
                         }}
                         className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
-                        <X size={32} />
+                        <XIcon size={32} />
                     </button>
-
                     <style dangerouslySetInnerHTML={{
                         __html: `
                         @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }

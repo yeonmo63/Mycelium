@@ -36,6 +36,7 @@ pub fn create_mobile_router(pool: DbPool, config_dir: PathBuf) -> Router {
             "/api/sales/special/batch",
             post(save_special_sales_batch_bridge),
         )
+        .route("/api/event/list", get(get_all_events_bridge))
         // External Mall
         .route(
             "/api/sales/external/fetch",
@@ -875,7 +876,11 @@ async fn search_events_bridge(
     State((pool, _)): State<(DbPool, PathBuf)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let name = params.get("name").cloned().unwrap_or_default();
+    let name = params
+        .get("name")
+        .or(params.get("query"))
+        .cloned()
+        .unwrap_or_default();
     match search_events_by_name_internal(&pool, name).await {
         Ok(data) => Json(json!(data)),
         Err(e) => Json(json!({ "success": false, "error": e.to_string() })),

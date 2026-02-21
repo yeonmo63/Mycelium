@@ -8,10 +8,10 @@ const MobileBottomNav = () => {
 
     const tabs = [
         { path: '/mobile-dashboard', label: '현황판', icon: LayoutDashboard },
-        { path: '/mobile-reception', label: '일반접수', icon: ShoppingBag },
-        { path: '/mobile-event-sales', label: '특판접수', icon: Store },
-        { path: '/mobile-worklog', label: '작업일지', icon: ClipboardList },
-        { path: '/mobile-harvest', label: '수확입력', icon: PlusCircle },
+        { path: '/mobile-reception', label: '일반 접수', icon: ShoppingBag },
+        { path: '/mobile-event-sales', label: '특판 접수', icon: Store },
+        { path: '/mobile-worklog', label: '작업 일지', icon: ClipboardList },
+        { path: '/mobile-harvest', label: '수확 입력', icon: PlusCircle },
     ];
 
     return (

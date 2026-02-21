@@ -141,7 +141,7 @@ export const useSalesReception = (showAlert, showConfirm) => {
     };
 
     useEffect(() => {
-        if (isDirty || salesRows.length > 0 || customer) {
+        if (isDirty) {
             const draftData = { customer, orderDate, salesRows, deletedSalesIds, inputState };
             localStorage.setItem('mycelium_draft_reception', JSON.stringify(draftData));
         }
@@ -304,7 +304,7 @@ export const useSalesReception = (showAlert, showConfirm) => {
                 discountRate: Number(r.discountRate),
                 isDirty: r.isDirty ? "true" : "false"
             }));
-            await callBridge('save_general_sales_batch', { items: payload, deletedIds: deletedSalesIds });
+            await callBridge('save_general_sales_batch', { items: payload, deleted_ids: deletedSalesIds });
             await showAlert('성공', '정상적으로 저장되었습니다.');
             clearDraft();
             loadSalesHistory(customer.customer_id, orderDate);

@@ -5,7 +5,7 @@ import { scanNativeQr, stopNativeQr } from '../../utils/nativeScanner';
 import { useNavigate } from 'react-router-dom';
 import { callBridge } from '../../utils/apiBridge';
 import { useModal } from '../../contexts/ModalContext';
-import { Save, ArrowLeft, Package, Trash2, Scale, Info, CircleCheck, LayoutDashboard, ClipboardList, CirclePlus, Store, QrCode } from 'lucide-react';
+import { Save, ArrowLeft, Package, Trash2, Scale, Info, CircleCheck, LayoutDashboard, ClipboardList, PlusCircle, Store, QrCode, X as XIcon } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const MobileHarvestEntry = () => {
@@ -42,38 +42,14 @@ const MobileHarvestEntry = () => {
     useEffect(() => {
         let isInstanceMounted = true;
 
-        if (isScannerOpen) {
-            // Native Scanner logic
-            if (Capacitor.isNativePlatform()) {
-                const runNativeScan = async () => {
-                    try {
-                        const result = await scanNativeQr();
-                        if (result.content && isInstanceMounted) {
-                            processQrCode(result.content);
-                        }
-                    } catch (err) {
-                        console.error("Native scan error", err);
-                        setCameraError("네이티브 스캐너 실행 실패: " + err.message);
-                    }
-                };
-                runNativeScan();
-                return () => {
-                    isInstanceMounted = false;
-                    stopNativeQr();
-                };
-            }
-
+        if (isScannerOpen && !Capacitor.isNativePlatform()) {
             const timer = setTimeout(async () => {
                 if (!isInstanceMounted) return;
-                // Removed automatic focus to prevent keyboard from covering the camera
-                // if (scannerInputRef.current) scannerInputRef.current.focus();
-
 
                 const readerElement = document.getElementById("reader-harvest");
                 if (!readerElement) return;
 
                 try {
-                    // Clean up existing instance
                     if (html5QrCodeRef.current) {
                         try {
                             if (html5QrCodeRef.current.isScanning) {
@@ -89,7 +65,6 @@ const MobileHarvestEntry = () => {
 
                     const config = { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0, disableFlip: false };
 
-                    // Try environment (back) camera
                     try {
                         await html5QrCode.start(
                             { facingMode: "environment" },
@@ -100,7 +75,7 @@ const MobileHarvestEntry = () => {
                                     processQrCode(decodedText);
                                 }
                             },
-                            (errorMessage) => { /* quiet */ }
+                            (errorMessage) => { }
                         );
                     } catch (startErr) {
                         console.log("Environment camera start failed, trying any", startErr);
@@ -155,7 +130,18 @@ const MobileHarvestEntry = () => {
         }
     };
 
-    const handleQrScan = () => {
+    const handleQrScan = async () => {
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const result = await scanNativeQr();
+                if (result.content) {
+                    processQrCode(result.content);
+                }
+            } catch (err) {
+                console.error("Native scan error", err);
+            }
+            return;
+        }
         setCameraError(null);
         setIsScannerOpen(true);
         setScannerValue('');
@@ -165,7 +151,6 @@ const MobileHarvestEntry = () => {
         if (!code) return;
         const rawCode = code.trim();
         setIsScanning(true);
-        console.log("Harvest Processing Scanned QR:", rawCode);
 
         const parts = rawCode.split('|').map(p => p.trim());
         let foundBatch = null;
@@ -181,7 +166,6 @@ const MobileHarvestEntry = () => {
         if (foundBatch) {
             setFormData(prev => ({ ...prev, batch_id: foundBatch.batch_id }));
 
-            // Stop scanner immediately upon success
             if (html5QrCodeRef.current) {
                 try {
                     const state = html5QrCodeRef.current.getState ? html5QrCodeRef.current.getState() : 0;
@@ -194,7 +178,6 @@ const MobileHarvestEntry = () => {
             }
 
             setIsScannerOpen(false);
-            // Auto-focus quantity for faster entry
             setTimeout(() => {
                 qtyInputRef.current?.focus();
                 qtyInputRef.current?.select();
@@ -253,7 +236,7 @@ const MobileHarvestEntry = () => {
                     loss_quantity: parseFloat(formData.loss_quantity),
                     harvest_date: formData.harvest_date
                 },
-                complete_batch: false // Default to false for mobile quick entry
+                complete_batch: false
             });
 
             if (res && res.success) {
@@ -275,17 +258,13 @@ const MobileHarvestEntry = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-24">
+        <div className="min-h-screen bg-slate-50 flex flex-col font-sans overflow-hidden">
             {/* Header */}
-            <div className="bg-white border-b border-slate-100 p-4 pt-4 sticky top-0 z-50 flex items-center justify-between">
-                <button className="p-2 hover:bg-slate-50 rounded-xl text-slate-400" onClick={() => window.history.back()}>
-                    <ArrowLeft size={20} />
-                </button>
-                <h1 className="text-lg font-black text-slate-800">모바일 수확 입력</h1>
-                <div className="w-10"></div>
+            <div className="bg-white px-5 pt-10 pb-4 border-b border-slate-100 shrink-0 flex items-center gap-2 sticky top-0 z-50">
+                <h1 className="text-2xl font-black text-slate-800">수확 입력</h1>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 pb-20 space-y-4">
                 {/* Batch Selection */}
                 <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <div className="flex items-center justify-between mb-4">
@@ -416,49 +395,36 @@ const MobileHarvestEntry = () => {
                         onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
                     />
                 </div>
-            </div>
 
-            {/* Bottom Action Bar */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 pb-24 bg-white/80 backdrop-blur-xl border-t border-slate-100 z-40">
-                <button
-                    onClick={handleSave}
-                    className="w-full h-14 bg-indigo-600 rounded-2xl text-white font-black text-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 active:scale-95 transition-transform"
-                >
-                    <Save size={20} />
-                    수확 기록 저장하기
-                </button>
+                {/* Save Button (Scrolled with content) */}
+                <div className="pt-4 pb-12">
+                    <button
+                        onClick={handleSave}
+                        className="w-full h-16 bg-indigo-600 rounded-[2rem] text-white font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 active:scale-[0.98] transition-all"
+                    >
+                        <Save size={24} />
+                        수확 기록 저장하기
+                    </button>
+                </div>
             </div>
 
             {/* QR Scanner Overlay */}
             {isScannerOpen && (
                 <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-start p-6 pt-12 animate-in fade-in duration-300 overflow-y-auto">
-                    {/* Camera View Area */}
                     <div className="relative w-full max-w-[280px] aspect-square border-2 border-indigo-500/50 rounded-[2.5rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center shrink-0">
                         <div id="reader-harvest" className="absolute inset-0 z-0"></div>
-
                         {cameraError && (
                             <div className="z-20 flex flex-col items-center gap-4 px-6 py-4 bg-slate-800/95 text-white rounded-3xl text-center mx-4 border border-white/10 shadow-2xl">
-                                <p className="text-xs font-black leading-relaxed">
-                                    {cameraError}
-                                </p>
+                                <p className="text-xs font-black leading-relaxed">{cameraError}</p>
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     className="px-6 py-3 bg-indigo-600 rounded-2xl text-sm font-black shadow-lg active:scale-95 transition-all"
                                 >
                                     카메라 촬영으로 인식하기
                                 </button>
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept="image/*"
-                                    capture="environment"
-                                    className="hidden"
-                                    onChange={handleFileScan}
-                                />
+                                <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileScan} />
                             </div>
                         )}
-
-                        {/* Scanning Overlay Decoration */}
                         <div className="absolute inset-0 pointer-events-none z-10">
                             <div className="absolute inset-x-0 h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-scan" />
                             <div className="absolute top-8 left-8 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
@@ -467,11 +433,9 @@ const MobileHarvestEntry = () => {
                             <div className="absolute bottom-8 right-8 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
                         </div>
                     </div>
-
                     <div className="mt-6 text-center text-white space-y-4 w-full">
                         <h3 className="text-xl font-black">현장 QR 스캔 중</h3>
                         <p className="text-sm text-slate-400">구역이나 배치 QR 코드를 맞춰주세요.</p>
-
                         <div className="max-w-xs mx-auto pt-2 space-y-2">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
                             <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
@@ -488,12 +452,10 @@ const MobileHarvestEntry = () => {
                                             e.target.blur();
                                         }
                                     }}
-
                                 />
                             </div>
                         </div>
                     </div>
-
                     <button
                         onClick={() => {
                             setIsScannerOpen(false);
@@ -501,9 +463,8 @@ const MobileHarvestEntry = () => {
                         }}
                         className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
-                        <X size={32} />
+                        <XIcon size={32} />
                     </button>
-
                     <style dangerouslySetInnerHTML={{
                         __html: `
                         @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }

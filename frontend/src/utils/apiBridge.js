@@ -33,7 +33,7 @@ export async function callBridge(commandName, args = {}) {
         'save_company_info': '/api/auth/company/save',
         'get_auth_status': '/api/auth/status',
         'verify_mobile_pin': '/api/auth/verify',
-        'get_all_events': '/api/event/all',
+        'get_all_events': '/api/event/list',
         'get_product_list': '/api/product/list',
         'get_product_history': '/api/product/history',
         'get_product_bom': '/api/product/bom',

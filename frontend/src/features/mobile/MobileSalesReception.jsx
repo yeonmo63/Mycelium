@@ -23,10 +23,11 @@ import {
     Calendar,
     ChevronDown,
     ChevronUp,
-    X,
+    X as XIcon,
     QrCode,
     Percent,
-    ClipboardList
+    ClipboardList,
+    RefreshCw
 } from 'lucide-react';
 
 const MobileSalesReception = () => {
@@ -64,40 +65,13 @@ const MobileSalesReception = () => {
     useEffect(() => {
         let isInstanceMounted = true;
 
-        if (isScannerOpen) {
-            // Native Scanner Logic
-            if (Capacitor.isNativePlatform()) {
-                const runNativeScan = async () => {
-                    try {
-                        const result = await scanNativeQr();
-                        if (result.content && isInstanceMounted) {
-                            processQrCode(result.content);
-                        }
-                    } catch (err) {
-                        console.error("Native scan error", err);
-                        setCameraError("네이티브 스캐너 실행 실패: " + err.message);
-                    }
-                };
-                runNativeScan();
-                return () => {
-                    isInstanceMounted = false;
-                    stopNativeQr();
-                };
-            }
-
-            // Web Fallback (Existing)
-            // Give layout a moment to render the target div
+        if (isScannerOpen && !Capacitor.isNativePlatform()) {
             const timer = setTimeout(async () => {
                 if (!isInstanceMounted) return;
-                // Removed automatic focus to prevent keyboard from covering the camera
-                // if (scannerInputRef.current) scannerInputRef.current.focus();
-
-
                 const readerElement = document.getElementById("reader");
                 if (!readerElement) return;
 
                 try {
-                    // Clean up any existing instance first
                     if (html5QrCodeRef.current) {
                         try {
                             if (html5QrCodeRef.current.isScanning) {
@@ -115,10 +89,9 @@ const MobileSalesReception = () => {
                         fps: 15,
                         qrbox: { width: 250, height: 250 },
                         aspectRatio: 1.0,
-                        disableFlip: false // Standard QRs don't need flip
+                        disableFlip: false
                     };
 
-                    // First try environment (back) camera
                     try {
                         await html5QrCode.start(
                             { facingMode: "environment" },
@@ -129,13 +102,11 @@ const MobileSalesReception = () => {
                                     processQrCode(decodedText);
                                 }
                             },
-                            (errorMessage) => { /* quiet callback */ }
+                            (errorMessage) => { }
                         );
                     } catch (startErr) {
-                        console.log("Environment camera start failed, trying any available camera", startErr);
-                        // Fallback: Use any available camera
                         await html5QrCode.start(
-                            { facingMode: "user" }, // Try front if back fails
+                            { facingMode: "user" },
                             config,
                             (decodedText) => {
                                 if (isInstanceMounted) {
@@ -160,8 +131,6 @@ const MobileSalesReception = () => {
                 isInstanceMounted = false;
                 clearTimeout(timer);
                 if (html5QrCodeRef.current) {
-                    // Note: stop() is async, but we can't await in cleanup easily without side effects
-                    // The getState() check is more robust in 2.3.8
                     const currentScanner = html5QrCodeRef.current;
                     if (currentScanner.getState && currentScanner.getState() === 2) {
                         currentScanner.stop().catch(e => console.error("Stop failed", e));
@@ -192,8 +161,6 @@ const MobileSalesReception = () => {
     const [showRegisterForm, setShowRegisterForm] = useState(false);
     const [showInputSection, setShowInputSection] = useState(true);
     const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
-
-    // New Customer State
     const [newCustomer, setNewCustomer] = useState({ name: '', mobile: '' });
 
     useEffect(() => {
@@ -259,7 +226,19 @@ const MobileSalesReception = () => {
         setShowInputSection(false);
     };
 
-    const handleQrScan = () => {
+    const handleQrScan = async () => {
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const result = await scanNativeQr();
+                if (result.content) {
+                    processQrCode(result.content);
+                }
+            } catch (err) {
+                console.error("Native scan error", err);
+            }
+            return;
+        }
+        setCameraError(null);
         setIsScannerOpen(true);
         setScannerValue('');
     };
@@ -291,7 +270,6 @@ const MobileSalesReception = () => {
                 }
             });
 
-            // Stop scanner immediately upon success to release camera
             if (html5QrCodeRef.current) {
                 try {
                     const state = html5QrCodeRef.current.getState ? html5QrCodeRef.current.getState() : 0;
@@ -306,7 +284,6 @@ const MobileSalesReception = () => {
             showAlert("인식 완료", `[${foundProduct.product_name}] 상품이 선택되었습니다.`);
             setIsScannerOpen(false);
 
-            // Auto-focus quantity for faster entry
             setTimeout(() => {
                 qtyInputRef.current?.focus();
                 qtyInputRef.current?.select();
@@ -319,10 +296,10 @@ const MobileSalesReception = () => {
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden">
             {/* Header */}
-            <div className="bg-white px-5 pt-6 pb-4 border-b border-slate-100 shrink-0">
-                <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-xl font-black text-slate-900 tracking-tight">일반접수</h1>
-                    <div className="flex gap-2">
+            <div className="bg-white px-5 pt-10 pb-4 border-b border-slate-100 shrink-0 sticky top-0 z-50">
+                <div className="flex justify-start items-center gap-2 mb-4">
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">일반 접수</h1>
+                    <div className="flex-1 flex justify-end">
                         <button
                             onClick={handleReset}
                             className="p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-rose-500 transition-colors"
@@ -332,7 +309,6 @@ const MobileSalesReception = () => {
                     </div>
                 </div>
 
-                {/* Customer Search / Selection */}
                 {!customer ? (
                     <div className="space-y-3">
                         <div className="relative">
@@ -346,13 +322,12 @@ const MobileSalesReception = () => {
                             />
                             <button
                                 onClick={handleSearch}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 h-8 px-4 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-100"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 h-8 px-4 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-100 whitespace-nowrap"
                             >
                                 검색
                             </button>
                         </div>
 
-                        {/* Search Results */}
                         {searchResults.length > 0 && (
                             <div className="bg-white border border-slate-100 rounded-2xl shadow-xl max-h-48 overflow-auto animate-in slide-in-from-top-2">
                                 {searchResults.map(cust => (
@@ -368,7 +343,6 @@ const MobileSalesReception = () => {
                             </div>
                         )}
 
-                        {/* New Customer Prompt */}
                         {searchQuery && searchResults.length === 0 && !isSearching && (
                             <button
                                 onClick={() => setShowRegisterForm(true)}
@@ -395,17 +369,15 @@ const MobileSalesReception = () => {
                             onClick={() => setCustomer(null)}
                             className="p-2 text-slate-300 hover:text-rose-500 transition-colors"
                         >
-                            <X size={18} />
+                            <XIcon size={18} />
                         </button>
                     </div>
                 )}
             </div>
 
-            {/* Main Content */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 pt-4 pb-20 space-y-4">
                 {customer && (
                     <>
-                        {/* Order Date */}
                         <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-indigo-50 text-indigo-500 rounded-2xl">
@@ -415,13 +387,12 @@ const MobileSalesReception = () => {
                             </div>
                             <input
                                 type="date"
-                                className="bg-transparent border-none text-right font-black text-slate-900 focus:ring-0 text-sm"
+                                className="bg-transparent border-none text-right font-black text-slate-900 focus:ring-0 text-sm w-32"
                                 value={orderDate}
                                 onChange={(e) => setOrderDate(e.target.value)}
                             />
                         </div>
 
-                        {/* QR Scan & Discount Row */}
                         <div className="grid grid-cols-2 gap-4">
                             <button
                                 onClick={handleQrScan}
@@ -460,7 +431,6 @@ const MobileSalesReception = () => {
                             </div>
                         </div>
 
-                        {/* Quick Selection List */}
                         <div className="space-y-3">
                             <div className="flex items-center gap-2 text-slate-400 font-black text-xs uppercase tracking-widest pl-1 mt-2">
                                 <Plus size={12} className="text-indigo-500" />
@@ -473,9 +443,9 @@ const MobileSalesReception = () => {
                                         onClick={() => {
                                             handleInputChange({ target: { name: 'product', value: p.product_name } });
                                         }}
-                                        className="bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-100 whitespace-nowrap active:scale-95 transition-all flex flex-col items-center min-w-[120px]"
+                                        className="bg-white px-5 py-3 rounded-2xl shadow-sm border border-slate-100 whitespace-nowrap active:scale-95 transition-all flex flex-col items-center min-w-[120px] max-w-[200px] shrink-0"
                                     >
-                                        <div className="text-sm font-black text-slate-700">{p.product_name}</div>
+                                        <div className="text-sm font-black text-slate-700 w-full truncate text-center">{p.product_name}</div>
                                         {p.specification && <div className="text-[10px] text-slate-400 font-bold mb-1">{p.specification}</div>}
                                         <div className="text-[10px] text-indigo-500 font-black">{formatCurrency(p.unit_price)}원</div>
                                     </button>
@@ -483,7 +453,6 @@ const MobileSalesReception = () => {
                             </div>
                         </div>
 
-                        {/* Quick Input Toggle */}
                         <div className="flex items-center justify-between px-2">
                             <h2 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">접수 품목 ({salesRows.length})</h2>
                             <button
@@ -494,14 +463,13 @@ const MobileSalesReception = () => {
                             </button>
                         </div>
 
-                        {/* Sales Input Form */}
                         {showInputSection && (
                             <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-xl space-y-5 animate-in slide-in-from-top-4 duration-300">
                                 <div>
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">상품 선택</label>
                                     <select
                                         name="product"
-                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none pr-10"
+                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl text-xs font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none pr-10"
                                         value={inputState.product}
                                         onChange={handleInputChange}
                                     >
@@ -573,7 +541,6 @@ const MobileSalesReception = () => {
                             </div>
                         )}
 
-                        {/* Sales Rows List */}
                         <div className="space-y-3">
                             {salesRows.map(row => (
                                 <div key={row.tempId} className="bg-white px-5 py-3 rounded-[1.5rem] border border-slate-100 shadow-sm flex items-center gap-4 animate-in fade-in slide-in-from-left-2 transition-all">
@@ -619,7 +586,6 @@ const MobileSalesReception = () => {
                             )}
                         </div>
 
-                        {/* Additional Info */}
                         {salesRows.length > 0 && (
                             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
                                 <div className="space-y-2">
@@ -657,18 +623,15 @@ const MobileSalesReception = () => {
                         )}
                     </>
                 )}
-            </div>
 
-            {/* Bottom Summary & Save Bar */}
-            {
-                customer && salesRows.length > 0 && (
-                    <div className="fixed bottom-0 left-0 right-0 z-50 animate-in slide-in-from-bottom-full duration-500">
-                        {/* Summary Overlay (Expandable) */}
+                {/* Bottom Summary & Save Bar (Scrolled with content) */}
+                {customer && salesRows.length > 0 && (
+                    <div className="mt-8 mb-12 animate-in fade-in slide-in-from-bottom-4 duration-500 px-1">
                         {isSummaryExpanded && (
-                            <div className="bg-slate-900/90 backdrop-blur-md text-white p-6 rounded-t-[3rem] space-y-4 animate-in slide-in-from-bottom-4">
+                            <div className="bg-slate-900 backdrop-blur-md text-white p-6 rounded-[2rem] mb-4 space-y-4 shadow-xl border border-slate-800">
                                 <div className="flex justify-between items-center text-slate-400 text-xs font-black uppercase tracking-widest">
                                     <span>정산 상세 요약</span>
-                                    <button onClick={() => setIsSummaryExpanded(false)}><ChevronDown /></button>
+                                    <button onClick={() => setIsSummaryExpanded(false)} className="text-slate-500 hover:text-white"><ChevronDown /></button>
                                 </div>
                                 <div className="space-y-3 pt-2">
                                     <div className="flex justify-between items-center">
@@ -688,7 +651,7 @@ const MobileSalesReception = () => {
                             </div>
                         )}
 
-                        <div className="bg-white border-t border-slate-100 p-5 pb-24 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                        <div className="bg-white border border-slate-100 rounded-[2rem] p-5 shadow-xl">
                             <div className="flex gap-4 items-center">
                                 <button
                                     onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
@@ -698,8 +661,8 @@ const MobileSalesReception = () => {
                                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">총 ({salesRows.length}개) 합계</span>
                                         <span className="text-lg font-black leading-none">{formatCurrency(summary.amount)}원</span>
                                     </div>
-                                    <div className="flex items-center gap-1 text-slate-500">
-                                        {isSummaryExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                    <div className={`p-1.5 rounded-lg bg-white/10 transition-transform ${isSummaryExpanded ? 'rotate-180' : ''}`}>
+                                        <ChevronUp size={16} />
                                     </div>
                                 </button>
                                 <button
@@ -707,100 +670,79 @@ const MobileSalesReception = () => {
                                     disabled={isProcessing}
                                     className={`w-20 h-14 bg-indigo-600 text-white rounded-[1.5rem] flex items-center justify-center shadow-lg shadow-indigo-100 active:scale-[0.95] transition-all ${isProcessing ? 'opacity-50 animate-pulse' : ''}`}
                                 >
-                                    <Save size={24} />
+                                    {isProcessing ? <RefreshCw size={24} className="animate-spin" /> : <Save size={24} />}
                                 </button>
                             </div>
                         </div>
                     </div>
-                )
-            }
+                )}
+            </div>
 
-            {/* Quick Register Modal */}
-            {
-                showRegisterForm && (
-                    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-end animate-in fade-in duration-300">
-                        <div className="w-full bg-white rounded-t-[3rem] p-8 pb-12 animate-in slide-in-from-bottom-10 duration-500 shadow-2xl">
-                            <div className="flex justify-between items-center mb-8">
-                                <div>
-                                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">신규 고객 등록</h1>
-                                    <p className="text-sm font-medium text-slate-400 mt-1 font-bold">정보를 입력하여 바로 접수를 진행하세요.</p>
-                                </div>
-                                <button onClick={() => setShowRegisterForm(false)} className="p-3 bg-slate-50 rounded-2xl text-slate-300"><X /></button>
+            {showRegisterForm && (
+                <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-end animate-in fade-in duration-300">
+                    <div className="w-full bg-white rounded-t-[3rem] p-8 pb-12 animate-in slide-in-from-bottom-10 duration-500 shadow-2xl">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                                <h1 className="text-2xl font-black text-slate-800 tracking-tight">신규 고객 등록</h1>
+                                <p className="text-sm font-medium text-slate-400 mt-1 font-bold">정보를 입력하여 바로 접수를 진행하세요.</p>
                             </div>
-
-                            <div className="space-y-6">
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">성함</label>
-                                    <input
-                                        className="w-full h-14 bg-slate-50 border-none rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all"
-                                        placeholder="고객 성함"
-                                        value={newCustomer.name}
-                                        onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">휴대폰 번호</label>
-                                    <input
-                                        className="w-full h-14 bg-slate-50 border-none rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all"
-                                        placeholder="010-0000-0000"
-                                        value={newCustomer.mobile}
-                                        onChange={formatMobile}
-                                    />
-                                </div>
-
-                                <button
-                                    onClick={handleQuickRegister}
-                                    className="w-full h-16 bg-indigo-600 text-white rounded-2xl animate-in zoom-in-95 duration-500 font-black text-lg shadow-xl shadow-indigo-100 mt-4 active:scale-[0.98]"
-                                >
-                                    지금 등록 완료
-                                </button>
+                            <button onClick={() => setShowRegisterForm(false)} className="p-3 bg-slate-50 rounded-2xl text-slate-300"><XIcon /></button>
+                        </div>
+                        <div className="space-y-6">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">성함</label>
+                                <input
+                                    className="w-full h-14 bg-slate-50 border-none rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all"
+                                    placeholder="고객 성함"
+                                    value={newCustomer.name}
+                                    onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                                />
                             </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">휴대폰 번호</label>
+                                <input
+                                    className="w-full h-14 bg-slate-50 border-none rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-indigo-500 transition-all"
+                                    placeholder="010-0000-0000"
+                                    value={newCustomer.mobile}
+                                    onChange={formatMobile}
+                                />
+                            </div>
+                            <button
+                                onClick={handleQuickRegister}
+                                className="w-full h-16 bg-indigo-600 text-white rounded-2xl animate-in zoom-in-95 duration-500 font-black text-lg shadow-xl shadow-indigo-100 mt-4 active:scale-[0.98]"
+                            >
+                                지금 등록 완료
+                            </button>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
 
-            {/* Loading Indicator */}
-            {
-                isSearching && (
-                    <div className="fixed inset-0 z-[200] bg-white/60 backdrop-blur-sm flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-4">
-                            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                            <span className="text-sm font-black text-indigo-600 animate-pulse">고객 데이터를 조회 중...</span>
-                        </div>
+            {isSearching && (
+                <div className="fixed inset-0 z-[200] bg-white/60 backdrop-blur-sm flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-sm font-black text-indigo-600 animate-pulse">고객 데이터를 조회 중...</span>
                     </div>
-                )
-            }
-            {/* QR Scanner Overlay */}
+                </div>
+            )}
+
             {isScannerOpen && (
                 <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-start p-6 pt-12 animate-in fade-in duration-300 overflow-y-auto">
-                    {/* Camera View Area */}
                     <div className="relative w-full max-w-[280px] aspect-square border-2 border-indigo-500/50 rounded-[2.5rem] overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center shrink-0">
                         <div id="reader" className="absolute inset-0 z-0"></div>
-
                         {cameraError && (
                             <div className="z-20 flex flex-col items-center gap-4 px-6 py-4 bg-slate-800/95 text-white rounded-3xl text-center mx-4 border border-white/10 shadow-2xl">
-                                <p className="text-xs font-black leading-relaxed">
-                                    {cameraError}
-                                </p>
+                                <p className="text-xs font-black leading-relaxed">{cameraError}</p>
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     className="px-6 py-3 bg-indigo-600 rounded-2xl text-sm font-black shadow-lg active:scale-95 transition-all"
                                 >
                                     카메라 촬영으로 인식하기
                                 </button>
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept="image/*"
-                                    capture="environment"
-                                    className="hidden"
-                                    onChange={handleFileScan}
-                                />
+                                <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileScan} />
                             </div>
                         )}
-
-                        {/* Scanning Overlay Decoration */}
                         <div className="absolute inset-0 pointer-events-none z-10">
                             <div className="absolute inset-x-0 h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)] animate-scan" />
                             <div className="absolute top-8 left-8 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
@@ -809,11 +751,9 @@ const MobileSalesReception = () => {
                             <div className="absolute bottom-8 right-8 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
                         </div>
                     </div>
-
                     <div className="mt-6 text-center text-white space-y-4 w-full">
                         <h3 className="text-xl font-black">QR 코드 스캔 중</h3>
                         <p className="text-sm text-slate-400">사각형 안에 QR 코드를 맞춰주세요.</p>
-
                         <div className="max-w-xs mx-auto pt-2 space-y-2">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">직접 코드 입력 (인식 불가 시)</label>
                             <div className="relative opacity-60 focus-within:opacity-100 transition-opacity">
@@ -830,19 +770,16 @@ const MobileSalesReception = () => {
                                             e.target.blur();
                                         }
                                     }}
-
                                 />
                             </div>
                         </div>
                     </div>
-
                     <button
                         onClick={() => setIsScannerOpen(false)}
                         className="mt-8 mb-12 w-16 h-16 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0"
                     >
-                        <X size={32} />
+                        <XIcon size={32} />
                     </button>
-
                     <style dangerouslySetInnerHTML={{
                         __html: `
                         @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
@@ -855,7 +792,7 @@ const MobileSalesReception = () => {
                     `}} />
                 </div>
             )}
-        </div >
+        </div>
     );
 };
 

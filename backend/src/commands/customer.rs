@@ -25,7 +25,9 @@ pub struct CustomerSearchQuery {
 #[serde(rename_all = "camelCase")]
 pub struct CustomerInput {
     pub customer_id: Option<String>,
+    #[serde(alias = "name")]
     pub customer_name: String,
+    #[serde(alias = "mobile")]
     pub mobile_number: String,
     pub membership_level: Option<String>,
     pub phone_number: Option<String>,

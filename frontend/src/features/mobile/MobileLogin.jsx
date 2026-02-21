@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Delete, RefreshCw, X } from 'lucide-react';
+import { Shield, Delete, RefreshCw, X as XIcon } from 'lucide-react';
 
 const MobileLogin = ({ onLoginSuccess }) => {
     const [pin, setPin] = useState('');
@@ -169,7 +169,7 @@ const MobileLogin = ({ onLoginSuccess }) => {
                     <div className="bg-white w-full max-w-md rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 space-y-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
                         <div className="flex justify-between items-center">
                             <h2 className="text-xl font-black text-slate-800">서버 연결 설정</h2>
-                            <button onClick={() => setShowSettings(false)} className="p-2 bg-slate-100 rounded-full text-slate-400"><X size={20} /></button>
+                            <button onClick={() => setShowSettings(false)} className="p-2 bg-slate-100 rounded-full text-slate-400"><XIcon size={20} /></button>
                         </div>
                         <div className="space-y-4">
                             <div className="space-y-2">

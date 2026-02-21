@@ -61,9 +61,9 @@ const MobileDashboard = () => {
     }, [loadStats]);
 
     return (
-        <div className="mobile-fullscreen bg-slate-50 flex flex-col font-sans overflow-x-hidden">
+        <div className="mobile-fullscreen bg-slate-50 flex flex-col font-sans overflow-hidden">
             {/* Header */}
-            <div className="bg-indigo-600 px-6 pt-8 pb-16 rounded-b-[40px] relative shadow-lg shrink-0">
+            <div className="bg-indigo-600 px-6 pt-8 pb-16 rounded-b-[40px] sticky top-0 z-40 shadow-lg shrink-0">
                 {/* Pull to Refresh Indicator */}
                 <div
                     className="absolute left-0 right-0 top-0 flex justify-center pointer-events-none transition-transform"
@@ -84,20 +84,13 @@ const MobileDashboard = () => {
                     </div>
                 </div>
 
-                <div className="relative z-10 flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-white p-2 shadow-inner flex items-center justify-center overflow-hidden">
+                <div className="relative z-10 flex justify-start items-center mb-6">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="shrink-0 w-12 h-12 rounded-2xl bg-white p-2 shadow-inner flex items-center justify-center overflow-hidden">
                             <img src="/app-icon.png" alt="Logo" className="w-full h-full object-contain" />
                         </div>
-                        <h1 className="text-white text-2xl font-black tracking-tight">농장 관리 현황</h1>
+                        <h1 className="text-white text-2xl font-black tracking-tight truncate">농장 관리 현황</h1>
                     </div>
-                    <button
-                        onClick={loadData}
-                        disabled={isLoading}
-                        className={`w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white transition-all active:scale-95 ${isLoading ? 'opacity-50' : ''}`}
-                    >
-                        <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-                    </button>
                 </div>
 
                 {/* Main Revenue Card */}
