@@ -12,8 +12,7 @@ const Login = ({ onLoginSuccess }) => {
 
 
     useEffect(() => {
-        sessionStorage.clear();
-
+        // Removed sessionStorage.clear() to prevent flicker loop when already logged in
         const loadCompanyName = async () => {
             try {
                 const info = await invoke('get_company_info');

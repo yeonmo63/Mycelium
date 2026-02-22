@@ -155,7 +155,7 @@ function AppContent() {
         <Route element={<Layout isMobile={IS_MOBILE} />}>
           <Route path="/" element={IS_MOBILE ? <Navigate to="/mobile-dashboard" replace /> : <Navigate to="/dashboard" replace />} />
           <Route path="setup" element={<SystemSetup />} />
-          <Route path="login" element={<Login />} />
+          <Route path="login" element={isLoggedIn ? <Navigate to="/" replace /> : <Login />} />
 
           {/* Mobile Group with Swipe Layout */}
           <Route element={IS_MOBILE ? <MobileLayout /> : <Outlet />}>

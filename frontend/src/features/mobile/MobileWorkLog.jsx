@@ -243,7 +243,19 @@ const MobileWorkLog = () => {
         }
 
         try {
-            const res = await callBridge('save_farming_log', { log: formData });
+            // Ensure data types match backend expectations (FarmingLog struct)
+            const payload = {
+                ...formData,
+                batch_id: Number(formData.batch_id) || 0,
+                space_id: Number(formData.space_id) || 0,
+                log_date: typeof formData.log_date === 'object' ? formData.log_date.format('YYYY-MM-DD') : formData.log_date,
+                env_data: {
+                    temp: formData.env_data.temp ? parseFloat(formData.env_data.temp) : null,
+                    humi: formData.env_data.humi ? parseFloat(formData.env_data.humi) : null
+                }
+            };
+
+            const res = await callBridge('save_farming_log', payload);
             if (res && res.success) {
                 showAlert("저장 완료", "현장 작업 일지가 성공적으로 기록되었습니다.");
                 setFormData(prev => ({

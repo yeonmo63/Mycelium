@@ -552,149 +552,8 @@ pub async fn save_special_sales_batch(
             tax_exempt_value = 0;
         }
 
-        // [AUTO-STOCK] Insert Deduction (Main Product Only)
-        // For Special Sales as well, we only deduct Main Product to avoid double-deducting BOMs used in Production.
-        if let Some(pid) = p_id {
-            let qty = sale.quantity;
+        // [AUTO-STOCK] Insert Deduction handled by trigger on sales table insert below.
 
-            // 1. Deduct Main Product
-            sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) - $1 WHERE product_id = $2")
-                .bind(qty)
-                .bind(pid)
-                .execute(&mut *tx)
-                .await?;
-
-            // Log Main Product
-            let p_info_log: Option<(String, Option<String>, Option<String>)> = 
-                sqlx::query_as("SELECT product_name, specification, product_code FROM products WHERE product_id = $1")
-                .bind(pid)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-            let (p_name, p_spec, p_code) = if let Some((n, s, c)) = p_info_log {
-                (n, s, c)
-            } else {
-                ("Unknown".to_string(), None, None)
-            };
-
-            sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, (SELECT stock_quantity FROM products WHERE product_id=$1), $6, 'SALES_AUTO')")
-                .bind(pid)
-                .bind(&p_name)
-                .bind(&p_spec)
-                .bind(&p_code)
-                .bind(-qty)
-                .bind(format!("판매 자동 차감(특판): {}", new_sid))
-                .execute(&mut *tx)
-                .await?;
-        }
-
-        // [AUTO-STOCK] Insert Deduction (Main Product Only)
-        // For Special Sales as well, we only deduct Main Product to avoid double-deducting BOMs used in Production.
-        if let Some(pid) = p_id {
-            let qty = sale.quantity;
-
-            // 1. Deduct Main Product
-            sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) - $1 WHERE product_id = $2")
-                .bind(qty)
-                .bind(pid)
-                .execute(&mut *tx)
-                .await?;
-
-            // Log Main Product
-            let p_info_log: Option<(String, Option<String>, Option<String>)> = 
-                sqlx::query_as("SELECT product_name, specification, product_code FROM products WHERE product_id = $1")
-                .bind(pid)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-            let (p_name, p_spec, p_code) = if let Some((n, s, c)) = p_info_log {
-                (n, s, c)
-            } else {
-                ("Unknown".to_string(), None, None)
-            };
-
-            sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, (SELECT stock_quantity FROM products WHERE product_id=$1), $6, 'SALES_AUTO')")
-                .bind(pid)
-                .bind(&p_name)
-                .bind(&p_spec)
-                .bind(&p_code)
-                .bind(-qty)
-                .bind(format!("판매 자동 차감(특판): {}", new_sid))
-                .execute(&mut *tx)
-                .await?;
-        }
-
-        // [AUTO-STOCK] Insert Deduction (Main Product Only)
-        // For Special Sales as well, we only deduct Main Product to avoid double-deducting BOMs used in Production.
-        if let Some(pid) = p_id {
-            let qty = sale.quantity;
-
-            // 1. Deduct Main Product
-            sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) - $1 WHERE product_id = $2")
-                .bind(qty)
-                .bind(pid)
-                .execute(&mut *tx)
-                .await?;
-
-            // Log Main Product
-            let p_info_log: Option<(String, Option<String>, Option<String>)> = 
-                sqlx::query_as("SELECT product_name, specification, product_code FROM products WHERE product_id = $1")
-                .bind(pid)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-            let (p_name, p_spec, p_code) = if let Some((n, s, c)) = p_info_log {
-                (n, s, c)
-            } else {
-                ("Unknown".to_string(), None, None)
-            };
-
-            sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, (SELECT stock_quantity FROM products WHERE product_id=$1), $6, 'SALES_AUTO')")
-                .bind(pid)
-                .bind(&p_name)
-                .bind(&p_spec)
-                .bind(&p_code)
-                .bind(-qty)
-                .bind(format!("판매 자동 차감(특판): {}", new_sid))
-                .execute(&mut *tx)
-                .await?;
-        }
-
-        // [AUTO-STOCK] Insert Deduction (Main Product Only)
-        // For Special Sales as well, we only deduct Main Product to avoid double-deducting BOMs used in Production.
-        if let Some(pid) = p_id {
-            let qty = sale.quantity;
-
-            // 1. Deduct Main Product
-            sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) - $1 WHERE product_id = $2")
-                .bind(qty)
-                .bind(pid)
-                .execute(&mut *tx)
-                .await?;
-
-            // Log Main Product
-            let p_info_log: Option<(String, Option<String>, Option<String>)> = 
-                sqlx::query_as("SELECT product_name, specification, product_code FROM products WHERE product_id = $1")
-                .bind(pid)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-            let (p_name, p_spec, p_code) = if let Some((n, s, c)) = p_info_log {
-                (n, s, c)
-            } else {
-                ("Unknown".to_string(), None, None)
-            };
-
-            sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, (SELECT stock_quantity FROM products WHERE product_id=$1), $6, 'SALES_AUTO')")
-                .bind(pid)
-                .bind(&p_name)
-                .bind(&p_spec)
-                .bind(&p_code)
-                .bind(-qty)
-                .bind(format!("판매 자동 차감(특판): {}", new_sid))
-                .execute(&mut *tx)
-                .await?;
-        }
 
         sqlx::query("INSERT INTO sales (sales_id, customer_id, order_date, product_name, specification, quantity, unit_price, total_amount, discount_rate, memo, status, shipping_date, product_id, supply_value, vat_amount, tax_type, tax_exempt_value) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '현장판매완료', $11, $12, $13, $14, $15, $16)")
         .bind(&new_sid).bind(&event_id).bind(sale_date).bind(&sale.product_name).bind(&sale.specification).bind(sale.quantity).bind(sale.unit_price).bind(total).bind(discount).bind(&sale.memo).bind(today_naive).bind(p_id).bind(supply_value).bind(vat_amount).bind(actual_tax_type).bind(tax_exempt_value).execute(&mut *tx).await?;
@@ -745,25 +604,7 @@ pub async fn save_general_sales_batch_internal(
                 .await?;
 
         if let Some((Some(pid), qty)) = old {
-            // Main Product Restore
-            sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) + $1 WHERE product_id = $2")
-                .bind(qty)
-                .bind(pid)
-                .execute(&mut *tx).await?;
-
-            let p_info: Option<(String, Option<String>)> = sqlx::query_as(
-                "SELECT product_name, specification FROM products WHERE product_id = $1",
-            )
-            .bind(pid)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if let Some((p_name, p_spec)) = p_info {
-                sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, '입고', $4, (SELECT stock_quantity FROM products WHERE product_id=$1), $5, 'SALES_RESTORE')")
-                 .bind(pid).bind(&p_name).bind(&p_spec).bind(qty).bind(format!("판매 취소/삭제 복구: {}", del_id))
-                 .execute(&mut *tx).await?;
-            }
-
-            // BOM/Aux Restore
+            // BOM/Aux Restore (Main product restore is handled by DB Trigger)
             let simple_bom: Option<(Option<i32>, Option<f64>)> = sqlx::query_as(
                 "SELECT aux_material_id, aux_material_ratio FROM products WHERE product_id = $1",
             )
@@ -774,7 +615,7 @@ pub async fn save_general_sales_batch_internal(
             if let Some((Some(aid), Some(ar))) = simple_bom {
                 let add_qty = (qty as f64 * ar).ceil() as i32;
                 sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) + $1 WHERE product_id = $2").bind(add_qty).bind(aid).execute(&mut *tx).await?;
-                // Skip log for speed or add if needed... Add log for correctness.
+                // Log for Aux Material restore
                 let a_info: Option<(String, Option<String>)> = sqlx::query_as(
                     "SELECT product_name, specification FROM products WHERE product_id = $1",
                 )
@@ -889,39 +730,42 @@ pub async fn save_general_sales_batch_internal(
         next_seq += 1;
 
         // [AUTO-STOCK] Insert Deduction
-        // [AUTO-STOCK] Insert Deduction
         if let Some(pid) = product_id {
             let qty = item.quantity;
 
-            // 1. Deduct Main Product
-            sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) - $1 WHERE product_id = $2")
-                .bind(qty)
-                .bind(pid)
-                .execute(&mut *tx)
-                .await?;
+            // 1. Deduct Main Product (Handled by DB Trigger, but we can do BOM here)
+            // Strategy: The trigger 'trg_manage_stock' handles 'products' table update and 'inventory_logs' for Main Product.
+            // We only handle Aux materials here.
+            
+            // BOM/Aux Deduction
+            let simple_bom: Option<(Option<i32>, Option<f64>)> = sqlx::query_as(
+                "SELECT aux_material_id, aux_material_ratio FROM products WHERE product_id = $1",
+            )
+            .bind(pid)
+            .fetch_optional(&mut *tx)
+            .await?;
 
-            // Log Main Product
-            let p_info_log: Option<(String, Option<String>, Option<String>)> = 
-                sqlx::query_as("SELECT product_name, specification, product_code FROM products WHERE product_id = $1")
-                .bind(pid)
+            if let Some((Some(aid), Some(ar))) = simple_bom {
+                let deduct_qty = (qty as f64 * ar).ceil() as i32;
+                sqlx::query("UPDATE products SET stock_quantity = COALESCE(stock_quantity,0) - $1 WHERE product_id = $2")
+                    .bind(deduct_qty)
+                    .bind(aid)
+                    .execute(&mut *tx)
+                    .await?;
+                
+                // Log Aux Material deduction
+                let a_info: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+                    "SELECT product_name, specification, product_code FROM products WHERE product_id = $1",
+                )
+                .bind(aid)
                 .fetch_optional(&mut *tx)
                 .await?;
-
-            let (p_name, p_spec, p_code) = if let Some((n, s, c)) = p_info_log {
-                (n, s, c)
-            } else {
-                ("Unknown".to_string(), None, None)
-            };
-
-            sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, (SELECT stock_quantity FROM products WHERE product_id=$1), $6, 'SALES_AUTO')")
-                .bind(pid)
-                .bind(&p_name)
-                .bind(&p_spec)
-                .bind(&p_code)
-                .bind(-qty)
-                .bind(format!("판매 자동 차감: {}", new_sid))
-                .execute(&mut *tx)
-                .await?;
+                if let Some((a_name, a_spec, a_code)) = a_info {
+                    sqlx::query("INSERT INTO inventory_logs (product_id, product_name, specification, product_code, change_type, change_quantity, current_stock, memo, reference_id) VALUES ($1, $2, $3, $4, '출고', $5, (SELECT stock_quantity FROM products WHERE product_id=$1), $6, 'SALES_AUTO_AUX')")
+                        .bind(aid).bind(&a_name).bind(&a_spec).bind(&a_code).bind(-deduct_qty).bind(format!("판매 자동 차감(부자재): {}", new_sid))
+                        .execute(&mut *tx).await?;
+                }
+            }
         }
 
         sqlx::query("INSERT INTO sales (sales_id, customer_id, product_name, specification, quantity, unit_price, total_amount, status, memo, order_date, shipping_name, shipping_zip_code, shipping_address_primary, shipping_address_detail, shipping_mobile_number, paid_amount, payment_status, discount_rate, product_id, supply_value, vat_amount, tax_type, tax_exempt_value) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)")

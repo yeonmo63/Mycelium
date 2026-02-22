@@ -231,12 +231,14 @@ const MobileHarvestEntry = () => {
             const res = await callBridge('save_harvest_record', {
                 record: {
                     ...formData,
-                    quantity: parseFloat(formData.quantity),
-                    defective_quantity: parseFloat(formData.defective_quantity),
-                    loss_quantity: parseFloat(formData.loss_quantity),
+                    quantity: Number(formData.quantity) || 0,
+                    defective_quantity: Number(formData.defective_quantity) || 0,
+                    loss_quantity: Number(formData.loss_quantity) || 0,
+                    package_count: Number(formData.package_count) || 0,
+                    weight_per_package: Number(formData.weight_per_package) || 0,
                     harvest_date: formData.harvest_date
                 },
-                complete_batch: false
+                completeBatch: false
             });
 
             if (res && res.success) {

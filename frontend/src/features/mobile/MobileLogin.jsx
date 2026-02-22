@@ -90,12 +90,12 @@ const MobileLogin = ({ onLoginSuccess }) => {
         <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-between pt-40 pb-10 px-8 font-sans z-[1000] animate-in fade-in duration-500 overflow-hidden touch-none select-none">
             {/* Top Section */}
             <div className="flex-1 flex flex-col items-center justify-start text-center space-y-8 w-full min-h-0">
-                <div className={`w-20 h-20 sm:w-28 sm:h-28 rounded-3xl sm:rounded-[2.5rem] flex items-center justify-center shadow-xl sm:shadow-2xl transition-all duration-500 ${error ? 'bg-rose-500 shadow-rose-200' : 'bg-indigo-600 shadow-indigo-200 animate-bounce-slow'
+                <div className={`w-20 h-20 sm:w-28 sm:h-28 rounded-3xl sm:rounded-[2.5rem] flex items-center justify-center shadow-xl sm:shadow-2xl transition-all duration-500 bg-white ${error ? 'border-4 border-rose-500 shadow-rose-200' : 'shadow-indigo-200 animate-bounce-slow'
                     }`}>
                     {isLoading ? (
-                        <RefreshCw size={40} className="text-white animate-spin sm:w-[52px] sm:h-[52px]" />
+                        <RefreshCw size={40} className="text-indigo-600 animate-spin sm:w-[52px] sm:h-[52px]" />
                     ) : (
-                        <Shield size={40} className="text-white sm:w-[52px] sm:h-[52px]" />
+                        <img src="/mushroom-app-icon.png" alt="Logo" className="w-12 h-12 sm:w-16 sm:h-16 object-contain" />
                     )}
                 </div>
 

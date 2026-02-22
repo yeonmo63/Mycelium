@@ -25,7 +25,8 @@ import {
     Save,
     X as XIcon,
     MapPin,
-    History
+    History,
+    ShoppingCart
 } from 'lucide-react';
 import { formatPhoneNumber } from '../../utils/common';
 
@@ -159,19 +160,14 @@ const MobileEventSales = () => {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
         try {
-            const [custResults, eventResults] = await Promise.all([
-                callBridge('search_customers_by_name', { name: searchQuery }),
-                callBridge('search_events_by_name', { name: searchQuery })
-            ]);
+            const eventResults = await callBridge('search_events_by_name', { name: searchQuery });
 
-            const combined = [
-                ...(custResults || []).map(c => ({ ...c, _type: 'customer' })),
-                ...(eventResults || []).map(e => ({ ...e, _type: 'event' }))
-            ];
+            const combined = (eventResults || []).map(e => ({ ...e, _type: 'event' }));
 
             setSearchResults(combined);
             if (combined.length === 0) {
-                setNewCustomer(prev => ({ ...prev, name: searchQuery }));
+                // If no event found, we could search customers as fallback or just keep as is
+                // But per user request, we focus on events.
             }
         } catch (e) {
             console.error(e);
@@ -206,7 +202,7 @@ const MobileEventSales = () => {
             });
             const results = await callBridge('search_customers_by_name', { name: newCustomer.name });
             if (results && results.length > 0) {
-                handleSelectCustomer(results[0]);
+                setCustomer(results[0]);
                 setShowRegisterForm(false);
                 showAlert('성공', '고객이 등록되었습니다.');
             }
@@ -496,7 +492,7 @@ const MobileEventSales = () => {
                         <div className="relative">
                             <input
                                 type="text"
-                                placeholder="행사명 또는 전화번호"
+                                placeholder="행사명 검색"
                                 className="w-full h-12 px-5 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 transition-all"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -518,15 +514,15 @@ const MobileEventSales = () => {
                                         onClick={() => handleSelectResult(item)}
                                         className="w-full px-4 py-3 text-left border-b border-slate-50 last:border-0 hover:bg-slate-50 active:bg-slate-100 transition-colors"
                                     >
-                                        <div className="flex items-center justify-between">
-                                            <div className="text-sm font-black text-slate-800">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="text-sm font-black text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis">
                                                 {item._type === 'event' ? item.event_name : item.customer_name}
                                             </div>
-                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${item._type === 'event' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                                            <span className={`shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-md ${item._type === 'event' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
                                                 {item._type === 'event' ? '행사' : '고객'}
                                             </span>
                                         </div>
-                                        <div className="text-[10px] font-bold text-slate-400">
+                                        <div className="text-[10px] font-bold text-slate-400 truncate">
                                             {item._type === 'event'
                                                 ? `${item.start_date} ~ ${item.end_date}`
                                                 : `${item.mobile_number} | ${item.address_primary || '주소 없음'}`}
@@ -555,7 +551,7 @@ const MobileEventSales = () => {
                             <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-black text-slate-900">{customer ? customer.customer_name : '이벤트 방문객'}</span>
-                                    <span className="bg-white text-indigo-600 px-2 py-0.5 rounded-full text-[9px] font-black border border-indigo-200 uppercase tracking-tighter tracking-tight">
+                                    <span className="bg-white text-indigo-600 px-2 py-0.5 rounded-full text-[9px] font-black border border-indigo-200 uppercase tracking-tight">
                                         {customer ? 'EVENT CUSTOMER' : 'GUEST'}
                                     </span>
                                 </div>
@@ -601,7 +597,7 @@ const MobileEventSales = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 pt-4 pb-20 space-y-6">
-                {customer && (
+                {(customer || selectedEventId) && (
                     <>
                         <div className="grid grid-cols-2 gap-4">
                             <button
@@ -693,13 +689,13 @@ const MobileEventSales = () => {
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">상품 선택</label>
                                     <select
                                         name="product"
-                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl px-5 text-xs font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
+                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl px-5 text-[11px] font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none"
                                         value={inputState.product}
                                         onChange={handleInputChange}
                                     >
-                                        <option value="">품목을 선택하세요</option>
+                                        <option value="" className="text-[11px]">품목을 선택하세요</option>
                                         {products.map(p => (
-                                            <option key={p.product_id} value={p.product_name}>
+                                            <option key={p.product_id} value={p.product_name} className="text-[11px]">
                                                 {p.product_name} ({p.specification || '규격 없음'}) - {formatCurrency(p.unit_price)}원
                                             </option>
                                         ))}

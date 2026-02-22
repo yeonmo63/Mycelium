@@ -27,10 +27,14 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub fn create_mobile_router(pool: DbPool, config_dir: PathBuf) -> Router {
+pub fn create_mobile_router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    (DbPool, std::path::PathBuf): axum::extract::FromRef<S>,
+    DbPool: axum::extract::FromRef<S>,
+{
     Router::new()
         // Sales - Special Events
-        .route("/api/events/search", get(search_events_bridge))
         .route("/api/sales/special/list", get(get_special_sales_bridge))
         .route(
             "/api/sales/special/batch",
@@ -76,7 +80,6 @@ pub fn create_mobile_router(pool: DbPool, config_dir: PathBuf) -> Router {
             "/api/crm/consultations/create",
             post(create_consultation_bridge),
         )
-        .with_state((pool, config_dir))
 }
 
 // ... (Existing handlers omitted for brevity, adding new ones at the end) ...
@@ -307,9 +310,13 @@ async fn search_customers(
     State((pool, _)): State<(DbPool, PathBuf)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let name = params.get("name").cloned().unwrap_or_default();
+    let name = params
+        .get("name")
+        .or(params.get("query"))
+        .cloned()
+        .unwrap_or_default();
     let query =
-        "SELECT * FROM customers WHERE customer_name LIKE $1 OR mobile_number LIKE $1 LIMIT 50";
+        "SELECT * FROM customers WHERE customer_name ILIKE $1 OR mobile_number ILIKE $1 LIMIT 50";
     let filter = format!("%{}%", name);
     let rows = sqlx::query_as::<_, Customer>(query)
         .bind(filter)
@@ -867,21 +874,6 @@ async fn sync_courier_bridge(
 ) -> impl IntoResponse {
     match batch_sync_courier_statuses_internal(&pool, &config_dir).await {
         Ok(count) => Json(json!({ "success": true, "count": count })),
-        Err(e) => Json(json!({ "success": false, "error": e.to_string() })),
-    }
-}
-
-async fn search_events_bridge(
-    State((pool, _)): State<(DbPool, PathBuf)>,
-    Query(params): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
-    let name = params
-        .get("name")
-        .or(params.get("query"))
-        .cloned()
-        .unwrap_or_default();
-    match search_events_by_name_internal(&pool, name).await {
-        Ok(data) => Json(json!(data)),
         Err(e) => Json(json!({ "success": false, "error": e.to_string() })),
     }
 }

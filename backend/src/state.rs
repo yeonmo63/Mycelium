@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub struct AppState {
     pub pool: DbPool,
+    pub config_dir: std::path::PathBuf,
     pub setup_status: Arc<Mutex<SetupStatus>>,
     pub session: Arc<Mutex<SessionState>>, // Global session for single-user desktop-like usage
 }
@@ -12,6 +13,18 @@ pub struct AppState {
 impl axum::extract::FromRef<AppState> for DbPool {
     fn from_ref(state: &AppState) -> Self {
         state.pool.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for std::path::PathBuf {
+    fn from_ref(state: &AppState) -> Self {
+        state.config_dir.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for (DbPool, std::path::PathBuf) {
+    fn from_ref(state: &AppState) -> Self {
+        (state.pool.clone(), state.config_dir.clone())
     }
 }
 

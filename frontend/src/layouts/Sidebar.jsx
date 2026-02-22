@@ -111,10 +111,7 @@ const Sidebar = () => {
             <div className="p-8 pb-6">
                 <div className="flex items-center gap-3 mb-1">
                     <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-indigo-500/10 overflow-hidden">
-                        <img src="/app-icon.png" alt="Logo" className="w-8 h-8 object-contain" onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = "https://cdn-icons-png.flaticon.com/512/591/591745.png"; // Mushroom backup icon
-                        }} />
+                        <img src="/mushroom-app-icon.png" alt="Logo" className="w-8 h-8 object-contain" />
                     </div>
                     <h2 className="text-xl font-black tracking-tight text-white truncate" title={companyName}>
                         {companyName}

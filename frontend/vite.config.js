@@ -16,12 +16,12 @@ export default defineConfig({
         theme_color: '#6366f1',
         icons: [
           {
-            src: 'app-icon.png',
+            src: 'mushroom-app-icon.png',
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: 'app-icon.png',
+            src: 'mushroom-app-icon.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'

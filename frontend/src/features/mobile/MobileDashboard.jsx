@@ -86,8 +86,8 @@ const MobileDashboard = () => {
 
                 <div className="relative z-10 flex justify-start items-center mb-6">
                     <div className="flex items-center gap-3 overflow-hidden">
-                        <div className="shrink-0 w-12 h-12 rounded-2xl bg-white p-2 shadow-inner flex items-center justify-center overflow-hidden">
-                            <img src="/app-icon.png" alt="Logo" className="w-full h-full object-contain" />
+                        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-indigo-500/10 overflow-hidden">
+                            <img src="/mushroom-app-icon.png" alt="Logo" className="w-8 h-8 object-contain" />
                         </div>
                         <h1 className="text-white text-2xl font-black tracking-tight truncate">농장 관리 현황</h1>
                     </div>

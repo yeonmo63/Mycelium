@@ -94,7 +94,7 @@ export async function callBridge(commandName, args = {}) {
         'get_preset_data': '/api/preset/data',
         'reset_database': '/api/preset/reset',
         'save_general_sales_batch': '/api/sales/batch-save',
-        'search_customers_by_name': '/api/customer/search/name',
+        'search_customers_by_name': '/api/customers/search',
         'search_customers_by_mobile': '/api/customer/search/mobile',
         'get_customer_addresses': '/api/customers/addresses',
         'get_customer_sales_on_date': '/api/sales/query/date',
@@ -111,7 +111,7 @@ export async function callBridge(commandName, args = {}) {
         'get_sale_detail': '/api/sales/detail',
         'search_sales_by_any': '/api/sales/search',
         'create_consultation': '/api/crm/consultations/create',
-        'search_events_by_name': '/api/events/search',
+        'search_events_by_name': '/api/event/list',
         'get_sales_by_event_id_and_date_range': '/api/sales/special/list',
         'save_special_sales_batch': '/api/sales/special/batch',
         'call_gemini_ai': '/api/ai/gemini',
@@ -246,23 +246,37 @@ export async function callBridge(commandName, args = {}) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
+        let result = null;
         const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            const text = await response.text();
-            console.warn(`Bridge: Received non-json response from ${route}. ${contentType}`, text.substring(0, 50));
-            return null;
+        if (contentType && contentType.includes('application/json')) {
+            try {
+                result = await response.json();
+            } catch (jsonErr) {
+                console.warn(`Bridge: Failed to parse JSON from ${route}`, jsonErr);
+            }
         }
 
-        const result = await response.json();
+        // If body is empty but status is OK, return success: true
+        if (result === null) {
+            return { success: true };
+        }
 
         // Simulate Tauri command error behavior:
         // If the backend returns { success: false, error: "..." }, throw an error.
-        if (result && typeof result === 'object' && result.success === false) {
+        if (typeof result === 'object' && result.success === false) {
             if (result.error) {
                 throw new Error(result.error);
             }
-            // If success is false but no error field (e.g. login returns 'message'), 
-            // we return the result so the component can handle it.
+        }
+
+        // If result is just true/false or other non-object, wrap it
+        if (typeof result !== 'object') {
+            return { success: true, data: result };
+        }
+
+        // Ensure success field exists if not present
+        if (result.success === undefined) {
+            result.success = true;
         }
 
         return result;

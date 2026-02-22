@@ -336,8 +336,10 @@ const MobileSalesReception = () => {
                                         onClick={() => handleSelectCustomer(cust)}
                                         className="w-full px-4 py-3 text-left border-b border-slate-50 last:border-0 hover:bg-slate-50 active:bg-slate-100 transition-colors"
                                     >
-                                        <div className="text-sm font-black text-slate-800">{cust.customer_name}</div>
-                                        <div className="text-[10px] font-bold text-slate-400">{cust.mobile_number} | {cust.address_primary || '주소 없음'}</div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="text-sm font-black text-slate-800 whitespace-nowrap">{cust.customer_name}</div>
+                                            <div className="text-[10px] font-bold text-slate-400 truncate flex-1 text-right">{cust.mobile_number} | {cust.address_primary || '주소 없음'}</div>
+                                        </div>
                                     </button>
                                 ))}
                             </div>
@@ -387,7 +389,7 @@ const MobileSalesReception = () => {
                             </div>
                             <input
                                 type="date"
-                                className="bg-transparent border-none text-right font-black text-slate-900 focus:ring-0 text-sm w-32"
+                                className="bg-transparent border-none text-right font-black text-slate-900 focus:ring-0 text-sm w-40"
                                 value={orderDate}
                                 onChange={(e) => setOrderDate(e.target.value)}
                             />
@@ -469,13 +471,13 @@ const MobileSalesReception = () => {
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-tighter ml-1 mb-1.5 block">상품 선택</label>
                                     <select
                                         name="product"
-                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl text-xs font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none pr-10"
+                                        className="w-full h-12 bg-slate-50 border-none rounded-2xl text-[11px] font-black focus:ring-2 focus:ring-indigo-500 transition-all appearance-none pr-10"
                                         value={inputState.product}
                                         onChange={handleInputChange}
                                     >
-                                        <option value="">상품을 선택하세요</option>
+                                        <option value="" className="text-[11px]">상품을 선택하세요</option>
                                         {products.map(p => (
-                                            <option key={p.product_id} value={p.product_name}>
+                                            <option key={p.product_id} value={p.product_name} className="text-[11px]">
                                                 {p.product_name} ({p.specification || '규격 없음'}) - {formatCurrency(p.unit_price)}원
                                             </option>
                                         ))}

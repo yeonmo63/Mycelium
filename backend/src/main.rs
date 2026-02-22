@@ -215,16 +215,18 @@ async fn run_server() {
     };
 
     // Initialize Global App State
+    let config_dir =
+        commands::config::get_app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
     let app_state = AppState {
         pool: pool.clone(),
+        config_dir: config_dir.clone(),
         setup_status: Arc::new(Mutex::new(setup_status)),
         session: Arc::new(Mutex::new(SessionState::default())),
     };
 
     // Build bridge router (for sales, customers, shipments, etc.)
-    let config_dir =
-        commands::config::get_app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let bridge_router = bridge::create_mobile_router(pool.clone(), config_dir);
+    let bridge_router = bridge::create_mobile_router::<AppState>();
 
     // Build our application with routes
     let app = Router::new()
@@ -953,15 +955,15 @@ async fn run_server() {
             get(commands::iot::get_latest_readings_axum),
         )
         .route("/api/iot/push", post(commands::iot::push_sensor_data_axum))
+        .merge(bridge_router)
+        .layer(axum::middleware::from_fn(log_requests))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
-        .layer(axum::middleware::from_fn(log_requests))
         .with_state(app_state)
-        .merge(bridge_router)
         .fallback(static_handler);
 
     // Run it
