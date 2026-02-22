@@ -2,16 +2,11 @@ use crate::db::DbPool;
 use crate::error::MyceliumResult;
 
 // Using global stubs
-use crate::stubs::{check_admin, AppHandle, State, TauriState};
 use axum::extract::{Json, State as AxumState};
 
 #[allow(dead_code)]
-pub async fn reset_database(
-    app: AppHandle,
-    state: TauriState<'_, DbPool>,
-) -> MyceliumResult<String> {
-    let _ = app;
-    internal_reset_database(&state).await
+pub async fn reset_database(pool: &DbPool) -> MyceliumResult<String> {
+    internal_reset_database(pool).await
 }
 
 pub async fn reset_database_axum(
@@ -64,13 +59,7 @@ async fn internal_reset_database(pool: &sqlx::Pool<sqlx::Postgres>) -> MyceliumR
     Ok("데이터베이스가 초기화되었습니다.".to_string())
 }
 
-pub async fn cleanup_old_logs(
-    app: AppHandle,
-    state: State<'_, DbPool>,
-    months: i32,
-) -> MyceliumResult<u64> {
-    check_admin(&app)?;
-    let pool = &*state;
+pub async fn cleanup_old_logs(pool: &DbPool, months: i32) -> MyceliumResult<u64> {
     let mut total_deleted = 0;
 
     let target_date = chrono::Local::now()
@@ -119,12 +108,7 @@ pub async fn cleanup_old_logs(
     Ok(total_deleted)
 }
 
-pub async fn run_db_maintenance(
-    app: AppHandle,
-    state: State<'_, DbPool>,
-) -> MyceliumResult<String> {
-    check_admin(&app)?;
-    let pool = &*state;
+pub async fn run_db_maintenance(pool: &DbPool) -> MyceliumResult<String> {
     let mut conn = pool.acquire().await?;
 
     // 1. Vacuum analyze

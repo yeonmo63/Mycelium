@@ -71,6 +71,7 @@ impl IntoResponse for MyceliumError {
         };
 
         let body = Json(json!({
+            "success": false,
             "error": error_message,
         }));
 

@@ -26,6 +26,7 @@ const LogoutModal = ({ onClose }) => {
                                 } catch (e) {
                                     console.error("Logout API failed", e);
                                 }
+                                localStorage.removeItem('token');
                                 sessionStorage.clear();
                                 window.location.reload();
                             }}

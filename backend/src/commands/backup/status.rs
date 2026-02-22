@@ -1,12 +1,9 @@
 use crate::commands::backup::models::DbLocationInfo;
 use crate::db::DbPool;
 use crate::error::{MyceliumError, MyceliumResult};
-use crate::stubs::{Manager, State};
 use chrono::Datelike;
 
-pub async fn check_db_location(state: State<'_, DbPool>) -> MyceliumResult<DbLocationInfo> {
-    let pool = &*state;
-
+pub async fn check_db_location(pool: &DbPool) -> MyceliumResult<DbLocationInfo> {
     // 1. Query PostgreSQL for server address
     let server_addr: Option<(Option<String>,)> = sqlx::query_as("SELECT inet_server_addr()::text")
         .fetch_optional(pool)
@@ -64,15 +61,13 @@ pub fn get_local_ip() -> Option<String> {
     None
 }
 
-pub fn get_last_backup_at(app: &crate::stubs::AppHandle) -> Option<chrono::NaiveDateTime> {
-    if let Ok(config_dir) = app.path().app_config_dir() {
-        let config_path = config_dir.join("config.json");
-        if config_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&config_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(ts) = json.get("last_backup_at").and_then(|v| v.as_str()) {
-                        return chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%S").ok();
-                    }
+pub fn get_last_backup_at(config_dir: &std::path::Path) -> Option<chrono::NaiveDateTime> {
+    let config_path = config_dir.join("config.json");
+    if config_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(ts) = json.get("last_backup_at").and_then(|v| v.as_str()) {
+                    return chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%S").ok();
                 }
             }
         }
@@ -81,13 +76,9 @@ pub fn get_last_backup_at(app: &crate::stubs::AppHandle) -> Option<chrono::Naive
 }
 
 pub fn update_last_backup_at(
-    app: &crate::stubs::AppHandle,
+    config_dir: &std::path::Path,
     ts: chrono::NaiveDateTime,
 ) -> MyceliumResult<()> {
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| MyceliumError::Internal(e.to_string()))?;
     let config_path = config_dir.join("config.json");
     let mut config_data = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
@@ -103,8 +94,8 @@ pub fn update_last_backup_at(
     Ok(())
 }
 
-pub async fn get_backup_status(app: crate::stubs::AppHandle) -> MyceliumResult<serde_json::Value> {
-    let last_at = get_last_backup_at(&app);
+pub async fn get_backup_status(config_dir: &std::path::Path) -> MyceliumResult<serde_json::Value> {
+    let last_at = get_last_backup_at(&config_dir);
     Ok(serde_json::json!({
         "last_backup_at": last_at.map(|ts| ts.format("%Y-%m-%dT%H:%M:%S").to_string()),
         "day_of_week": chrono::Local::now().weekday().to_string(),
@@ -112,10 +103,7 @@ pub async fn get_backup_status(app: crate::stubs::AppHandle) -> MyceliumResult<s
     }))
 }
 
-pub fn get_internal_backup_path(app: crate::stubs::AppHandle) -> MyceliumResult<String> {
-    if let Ok(config_dir) = app.path().app_config_dir() {
-        let daily_dir = config_dir.join("daily_backups");
-        return Ok(daily_dir.to_string_lossy().to_string());
-    }
-    Err(MyceliumError::Internal("Config dir not found".to_string()))
+pub fn get_internal_backup_path(config_dir: &std::path::Path) -> MyceliumResult<String> {
+    let daily_dir = config_dir.join("daily_backups");
+    Ok(daily_dir.to_string_lossy().to_string())
 }

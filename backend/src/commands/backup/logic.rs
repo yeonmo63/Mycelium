@@ -20,42 +20,35 @@ use std::fs::File;
 use std::io::{BufRead, BufWriter, Read, Write};
 use std::sync::atomic::Ordering;
 // Using global stubs
-use crate::stubs::{AppHandle, Emitter, State as TauriState};
+use crate::stubs::Emitter;
 
-pub async fn restore_database_sql(
-    app: AppHandle,
-    state: TauriState<'_, DbPool>,
-    path: String,
-) -> MyceliumResult<String> {
-    // config_check_admin(&app)?;
+pub async fn restore_database_sql(pool: &DbPool, path: String) -> MyceliumResult<String> {
     let sql = std::fs::read_to_string(&path)
         .map_err(|e| MyceliumError::Internal(format!("Failed to read SQL file: {}", e)))?;
 
-    let mut conn = state.acquire().await?;
+    let mut conn = pool.acquire().await?;
     sqlx::query(&sql).execute(&mut *conn).await?;
 
     Ok("복구가 완료되었습니다. 서비스를 다시 시작해 주세요.".to_string())
 }
 
 pub async fn backup_database(
-    app: AppHandle,
-    state: TauriState<'_, DbPool>,
+    config_dir: &std::path::Path,
+    pool: &DbPool,
     path: String,
     is_incremental: bool,
     use_compression: bool,
 ) -> MyceliumResult<String> {
-    // config_check_admin(&app)?;
     let since = if is_incremental {
-        get_last_backup_at(&app)
+        get_last_backup_at(config_dir)
     } else {
         None
     };
 
-    let result =
-        backup_database_internal(Some(app.clone()), &*state, path, since, use_compression).await?;
+    let result = backup_database_internal(None, pool, path, since, use_compression).await?;
 
     // Update last backup time on success
-    let _ = update_last_backup_at(&app, chrono::Local::now().naive_local());
+    let _ = update_last_backup_at(config_dir, chrono::Local::now().naive_local());
 
     Ok(result)
 }
@@ -68,19 +61,14 @@ pub async fn backup_database_internal(
     use_compression: bool,
 ) -> MyceliumResult<String> {
     let emit_progress = |processed: i64, total: i64, message: &str| {
+        tracing::info!("[Backup] {} ({}/{})", message, processed, total);
         if let Some(ref handle) = app {
-            let progress = if total > 0 {
-                ((processed as f64 / total as f64) * 100.0) as i32
-            } else {
-                0
-            };
             let _ = handle.emit(
                 "backup-progress",
                 serde_json::json!({
-                    "progress": progress,
-                    "message": message,
                     "processed": processed,
-                    "total": total
+                    "total": total,
+                    "message": message,
                 }),
             );
         }
@@ -408,26 +396,14 @@ pub async fn backup_database_internal(
     Ok(format!("{}개의 데이터를 백업했습니다.", total_records))
 }
 
-pub async fn restore_database(
-    app: AppHandle,
-    state: TauriState<'_, DbPool>,
-    path: String,
-) -> MyceliumResult<String> {
-    // config_check_admin(&app)?;
-    let pool = &*state;
+pub async fn restore_database(pool: &DbPool, path: String) -> MyceliumResult<String> {
     let file = File::open(&path)
         .map_err(|e| MyceliumError::Internal(format!("Failed to open backup file: {}", e)))?;
 
     BACKUP_CANCELLED.store(false, Ordering::Relaxed);
 
     let emit_progress = |progress: i32, message: &str| {
-        let _ = app.emit(
-            "restore-progress",
-            serde_json::json!({
-                "progress": progress,
-                "message": message
-            }),
-        );
+        tracing::info!("[Restore] {}% - {}", progress, message);
     };
 
     // 1. Calculate Total Bytes for Progress

@@ -179,6 +179,7 @@ pub struct LoginResponse {
     pub username: Option<String>,
     pub role: Option<String>,
     pub ui_mode: Option<String>,
+    pub token: Option<String>,
 }
 
 pub async fn login(
@@ -196,6 +197,7 @@ pub async fn login(
             username: None,
             role: None,
             ui_mode: None,
+            token: None,
         }));
     }
 
@@ -220,6 +222,30 @@ pub async fn login(
                                 session.ui_mode = user.ui_mode.clone();
                             }
 
+                            // Generate JWT Token
+                            let expiration = chrono::Utc::now()
+                                .checked_add_signed(chrono::Duration::days(30))
+                                .expect("valid timestamp")
+                                .timestamp() as usize;
+
+                            let claims = crate::middleware::auth::Claims {
+                                sub: user.username.clone(),
+                                user_id: Some(user.id),
+                                username: Some(user.username.clone()),
+                                role: Some(user.role.clone()),
+                                ui_mode: user.ui_mode.clone(),
+                                exp: expiration,
+                            };
+
+                            let token = jsonwebtoken::encode(
+                                &jsonwebtoken::Header::default(),
+                                &claims,
+                                &jsonwebtoken::EncodingKey::from_secret(
+                                    crate::middleware::auth::get_jwt_secret(),
+                                ),
+                            )
+                            .ok();
+
                             Ok(Json(LoginResponse {
                                 success: true,
                                 message: "로그인 성공".to_string(),
@@ -227,6 +253,7 @@ pub async fn login(
                                 username: Some(user.username.clone()),
                                 role: Some(user.role.clone()),
                                 ui_mode: user.ui_mode,
+                                token,
                             }))
                         } else {
                             Ok(Json(LoginResponse {
@@ -236,6 +263,7 @@ pub async fn login(
                                 username: None,
                                 role: None,
                                 ui_mode: None,
+                                token: None,
                             }))
                         }
                     }
@@ -246,6 +274,7 @@ pub async fn login(
                         username: None,
                         role: None,
                         ui_mode: None,
+                        token: None,
                     })),
                 }
             } else {
@@ -256,6 +285,7 @@ pub async fn login(
                     username: None,
                     role: None,
                     ui_mode: None,
+                    token: None,
                 }))
             }
         }
@@ -266,6 +296,7 @@ pub async fn login(
             username: None,
             role: None,
             ui_mode: None,
+            token: None,
         })),
     }
 }
@@ -981,6 +1012,7 @@ pub struct VerifyPinResponse {
     pub username: String,
     pub role: String,
     pub error: Option<String>,
+    pub token: Option<String>,
 }
 
 pub async fn ping() -> &'static str {
@@ -1008,12 +1040,33 @@ pub async fn verify_mobile_pin(
                 "Could not acquire session lock during PIN verification, skipping session update."
             );
         }
+        let expiration = chrono::Utc::now()
+            .checked_add_signed(chrono::Duration::days(30))
+            .expect("valid timestamp")
+            .timestamp() as usize;
+
+        let claims = crate::middleware::auth::Claims {
+            sub: "mobile_user".to_string(),
+            user_id: Some(0),
+            username: Some("mobile_user".to_string()),
+            role: Some("worker".to_string()),
+            ui_mode: Some("mobile".to_string()),
+            exp: expiration,
+        };
+
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(crate::middleware::auth::get_jwt_secret()),
+        )
+        .ok();
 
         Ok(Json(VerifyPinResponse {
             success: true,
             username: "mobile_user".to_string(),
             role: "worker".to_string(),
             error: None,
+            token,
         }))
     } else {
         tracing::warn!(
@@ -1026,6 +1079,7 @@ pub async fn verify_mobile_pin(
             username: "".to_string(),
             role: "".to_string(),
             error: Some("PIN 번호가 올바르지 않습니다.".to_string()),
+            token: None,
         }))
     }
 }

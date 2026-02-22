@@ -67,6 +67,9 @@ const Login = ({ onLoginSuccess }) => {
                 sessionStorage.setItem('username', response.username);
                 sessionStorage.setItem('userRole', response.role);
                 sessionStorage.setItem('uiMode', response.ui_mode || 'pro');
+                if (response.token) {
+                    localStorage.setItem('token', response.token);
+                }
 
                 if (onLoginSuccess) {
                     onLoginSuccess();

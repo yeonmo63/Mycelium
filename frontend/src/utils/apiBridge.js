@@ -233,10 +233,12 @@ export async function callBridge(commandName, args = {}) {
             url = `${url}?${params.toString()}`;
         }
 
+        const token = localStorage.getItem('token');
         const response = await fetch(url, {
             method: isPost ? 'POST' : 'GET',
             headers: {
                 'Accept': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                 ...(isPost ? { 'Content-Type': 'application/json' } : {})
             },
             ...(isPost ? { body: JSON.stringify(args) } : {})
@@ -249,37 +251,38 @@ export async function callBridge(commandName, args = {}) {
         let result = null;
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
-            try {
-                result = await response.json();
-            } catch (jsonErr) {
-                console.warn(`Bridge: Failed to parse JSON from ${route}`, jsonErr);
+            result = await response.json();
+        }
+
+        // The backend now always returns { success, data?, error? }
+        if (result && typeof result === 'object') {
+            if (result.success === false) {
+                throw new Error(result.error || "Unknown server error");
             }
-        }
 
-        // If body is empty but status is OK, return success: true
-        if (result === null) {
-            return { success: true };
-        }
-
-        // Simulate Tauri command error behavior:
-        // If the backend returns { success: false, error: "..." }, throw an error.
-        if (typeof result === 'object' && result.success === false) {
-            if (result.error) {
-                throw new Error(result.error);
+            // For backward compatibility and ease of use in existing components:
+            // If data is an array/object, merge success: true into it or return it directly
+            if ('data' in result) {
+                if (result.data === null || result.data === undefined) {
+                    return { success: true };
+                }
+                if (Array.isArray(result.data)) {
+                    const arr = result.data;
+                    arr.success = true;
+                    return arr;
+                }
+                if (typeof result.data === 'object') {
+                    const obj = result.data;
+                    if (obj.success === undefined) obj.success = true;
+                    return obj;
+                }
+                return result.data; // Primitives
             }
+            return result;
         }
 
-        // If result is just true/false or other non-object, wrap it
-        if (typeof result !== 'object') {
-            return { success: true, data: result };
-        }
-
-        // Ensure success field exists if not present
-        if (result.success === undefined) {
-            result.success = true;
-        }
-
-        return result;
+        // Fallback for unexpected non-object responses
+        return { success: response.ok };
     } catch (err) {
         console.error(`Bridge: Failed to fetch ${route}:`, err);
 

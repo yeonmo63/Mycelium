@@ -23,7 +23,9 @@ mod stubs;
 #[macro_use]
 mod stubs_macros;
 mod bridge;
+mod business_logic_tests;
 mod embedded_db;
+pub mod middleware;
 mod routes;
 
 async fn log_requests(
@@ -61,7 +63,10 @@ async fn log_requests(
 }
 
 use state::{AppState, SessionState, SetupStatus};
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 pub static DB_MODIFIED: AtomicBool = AtomicBool::new(false);
 pub static IS_EXITING: AtomicBool = AtomicBool::new(false);
@@ -123,6 +128,25 @@ fn main() {
             if event.id == show_item.id() {
                 let _ = open::that("http://localhost:3000");
             } else if event.id == quit_item.id() {
+                // Perform final automatic backup before exit
+                IS_EXITING.store(true, Ordering::Relaxed);
+
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    let config_dir = commands::config::get_app_config_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+                        "postgresql://postgres:ryu134^11@@localhost:5432/mycelium".to_string()
+                    });
+                    if let Ok(pool) = db::init_pool(&database_url).await {
+                        // Final backup on exit if Friday or every time?
+                        // The original logic was Friday = Full, others = Incremental.
+                        // But for now let's just use trigger_auto_backup logic if changes exist.
+                        let _ =
+                            commands::backup::auto::trigger_auto_backup(&config_dir, &pool).await;
+                    }
+                });
+
                 std::process::exit(0);
             }
         }
@@ -166,10 +190,6 @@ async fn run_server() {
 
     tracing::info!("Starting Celium Backend core services...");
 
-    // Initialize Database
-    // Initialize Database (Lazy connect)
-    // We try to connect. If it fails (e.g. wrong port/credentials), we still start the server
-    // but in "NotConfigured" mode so the user can see the Setup Wizard.
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
         tracing::warn!("DATABASE_URL not found in env, using default local postgres");
         "postgresql://postgres:ryu134^11@@localhost:5432/mycelium".to_string()
@@ -178,11 +198,13 @@ async fn run_server() {
     let pool = match db::init_pool(&database_url).await {
         Ok(pool) => pool,
         Err(e) => {
-            // This should rarely happen with lazy connect unless URL syntax is invalid
             tracing::error!("Failed to create pool: {}", e);
             return;
         }
     };
+
+    let config_dir =
+        commands::config::get_app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     // Check connection validity
     let setup_status = if let Ok(_) = pool.acquire().await {
@@ -195,7 +217,6 @@ async fn run_server() {
         let sim_pool = pool.clone();
         tokio::spawn(async move {
             tracing::info!("Starting IoT simulation background loop...");
-            // Run immediately once, then every 30 minutes
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1800));
             loop {
                 interval.tick().await;
@@ -205,15 +226,29 @@ async fn run_server() {
             }
         });
 
+        // Start Auto-Backup Task
+        let backup_pool = pool.clone();
+        let backup_config_dir = config_dir.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting Auto-Backup background loop...");
+            // Run every 6 hours
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(21600));
+            loop {
+                interval.tick().await;
+                if let Err(e) =
+                    commands::backup::auto::trigger_auto_backup(&backup_config_dir, &backup_pool)
+                        .await
+                {
+                    tracing::error!("Auto-backup background task failed: {}", e);
+                }
+            }
+        });
+
         SetupStatus::Configured
     } else {
         tracing::warn!("Failed to connect to database. Starting in Setup Mode.");
         SetupStatus::NotConfigured
     };
-
-    // Initialize Global App State
-    let config_dir =
-        commands::config::get_app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     let app_state = AppState {
         pool: pool.clone(),
@@ -228,6 +263,12 @@ async fn run_server() {
     // Build our application with routes
     let app = routes::create_router()
         .merge(bridge_router)
+        .route_layer(axum::middleware::from_fn(
+            crate::middleware::auth::auth_middleware,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::middleware::response::wrap_response_middleware,
+        ))
         .layer(axum::middleware::from_fn(log_requests))
         .layer(
             CorsLayer::new()

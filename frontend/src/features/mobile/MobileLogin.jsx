@@ -57,6 +57,9 @@ const MobileLogin = ({ onLoginSuccess }) => {
                 sessionStorage.setItem('userRole', data.role);
                 sessionStorage.setItem('isLoggedIn', 'true');
                 sessionStorage.setItem('pin_verified', 'true');
+                if (data.token) {
+                    localStorage.setItem('token', data.token);
+                }
                 onLoginSuccess();
             } else {
                 setError(data.error || 'PIN 번호가 올바르지 않습니다.');

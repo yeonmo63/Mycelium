@@ -7,7 +7,6 @@ pub mod state {
 }
 
 pub use state::State;
-pub use state::State as TauriState;
 
 pub fn check_admin(_app: &AppHandle) -> crate::error::MyceliumResult<()> {
     Ok(())

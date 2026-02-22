@@ -34,8 +34,8 @@ pub struct SavePathPayload {
 }
 
 pub async fn get_auto_backups_axum() -> MyceliumResult<Json<Vec<AutoBackupItem>>> {
-    let app = ();
-    let result = get_auto_backups(app).await?;
+    let config_dir = get_app_config_dir()?;
+    let result = get_auto_backups(&config_dir).await?;
     Ok(Json(result))
 }
 
@@ -43,9 +43,9 @@ pub async fn run_daily_custom_backup_axum(
     AxumState(state): AxumState<AppState>,
     Json(payload): Json<RunBackupPayload>,
 ) -> MyceliumResult<Json<String>> {
-    let app = ();
+    let config_dir = get_app_config_dir()?;
     let result = run_daily_custom_backup(
-        app,
+        &config_dir,
         &state.pool,
         payload.is_incremental,
         payload.use_compression,
@@ -58,16 +58,14 @@ pub async fn restore_database_axum(
     AxumState(state): AxumState<AppState>,
     Json(payload): Json<RestorePayload>,
 ) -> MyceliumResult<Json<String>> {
-    let app = ();
-    let result = restore_database(app, &state.pool, payload.path).await?;
+    let result = restore_database(&state.pool, payload.path).await?;
     Ok(Json(result))
 }
 
 pub async fn run_db_maintenance_axum(
     AxumState(state): AxumState<AppState>,
 ) -> MyceliumResult<Json<String>> {
-    let app = ();
-    let result = run_db_maintenance(app, &state.pool).await?;
+    let result = run_db_maintenance(&state.pool).await?;
     Ok(Json(result))
 }
 
@@ -75,8 +73,7 @@ pub async fn cleanup_old_logs_axum(
     AxumState(state): AxumState<AppState>,
     Json(payload): Json<CleanupPayload>,
 ) -> MyceliumResult<Json<u64>> {
-    let app = ();
-    let result = cleanup_old_logs(app, &state.pool, payload.months).await?;
+    let result = cleanup_old_logs(&state.pool, payload.months).await?;
     Ok(Json(result))
 }
 
@@ -128,8 +125,8 @@ pub async fn save_external_backup_path_axum(
 }
 
 pub async fn get_backup_status_axum() -> MyceliumResult<Json<Value>> {
-    let app = ();
-    let status = get_status_cmd(app).await?;
+    let config_dir = get_app_config_dir()?;
+    let status = get_status_cmd(&config_dir).await?;
     Ok(Json(status))
 }
 
