@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useModal } from '../../contexts/ModalContext';
 import { formatCurrency, parseNumber } from '../../utils/common';
+import { invoke } from '../../utils/apiBridge';
 
 /**
  * FinancePurchase.jsx
@@ -50,11 +51,8 @@ const FinancePurchase = () => {
     // --- Data Loading ---
     const loadProducts = useCallback(async () => {
         try {
-            const res = await fetch('/api/product/list');
-            if (res.ok) {
-                const list = await res.json();
-                setProducts(list || []);
-            }
+            const list = await invoke('get_product_list');
+            setProducts(list || []);
         } catch (e) {
             console.error("Product load error:", e);
         }
@@ -62,11 +60,8 @@ const FinancePurchase = () => {
 
     const loadVendors = useCallback(async () => {
         try {
-            const res = await fetch('/api/finance/vendors');
-            if (res.ok) {
-                const list = await res.json();
-                setVendors(list || []);
-            }
+            const list = await invoke('get_vendors');
+            setVendors(list || []);
         } catch (e) {
             console.error("Vendor load error:", e);
         }
@@ -74,17 +69,14 @@ const FinancePurchase = () => {
 
     const loadPurchases = useCallback(async () => {
         try {
-            const query = new URLSearchParams({
+            const query = {
                 start_date: filterStart,
                 end_date: filterEnd,
-            });
-            if (filterVendor) query.append('vendor_id', filterVendor);
+            };
+            if (filterVendor) query.vendor_id = filterVendor;
 
-            const res = await fetch(`/api/finance/purchases?${query.toString()}`);
-            if (res.ok) {
-                const list = await res.json();
-                setPurchases(list || []);
-            }
+            const list = await invoke('get_purchases', query);
+            setPurchases(list || []);
         } catch (e) {
             console.error("Purchase list load error:", e);
         }
@@ -231,23 +223,17 @@ const FinancePurchase = () => {
                     .map(i => ({ product_id: i.product_id, quantity: Number(i.quantity) }));
             }
 
-            const res = await fetch('/api/finance/purchases/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    purchase: purchasePayload,
-                    inventory_sync_data: inventorySyncData
-                })
+            await invoke('save_purchase', {
+                purchase: purchasePayload,
+                inventory_sync_data: inventorySyncData
             });
-
-            if (!res.ok) throw new Error("Failed to save purchase");
 
             await showAlert('성공', '매입 내역이 저장되었습니다.');
             handleReset();
             loadPurchases();
             loadProducts(); // Stock might have changed
         } catch (e) {
-            showAlert('오류', `저장 실패: ${e}`);
+            showAlert('오류', `저장 실패: ${e.message || e}`);
         }
     };
 
@@ -281,15 +267,10 @@ const FinancePurchase = () => {
     const handleDelete = async (id) => {
         if (await showConfirm('삭제', '이 매입 내역을 정말 삭제하시겠습니까?')) {
             try {
-                const res = await fetch('/api/finance/purchases/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id })
-                });
-                if (!res.ok) throw new Error("Failed to delete purchase");
+                await invoke('delete_purchase', { id });
                 loadPurchases();
             } catch (e) {
-                showAlert('오류', `삭제 실패: ${e}`);
+                showAlert('오류', `삭제 실패: ${e.message || e}`);
             }
         }
     };

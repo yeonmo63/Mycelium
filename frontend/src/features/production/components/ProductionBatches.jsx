@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useModal } from '../../../contexts/ModalContext';
+import { invoke } from '../../../utils/apiBridge';
 import {
     Plus, FlaskConical, Calendar, CheckCircle2, AlertCircle,
     ArrowRight, Tag, Boxes, Trash2, Edit2, Play, Square, Warehouse, Activity, ClipboardList, Search, Droplets, Thermometer
@@ -36,18 +37,15 @@ const ProductionBatches = () => {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const [resBatches, resSpaces, resProducts] = await Promise.all([
-                fetch('/api/production/batches'),
-                fetch('/api/production/spaces'),
-                fetch('/api/product/list')
+            const [batchesData, spacesData, productsData] = await Promise.all([
+                invoke('get_production_batches'),
+                invoke('get_production_spaces'),
+                invoke('get_product_list')
             ]);
 
-            const batchesData = await resBatches.json();
-            const spacesData = await resSpaces.json();
-            const productsData = await resProducts.json();
-            setBatches(batchesData);
-            setSpaces(spacesData);
-            setProducts(productsData);
+            setBatches(batchesData || []);
+            setSpaces(spacesData || []);
+            setProducts(productsData || []);
         } catch (err) {
             console.error(err);
         } finally {
@@ -92,17 +90,12 @@ const ProductionBatches = () => {
         }
 
         try {
-            const res = await fetch('/api/production/batches/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...formData,
-                    product_id: parseInt(formData.product_id),
-                    space_id: formData.space_id ? parseInt(formData.space_id) : null,
-                    initial_quantity: parseFloat(formData.initial_quantity) || 0
-                })
+            await invoke('save_production_batch', {
+                ...formData,
+                product_id: parseInt(formData.product_id),
+                space_id: formData.space_id ? parseInt(formData.space_id) : null,
+                initial_quantity: parseFloat(formData.initial_quantity) || 0
             });
-            if (!res.ok) throw new Error("Failed to save batch");
             setIsModalOpen(false);
             loadData();
             showAlert('성공', '생산 배치가 등록되었습니다.');
@@ -430,17 +423,12 @@ const QuickLogModal = ({ isOpen, batch, onClose, showAlert }) => {
         }
 
         try {
-            const res = await fetch('/api/production/logs/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...quickLogData,
-                    batch_id: parseInt(quickLogData.batch_id),
-                    space_id: quickLogData.space_id ? parseInt(quickLogData.space_id) : null,
-                    input_materials: null
-                })
+            await invoke('save_farming_log', {
+                ...quickLogData,
+                batch_id: parseInt(quickLogData.batch_id),
+                space_id: quickLogData.space_id ? parseInt(quickLogData.space_id) : null,
+                input_materials: null
             });
-            if (!res.ok) throw new Error("Failed to save log");
             localStorage.setItem('last_worker', quickLogData.worker_name);
             onClose();
             showAlert('성공', '작업 기록이 저장되었습니다.');

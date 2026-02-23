@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const CustomerBatch = () => {
     const { showAlert, showConfirm } = useModal();
@@ -43,7 +44,7 @@ const CustomerBatch = () => {
     const handleSearch = async (isAll = false) => {
         let start, end;
         let keyword = '';
-        let level = null;
+        let level = '';
 
         if (isAll) {
             start = "1900-01-01";
@@ -53,7 +54,7 @@ const CustomerBatch = () => {
             start = searchParams.dateStart || "1900-01-01";
             end = searchParams.dateEnd || "2999-12-31";
             keyword = searchParams.keyword.trim();
-            level = searchParams.level || null;
+            level = searchParams.level || '';
             if (keyword.length > 0 && /^\d+$/.test(keyword) && keyword.length < 2) {
                 await showAlert('알림', '연락처(숫자) 검색 시 최소 2글자 이상 입력해주세요.');
                 return;
@@ -62,20 +63,15 @@ const CustomerBatch = () => {
         }
 
         try {
-            const params = new URLSearchParams({ start, end });
-            if (keyword) params.append('keyword', keyword);
-            if (level) params.append('membershipLevel', level);
-
-            const res = await fetch(`/api/customer/batch/search?${params.toString()}`);
-            if (res.ok) {
-                const results = await res.json();
-                setCustomerList(results || []);
-                setCurrentPage(1);
-                setSelectedIds(new Set());
-            } else {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
+            const results = await invoke('search_customer_batch', {
+                start,
+                end,
+                keyword,
+                membershipLevel: level
+            });
+            setCustomerList(results || []);
+            setCurrentPage(1);
+            setSelectedIds(new Set());
         } catch (e) {
             console.error(e);
             showAlert('오류', '조회 중 오류가 발생했습니다: ' + e.message);
@@ -90,16 +86,10 @@ const CustomerBatch = () => {
         const days = Math.round(years * 365);
 
         try {
-            const res = await fetch(`/api/customer/batch/dormant?daysThreshold=${days}`);
-            if (res.ok) {
-                const results = await res.json();
-                setCustomerList(results || []);
-                setCurrentPage(1);
-                setSelectedIds(new Set());
-            } else {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
+            const results = await invoke('search_dormant_customers', { daysThreshold: days });
+            setCustomerList(results || []);
+            setCurrentPage(1);
+            setSelectedIds(new Set());
         } catch (e) {
             console.error(e);
             showAlert('오류', '휴먼 고객 조회 실패: ' + e.message);
@@ -125,20 +115,11 @@ const CustomerBatch = () => {
         if (!await showConfirm(isPermanentDelete ? '영구 삭제 확인' : '휴면 전환 확인', msg)) return;
 
         try {
-            const res = await fetch('/api/customer/batch/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ids: Array.from(selectedIds),
-                    permanent: isPermanentDelete,
-                    alsoDeleteSales: isPermanentDelete ? deleteSalesChecked : false
-                })
+            await invoke('delete_customers_batch', {
+                ids: Array.from(selectedIds),
+                permanent: isPermanentDelete,
+                alsoDeleteSales: isPermanentDelete ? deleteSalesChecked : false
             });
-
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
 
             await showAlert('성공', isPermanentDelete
                 ? `${selectedIds.size}명의 고객 정보가 영구 삭제되었습니다.`
@@ -164,16 +145,7 @@ const CustomerBatch = () => {
         if (!await showConfirm('정상 복구 확인', `선택한 ${selectedIds.size}명의 휴면 고객을 '정상' 상태로 복구하시겠습니까?`)) return;
 
         try {
-            const res = await fetch('/api/customer/batch/reactivate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: Array.from(selectedIds) })
-            });
-
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
+            await invoke('reactivate_customers_batch', { ids: Array.from(selectedIds) });
 
             await showAlert('성공', `${selectedIds.size}명의 고객이 정상 고객으로 복구되었습니다.`);
 
@@ -237,18 +209,7 @@ const CustomerBatch = () => {
         setAiInsight(null);
 
         try {
-            const res = await fetch(`/api/customer/ai-insight?customer_id=${customerId}`);
-
-            if (res.status === 429 || res.status === 403) {
-                throw new Error('AI_QUOTA_EXCEEDED');
-            }
-
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`AI 분석 실패: ${errText}`);
-            }
-
-            const insight = await res.json();
+            const insight = await invoke('get_customer_ai_insight', { customer_id: customerId });
             setAiInsight(insight);
         } catch (e) {
             console.error(e);
@@ -265,15 +226,9 @@ const CustomerBatch = () => {
     const viewLogs = async (c) => {
         setSelectedCustomerForLogs(c);
         try {
-            const res = await fetch(`/api/customer/logs?customer_id=${c.customer_id}`);
-            if (res.ok) {
-                const logs = await res.json();
-                setCustomerLogs(logs || []);
-                setIsLogsModalOpen(true);
-            } else {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
+            const logs = await invoke('get_customer_logs', { customer_id: c.customer_id });
+            setCustomerLogs(logs || []);
+            setIsLogsModalOpen(true);
         } catch (e) {
             showAlert('오류', '이력 조회 실패: ' + e.message);
         }

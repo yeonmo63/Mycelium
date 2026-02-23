@@ -3,6 +3,7 @@ import * as echarts from 'echarts';
 import { formatCurrency, copyToClipboard, formatPhoneNumber } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
 import { handlePrintRaw } from '../../utils/printUtils';
+import { invoke } from '../../utils/apiBridge';
 
 const personalPrintStyles = `
     @media print {
@@ -141,9 +142,10 @@ const SalesPersonalHistory = () => {
         setShowAnalysis(false); // Hide analysis on new search
 
         try {
-            const res = await fetch(`/api/sales/search-all?query=${encodeURIComponent(keyword.trim())}&period=${period}`);
-            if (!res.ok) throw new Error('Network response was not ok');
-            const results = await res.json();
+            const results = await invoke('search_sales_all', {
+                query: keyword.trim(),
+                period: period
+            });
             setSales(results || []);
         } catch (e) {
             console.error(e);

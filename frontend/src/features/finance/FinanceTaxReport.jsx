@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { formatCurrency, formatDate } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const FinanceTaxReport = () => {
     const { showAlert } = useModal();
@@ -31,17 +32,10 @@ const FinanceTaxReport = () => {
     const loadReport = async () => {
         setIsLoading(true);
         try {
-            const query = new URLSearchParams({
+            const data = await invoke('get_tax_report', {
                 start_date: startDate,
                 end_date: endDate,
             });
-            const res = await fetch(`/api/finance/tax/report?${query.toString()}`);
-            let data = [];
-            if (res.ok) {
-                data = await res.json();
-            } else {
-                throw new Error("Failed to load tax report");
-            }
 
             let taxableSales = [];
             let exemptSales = [];
@@ -163,21 +157,11 @@ const FinanceTaxReport = () => {
 
         setIsLoading(true);
         try {
-            const res = await fetch('/api/finance/tax/submit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    items: allData,
-                    start_date: startDate,
-                    end_date: endDate
-                })
+            const result = await invoke('submit_tax_report', {
+                items: allData,
+                start_date: startDate,
+                end_date: endDate
             });
-
-            if (!res.ok) {
-                const err = await res.text();
-                throw new Error(err);
-            }
-            const result = await res.json();
             showAlert("전송 성공", result);
         } catch (e) {
             console.error(e);

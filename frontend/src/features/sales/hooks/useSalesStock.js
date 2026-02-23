@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { invoke } from '../../../utils/apiBridge';
 
 export const useSalesStock = (showAlert, showConfirm) => {
     // --- State ---
@@ -46,34 +47,22 @@ export const useSalesStock = (showAlert, showConfirm) => {
     const loadData = async () => {
         try {
             // 1. Fetch Products
-            const resProducts = await fetch('/api/product/list');
-            if (resProducts.ok) {
-                const list = await resProducts.json();
-                setProducts(list || []);
-            }
+            const list = await invoke('get_product_list');
+            setProducts(list || []);
 
             // 2. Fetch Freshness
-            const resFresh = await fetch('/api/product/freshness');
             const fMap = {};
-            if (resFresh.ok) {
-                const freshData = await resFresh.json();
-                if (freshData) {
-                    freshData.forEach(item => {
-                        fMap[item.product_id] = item.last_in_date;
-                    });
-                }
+            const freshData = await invoke('get_product_freshness');
+            if (freshData) {
+                freshData.forEach(item => {
+                    fMap[item.product_id] = item.last_in_date;
+                });
             }
             setFreshnessMap(fMap);
 
             // 3. Fetch Logs
-            const queryParams = new URLSearchParams({ limit: 100 });
-            if (tab) queryParams.append('itemType', tab);
-
-            const resLogs = await fetch(`/api/product/logs?${queryParams.toString()}`);
-            if (resLogs.ok) {
-                const logData = await resLogs.json();
-                setLogs(logData || []);
-            }
+            const logData = await invoke('get_product_logs', { limit: 100, itemType: tab });
+            setLogs(logData || []);
         } catch (e) {
             console.error("Failed to load data:", e);
         }
@@ -112,18 +101,12 @@ export const useSalesStock = (showAlert, showConfirm) => {
             const memoText = changeQty > 0 ? '재고 입고(수동)' : '재고 조정(수동)';
             const fullMemo = memo ? `${memoText} - ${memo}` : (reason ? `${memoText} - ${reason}` : memoText);
 
-            const res = await fetch('/api/product/stock/adjust', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    productId: product.product_id,
-                    changeQty,
-                    memo: fullMemo,
-                    reasonCategory: reason || null
-                })
+            await invoke('adjust_product_stock', {
+                productId: product.product_id,
+                changeQty,
+                memo: fullMemo,
+                reasonCategory: reason || null
             });
-
-            if (!res.ok) throw new Error("Failed to adjust stock");
 
             setAdjustModal(prev => ({ ...prev, open: false }));
             await loadData();
@@ -158,21 +141,14 @@ export const useSalesStock = (showAlert, showConfirm) => {
         }
 
         try {
-            const responses = await Promise.all(validItems.map(item =>
-                fetch('/api/product/stock/adjust', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        productId: Number(item.targetId),
-                        changeQty: Number(item.qty),
-                        memo: `수확 입고 [${item.grade}등급]${memo ? ' - ' + memo : ''}`,
-                        reasonCategory: '수확'
-                    })
+            await Promise.all(validItems.map(item =>
+                invoke('adjust_product_stock', {
+                    productId: Number(item.targetId),
+                    changeQty: Number(item.qty),
+                    memo: `수확 입고 [${item.grade}등급]${memo ? ' - ' + memo : ''}`,
+                    reasonCategory: '수확'
                 })
             ));
-
-            const failed = responses.filter(r => !r.ok);
-            if (failed.length > 0) throw new Error(`${failed.length}건의 처리가 실패했습니다.`);
 
             await showAlert("완료", `${validItems.length}건의 수확 입고 처리가 완료되었습니다.`);
             setHarvestModal(prev => ({ ...prev, open: false }));
@@ -233,17 +209,11 @@ export const useSalesStock = (showAlert, showConfirm) => {
         }
 
         try {
-            const res = await fetch('/api/product/stock/convert', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    targets: validTargets.map(t => ({ product_id: Number(t.productId), quantity: Number(t.qty) })),
-                    deductions: validDeductions.map(d => ({ material_id: d.materialId, quantity: Number(d.rQty) })),
-                    memo: memo || '통합 상품화 처리'
-                })
+            await invoke('convert_product_stock', {
+                targets: validTargets.map(t => ({ product_id: Number(t.productId), quantity: Number(t.qty) })),
+                deductions: validDeductions.map(d => ({ material_id: d.materialId, quantity: Number(d.rQty) })),
+                memo: memo || '통합 상품화 처리'
             });
-
-            if (!res.ok) throw new Error("Failed to convert stock");
 
             await showAlert("완료", "통합 상품화 처리가 완료되었습니다.");
             setConvertModal(prev => ({ ...prev, open: false }));

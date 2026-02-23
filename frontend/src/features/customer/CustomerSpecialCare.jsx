@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const CustomerSpecialCare = () => {
     const { showAlert, showConfirm } = useModal();
@@ -14,11 +15,7 @@ const CustomerSpecialCare = () => {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch('/api/crm/special-care');
-            if (!res.ok) {
-                throw new Error(await res.text());
-            }
-            const data = await res.json();
+            const data = await invoke('get_special_care');
             const sorted = (data || []).sort((a, b) => b.claim_ratio - a.claim_ratio); // Sort by risk
             setCustomers(sorted);
             calculateStats(sorted);

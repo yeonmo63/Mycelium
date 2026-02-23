@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const CustomerConsultation = () => {
     const { showAlert, showConfirm } = useModal();
@@ -35,18 +36,11 @@ const CustomerConsultation = () => {
 
     const handleSearch = async () => {
         try {
-            const params = new URLSearchParams();
-            if (searchParams.startDate) params.append('startDate', searchParams.startDate);
-            if (searchParams.endDate) params.append('endDate', searchParams.endDate);
-
-            const res = await fetch(`/api/crm/consultations?${params.toString()}`);
-            if (res.ok) {
-                const results = await res.json();
-                setConsultList(results || []);
-            } else {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
+            const results = await invoke('get_consultations', {
+                startDate: searchParams.startDate,
+                endDate: searchParams.endDate
+            });
+            setConsultList(results || []);
         } catch (e) {
             console.error(e);
             showAlert('오류', '상담 내역 조회 실패: ' + e.message);
@@ -56,12 +50,7 @@ const CustomerConsultation = () => {
     const handleGlobalBriefing = async () => {
         try {
             setIsAiLoading(true);
-            const res = await fetch('/api/crm/ai/summary');
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
-            const data = await res.json();
+            const data = await invoke('get_ai_summary');
             showAlert('AI 상담 브리핑', data.summary || data);
         } catch (e) {
             console.error(e);
@@ -99,43 +88,27 @@ const CustomerConsultation = () => {
         try {
             if (editData.consult_id) {
                 // Update
-                const res = await fetch('/api/crm/consultations/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        consultId: editData.consult_id,
-                        answer: editData.answer || null,
-                        status: editData.status,
-                        priority: editData.priority,
-                        followUpDate: editData.follow_up_date || null
-                    })
+                await invoke('update_consultation', {
+                    consultId: editData.consult_id,
+                    answer: editData.answer || null,
+                    status: editData.status,
+                    priority: editData.priority,
+                    followUpDate: editData.follow_up_date || null
                 });
-                if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(errText);
-                }
                 showAlert('성공', '상담 내역이 업데이트되었습니다.');
             } else {
                 // Create
-                const res = await fetch('/api/crm/consultations/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        customerId: editData.customer_id || null,
-                        guestName: editData.guest_name,
-                        contact: editData.contact,
-                        channel: editData.channel,
-                        counselorName: editData.counselor_name,
-                        category: editData.category,
-                        priority: editData.priority,
-                        title: editData.title,
-                        content: editData.content
-                    })
+                await invoke('create_consultation', {
+                    customerId: editData.customer_id || null,
+                    guestName: editData.guest_name,
+                    contact: editData.contact,
+                    channel: editData.channel,
+                    counselorName: editData.counselor_name,
+                    category: editData.category,
+                    priority: editData.priority,
+                    title: editData.title,
+                    content: editData.content
                 });
-                if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(errText);
-                }
                 showAlert('성공', '새로운 상담이 등록되었습니다.');
             }
             setIsModalOpen(false);
@@ -150,11 +123,7 @@ const CustomerConsultation = () => {
         if (!await showConfirm('삭제 확인', '정말 이 상담 내역을 삭제하시겠습니까?')) return;
 
         try {
-            const res = await fetch(`/api/crm/consultations/delete?consult_id=${editData.consult_id}`);
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
+            await invoke('delete_consultation', { consult_id: editData.consult_id });
             showAlert('성공', '삭제되었습니다.');
             setIsModalOpen(false);
             handleSearch();
@@ -168,25 +137,12 @@ const CustomerConsultation = () => {
         if (!editData) return;
         setIsAiLoading(true);
         try {
-            const res = await fetch('/api/crm/ai/advisor', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    customerId: editData.customer_id || null,
-                    category: editData.category,
-                    title: editData.title,
-                    content: editData.content
-                })
+            const advice = await invoke('get_ai_advisor', {
+                customerId: editData.customer_id || null,
+                category: editData.category,
+                title: editData.title,
+                content: editData.content
             });
-
-            if (res.status === 429 || res.status === 403) {
-                throw new Error('AI_QUOTA_EXCEEDED');
-            }
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
-            const advice = await res.json();
             setAiAdvisor(advice);
         } catch (e) {
             console.error(e);
@@ -204,16 +160,7 @@ const CustomerConsultation = () => {
         if (!editData?.customer_id) return;
         setIsAiLoading(true);
         try {
-            const res = await fetch(`/api/crm/ai/briefing?customer_id=${editData.customer_id}`);
-
-            if (res.status === 429 || res.status === 403) {
-                throw new Error('AI_QUOTA_EXCEEDED');
-            }
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
-            const data = await res.json();
+            const data = await invoke('get_ai_briefing', { customer_id: editData.customer_id });
             setAiBriefing(data.briefing || data);
         } catch (e) {
             console.error(e);
@@ -234,12 +181,7 @@ const CustomerConsultation = () => {
             return;
         }
         try {
-            const res = await fetch(`/api/customer/search/name?query=${encodeURIComponent(name)}`);
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(errText);
-            }
-            const customers = await res.json();
+            const customers = await invoke('search_customers_by_name', { query: name });
             if (!customers || customers.length === 0) {
                 // No match - assume guest (silent)
             } else if (customers.length === 1) {

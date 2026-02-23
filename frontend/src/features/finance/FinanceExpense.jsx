@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatCurrency, parseNumber } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 /**
  * FinanceExpense.jsx
@@ -39,17 +40,14 @@ const FinanceExpense = () => {
     const loadExpenses = async () => {
         setIsLoading(true);
         try {
-            const query = new URLSearchParams({
+            const query = {
                 start_date: filter.start,
                 end_date: filter.end,
-            });
-            if (filter.category) query.append('category', filter.category);
+            };
+            if (filter.category) query.category = filter.category;
 
-            const res = await fetch(`/api/finance/expenses?${query.toString()}`);
-            if (res.ok) {
-                const list = await res.json();
-                setExpenses(list || []);
-            }
+            const list = await invoke('get_expenses', query);
+            setExpenses(list || []);
         } catch (e) {
             console.error(e);
             showAlert("오류", "데이터 로딩 실패: " + e);
@@ -92,35 +90,22 @@ const FinanceExpense = () => {
         };
 
         try {
-            const res = await fetch('/api/finance/expenses/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(expense)
-            });
-
-            if (!res.ok) throw new Error("Failed to save expense");
-
+            await invoke('save_expense', expense);
             await showAlert("성공", "지출 내역이 저장되었습니다.");
             handleReset();
             loadExpenses();
         } catch (e) {
-            showAlert("오류", "저장 실패: " + e);
+            showAlert("오류", "저장 실패: " + e.message || e);
         }
     };
 
     const handleDelete = async (id) => {
         if (!await showConfirm("삭제 확인", "이 지출 내역을 삭제하시겠습니까?")) return;
         try {
-            const res = await fetch('/api/finance/expenses/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id })
-            });
-
-            if (!res.ok) throw new Error("Failed to delete expense");
+            await invoke('delete_expense', { id });
             loadExpenses();
         } catch (e) {
-            showAlert("오류", "삭제 실패: " + e);
+            showAlert("오류", "삭제 실패: " + e.message || e);
         }
     };
 

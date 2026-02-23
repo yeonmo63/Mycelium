@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const EventMgmt = () => {
     const { showAlert, showConfirm } = useModal();
@@ -29,16 +30,11 @@ const EventMgmt = () => {
     const loadEvents = async (query = '') => {
         setIsLoading(true);
         try {
-            const url = query
-                ? `/api/event/list?query=${encodeURIComponent(query)}`
-                : '/api/event/list';
-            const res = await fetch(url);
-            if (!res.ok) throw new Error('Network response was not ok');
-            const data = await res.json();
+            const data = await invoke('get_all_events', { query });
             setEvents(data || []);
         } catch (e) {
             console.error(e);
-            showAlert("오류", "데이터 로드 실패: " + e);
+            showAlert("오류", "데이터 로드 실패: " + e.message || e);
             setEvents([]);
         } finally {
             setIsLoading(false);
@@ -97,22 +93,11 @@ const EventMgmt = () => {
         };
 
         try {
-            let res;
             if (form.id) {
-                res = await fetch('/api/event/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                await invoke('update_event', payload);
             } else {
-                res = await fetch('/api/event/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                await invoke('create_event', payload);
             }
-
-            if (!res.ok) throw new Error('Network response was not ok');
 
             setIsModalOpen(false);
             await showAlert("성공", form.id ? "수정되었습니다." : "등록되었습니다.");
@@ -128,13 +113,7 @@ const EventMgmt = () => {
         if (!await showConfirm("삭제 확인", "정말로 이 행사를 삭제하시겠습니까?\n(관련 판매 데이터가 있을 경우 삭제되지 않을 수 있습니다)")) return;
 
         try {
-            const res = await fetch('/api/event/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ event_id: form.id })
-            });
-
-            if (!res.ok) throw new Error('Network response was not ok');
+            await invoke('delete_event', { event_id: form.id });
 
             setIsModalOpen(false);
             await showAlert("성공", "삭제되었습니다.");

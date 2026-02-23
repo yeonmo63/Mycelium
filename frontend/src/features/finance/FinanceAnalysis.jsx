@@ -3,6 +3,7 @@ import { Chart, registerables } from 'chart.js';
 import { formatCurrency } from '../../utils/common';
 import { handlePrintRaw } from '../../utils/printUtils';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 Chart.register(...registerables);
 
@@ -148,20 +149,16 @@ const FinanceAnalysis = () => {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            // Parallel Fetch
-            const [plRes, costRes, vendorRes] = await Promise.all([
-                fetch(`/api/finance/analysis/monthly-pl?year=${year}`),
-                fetch(`/api/finance/analysis/cost-breakdown?year=${year}`),
-                fetch(`/api/finance/analysis/vendor-ranking?year=${year}`)
+            // Parallel Fetch using invoke
+            const [plData, costData, vendorData] = await Promise.all([
+                invoke('get_monthly_pl', { year }),
+                invoke('get_cost_breakdown', { year }),
+                invoke('get_vendor_ranking', { year })
             ]);
 
-            const plData = plRes.ok ? await plRes.json() : [];
-            const costData = costRes.ok ? await costRes.json() : [];
-            const vendorData = vendorRes.ok ? await vendorRes.json() : [];
-
             // Process Stats
-            const totalRev = plData.reduce((sum, d) => sum + d.revenue, 0);
-            const totalCost = plData.reduce((sum, d) => sum + d.cost, 0);
+            const totalRev = (plData || []).reduce((sum, d) => sum + d.revenue, 0);
+            const totalCost = (plData || []).reduce((sum, d) => sum + d.cost, 0);
             const netProfit = totalRev - totalCost;
             const margin = totalRev > 0 ? ((netProfit / totalRev) * 100).toFixed(1) : 0;
 

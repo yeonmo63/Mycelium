@@ -34,11 +34,17 @@ async fn log_requests(
 ) -> impl IntoResponse {
     let method = req.method().clone();
     let uri = req.uri().clone();
+
+    // Determine log path in writable app config dir
+    let log_path = commands::config::get_app_config_dir()
+        .map(|p| p.join("api_requests.log"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("api_requests.log"));
+
     let log_line = format!(">>> Request: {} {}\n", method, uri);
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("api_requests.log")
+        .open(&log_path)
         .and_then(|mut f| {
             use std::io::Write;
             let _ = f.write_all(log_line.as_bytes());
@@ -51,7 +57,7 @@ async fn log_requests(
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("api_requests.log")
+        .open(&log_path)
         .and_then(|mut f| {
             use std::io::Write;
             let _ = f.write_all(res_log.as_bytes());

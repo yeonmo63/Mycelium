@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatPhoneNumber } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 /**
  * CustomerRegister.jsx
@@ -68,11 +69,8 @@ const CustomerRegister = () => {
         const timer = setTimeout(async () => {
             if (isNameDirty && formData.name.trim().length >= 2) {
                 try {
-                    const res = await fetch(`/api/customer/search/name?query=${encodeURIComponent(formData.name)}`);
-                    if (res.ok) {
-                        const results = await res.json();
-                        setNameSuggestions(results.slice(0, 5));
-                    }
+                    const results = await invoke('search_customers_by_name', { query: formData.name });
+                    setNameSuggestions(results ? results.slice(0, 5) : []);
                 } catch (e) {
                     console.error("Name search failed:", e);
                 }
@@ -89,11 +87,8 @@ const CustomerRegister = () => {
             const cleanMobile = formData.mobile.replace(/[^0-9]/g, '');
             if (isMobileDirty && cleanMobile.length >= 4) {
                 try {
-                    const res = await fetch(`/api/customer/search/mobile?query=${encodeURIComponent(formData.mobile)}`);
-                    if (res.ok) {
-                        const results = await res.json();
-                        setMobileSuggestions(results.slice(0, 5));
-                    }
+                    const results = await invoke('search_customers_by_mobile', { query: formData.mobile });
+                    setMobileSuggestions(results ? results.slice(0, 5) : []);
                 } catch (e) {
                     console.error("Mobile search failed:", e);
                 }
@@ -209,16 +204,12 @@ const CustomerRegister = () => {
             let duplicates = [];
 
             if (name) {
-                const res = await fetch(`/api/customer/search/name?query=${encodeURIComponent(name)}`);
-                if (res.ok) {
-                    const nameDups = await res.json();
-                    duplicates = duplicates.concat(nameDups);
-                }
+                const nameDups = await invoke('search_customers_by_name', { query: name });
+                if (nameDups) duplicates = duplicates.concat(nameDups);
             }
             if (mobile && mobile.length > 5) {
-                const res = await fetch(`/api/customer/search/mobile?query=${encodeURIComponent(mobile)}`);
-                if (res.ok) {
-                    const mobileDups = await res.json();
+                const mobileDups = await invoke('search_customers_by_mobile', { query: mobile });
+                if (mobileDups) {
                     const nameIds = new Set(duplicates.map(d => d.customer_id));
                     const uniqueMobileDups = mobileDups.filter(d => !nameIds.has(d.customer_id));
                     duplicates = duplicates.concat(uniqueMobileDups);
@@ -292,14 +283,8 @@ const CustomerRegister = () => {
             };
 
 
-            const url = selectedCustomerId ? '/api/customer/update' : '/api/customer/create';
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) throw new Error('Network response was not ok');
+            const command = selectedCustomerId ? 'update_customer' : 'create_customer';
+            await invoke(command, payload);
 
             if (selectedCustomerId) {
                 await showAlert('성공', '고객 정보가 성공적으로 수정(복원)되었습니다.');
@@ -339,17 +324,10 @@ const CustomerRegister = () => {
     const processBusinessCard = async (base64, mimeType) => {
         setIsProcessing(true);
         try {
-            const res = await fetch('/api/ai/business-card', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    imageBase64: base64,
-                    mimeType: mimeType
-                })
+            const result = await invoke('parse_business_card', {
+                imageBase64: base64,
+                mimeType: mimeType
             });
-
-            if (!res.ok) throw new Error('AI processing failed');
-            const result = await res.json();
 
             setFormData(prev => ({
                 ...prev,

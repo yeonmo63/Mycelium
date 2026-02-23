@@ -1,4 +1,5 @@
 import React from 'react';
+import { invoke } from '../../../../utils/apiBridge';
 
 const LogoutModal = ({ onClose }) => {
     return (
@@ -22,7 +23,7 @@ const LogoutModal = ({ onClose }) => {
                         <button
                             onClick={async () => {
                                 try {
-                                    await fetch('/api/auth/logout', { method: 'POST' });
+                                    await invoke('logout');
                                 } catch (e) {
                                     console.error("Logout API failed", e);
                                 }

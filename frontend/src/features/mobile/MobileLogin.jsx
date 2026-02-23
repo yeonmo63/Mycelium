@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Delete, RefreshCw, X as XIcon } from 'lucide-react';
+import { invoke } from '../../utils/apiBridge';
 
 const MobileLogin = ({ onLoginSuccess }) => {
     const [pin, setPin] = useState('');
@@ -37,21 +38,8 @@ const MobileLogin = ({ onLoginSuccess }) => {
         setError('');
 
         try {
-            let baseUrl = localStorage.getItem('API_BASE_URL') || '';
-            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+            const data = await invoke('verify_mobile_pin', { pin: currentPin });
 
-            const response = await fetch(`${baseUrl}/api/auth/verify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: currentPin })
-            });
-
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Server returned ${response.status}: ${text}`);
-            }
-
-            const data = await response.json();
             if (data.success) {
                 sessionStorage.setItem('username', data.username);
                 sessionStorage.setItem('userRole', data.role);

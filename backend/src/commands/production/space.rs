@@ -110,13 +110,18 @@ pub async fn save_production_space_axum(
     Ok(Json(()))
 }
 
-pub async fn delete_production_space_axum(
+#[derive(serde::Deserialize)]
+pub struct DeleteRequest {
+    pub id: i32,
+}
+
+pub async fn delete_production_space_body_axum(
     AxumState(state): AxumState<AppState>,
-    axum::extract::Path(space_id): axum::extract::Path<i32>,
+    Json(payload): Json<DeleteRequest>,
 ) -> MyceliumResult<Json<()>> {
     let pool = &state.pool;
     query("DELETE FROM production_spaces WHERE space_id = $1")
-        .bind(space_id)
+        .bind(payload.id)
         .execute(pool)
         .await?;
     Ok(Json(()))

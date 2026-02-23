@@ -9,7 +9,14 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
 pub async fn wrap_response_middleware(req: Request, next: Next) -> Result<Response, StatusCode> {
+    let path = req.uri().path().to_string();
     let res = next.run(req).await;
+
+    // Only wrap /api responses and avoid wrapping static assets
+    if !path.starts_with("/api") {
+        return Ok(res);
+    }
+
     let status = res.status();
 
     // Check if the response is already JSON

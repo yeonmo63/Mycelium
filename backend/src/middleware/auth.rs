@@ -44,6 +44,8 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
         "/api/auth/check",
         "/api/auth/verify",
         "/api/ping",
+        "/api/system/check-update",
+        "/api/auth/company",
     ];
 
     if !path.starts_with("/api/") || public_routes.contains(&path) {

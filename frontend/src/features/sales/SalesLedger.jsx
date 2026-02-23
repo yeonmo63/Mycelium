@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatCurrency, parseNumber } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const SalesLedger = () => {
     const { showAlert, showConfirm } = useModal();
@@ -31,11 +32,8 @@ const SalesLedger = () => {
 
     const loadDefaultDebtList = async () => {
         try {
-            const res = await fetch('/api/sales/ledger/debtors');
-            if (res.ok) {
-                const list = await res.json();
-                setCustomers(list || []);
-            }
+            const list = await invoke('get_ledger_debtors');
+            setCustomers(list || []);
         } catch (e) {
             console.error(e);
         }
@@ -46,13 +44,8 @@ const SalesLedger = () => {
         setSelectedCustomer(customer);
         setIsLoadingLedger(true);
         try {
-            const res = await fetch(`/api/sales/ledger?customer_id=${customer.customer_id}`);
-            if (res.ok) {
-                const data = await res.json();
-                setLedger(data || []);
-            } else {
-                setLedger([]);
-            }
+            const data = await invoke('get_ledger', { customer_id: customer.customer_id });
+            setLedger(data || []);
         } catch (e) {
             console.error(e);
             setLedger([]);
@@ -65,11 +58,8 @@ const SalesLedger = () => {
     const searchCustomer = async () => {
         if (!customerSearchQuery) return;
         try {
-            const res = await fetch(`/api/customer/search/name?query=${encodeURIComponent(customerSearchQuery)}`);
-            if (res.ok) {
-                const list = await res.json();
-                setCustomerSearchResults(list || []);
-            }
+            const list = await invoke('search_customers_by_name', { query: customerSearchQuery });
+            setCustomerSearchResults(list || []);
         } catch (e) {
             console.error(e);
         }
@@ -109,29 +99,21 @@ const SalesLedger = () => {
 
         try {
             if (id) {
-                await fetch('/api/sales/ledger/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        ledgerId: id,
-                        transactionDate: date,
-                        transactionType: type,
-                        amount: amountVal,
-                        description: desc
-                    })
+                await invoke('update_ledger_entry', {
+                    ledgerId: id,
+                    transactionDate: date,
+                    transactionType: type,
+                    amount: amountVal,
+                    description: desc
                 });
                 await showAlert("성공", "수정되었습니다.");
             } else {
-                await fetch('/api/sales/ledger/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        customerId: selectedCustomer.customer_id,
-                        transactionDate: date,
-                        transactionType: type,
-                        amount: amountVal,
-                        description: desc
-                    })
+                await invoke('create_ledger_entry', {
+                    customerId: selectedCustomer.customer_id,
+                    transactionDate: date,
+                    transactionType: type,
+                    amount: amountVal,
+                    description: desc
                 });
                 await showAlert("성공", "등록되었습니다.");
             }
@@ -140,33 +122,26 @@ const SalesLedger = () => {
             await loadDefaultDebtList(); // Refresh list balances
 
             // Refresh the selected customer object to get fresh current_balance
-            const freshRes = await fetch(`/api/customer/get?customer_id=${selectedCustomer.customer_id}`);
-            if (freshRes.ok) {
-                const fresh = await freshRes.json();
+            const fresh = await invoke('get_customer', { customer_id: selectedCustomer.customer_id });
+            if (fresh) {
                 handleSelectCustomer(fresh);
             } else {
-                // If balance became 0 and filtered out (though get_customer should still work), 
-                // we still want to show the current one until they switch
                 handleSelectCustomer(selectedCustomer);
             }
         } catch (e) {
-            showAlert("오류", "저장 실패: " + e);
+            showAlert("오류", "저장 실패: " + e.message || e);
         }
     };
 
     const handleDeleteEntry = async (id) => {
         if (!await showConfirm("삭제 확인", "정말 이 내역을 삭제하시겠습니까?\n삭제 후 잔액은 자동으로 조정됩니다.")) return;
         try {
-            await fetch('/api/sales/ledger/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ledgerId: id })
-            });
+            await invoke('delete_ledger_entry', { ledgerId: id });
             await showAlert("성공", "삭제되었습니다.");
             handleSelectCustomer(selectedCustomer);
             loadDefaultDebtList();
         } catch (e) {
-            showAlert("오류", "삭제 실패: " + e);
+            showAlert("오류", "삭제 실패: " + e.message || e);
         }
     };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import dayjs from 'dayjs';
 import { X, Printer, Download, Eye, FileText, CheckCircle2 } from 'lucide-react';
+import { invoke } from '../../../utils/apiBridge';
 
 const workTypes = {
     plant: '식재/종균접종',
@@ -40,20 +41,11 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const params = new URLSearchParams();
-            if (startDate) params.append('startDate', startDate);
-            if (endDate) params.append('endDate', endDate);
-            // Axum handler doesn't support array for workType filtering yet strictly via query params in the same way, 
-            // but we can filter client side as before or update backend. 
-            // For now, fetching all logs in range and filtering client side is safer given the existing logic.
-
-            const [resLogs, resCompany] = await Promise.all([
-                fetch(`/api/production/logs?${params.toString()}&limit=1000`),
-                fetch('/api/auth/company')
+            // Fetch using bridge
+            const [logsData, companyData] = await Promise.all([
+                invoke('get_production_logs', { startDate, endDate, limit: 1000 }),
+                invoke('get_company_info')
             ]);
-
-            const logsData = await resLogs.json();
-            const companyData = await resCompany.json();
 
             let filteredLogs = logsData;
             const allowedCategories = reportCategoryMap[reportType];

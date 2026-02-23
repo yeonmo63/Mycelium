@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { formatPhoneNumber, formatCurrency } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 
 /**
@@ -77,12 +78,10 @@ const CustomerList = () => {
         try {
             let results = [];
             if (/[0-9]/.test(searchTerm)) {
-                const res = await fetch(`/api/customer/search/mobile?query=${encodeURIComponent(searchTerm)}`);
-                if (res.ok) results = await res.json();
+                results = await invoke('search_customers_by_mobile', { query: searchTerm });
             }
-            if (results.length === 0) {
-                const res = await fetch(`/api/customer/search/name?query=${encodeURIComponent(searchTerm)}`);
-                if (res.ok) results = await res.json();
+            if (!results || results.length === 0) {
+                results = await invoke('search_customers_by_name', { query: searchTerm });
             }
 
             if (results.length === 0) {
@@ -102,11 +101,8 @@ const CustomerList = () => {
 
     const loadAddresses = async (cid) => {
         try {
-            const res = await fetch(`/api/customer/addresses?customer_id=${cid}`);
-            if (res.ok) {
-                const list = await res.json();
-                setAddresses(list || []);
-            }
+            const list = await invoke('get_customer_addresses', { customer_id: cid });
+            setAddresses(list || []);
         } catch (e) {
             console.error("Address fetch error:", e);
             showAlert("오류", `배송지 목록을 불러오지 못했습니다: ${e.message}`);
@@ -117,16 +113,10 @@ const CustomerList = () => {
         if (!cid) return;
         try {
             console.log(`Fetching logs for ${cid}`);
-            const res = await fetch(`/api/customer/logs?customer_id=${cid}`);
-            if (res.ok) {
-                const logs = await res.json();
-                console.log("Logs loaded:", logs);
-                setCustomerLogs(logs);
-                setIsLogsModalOpen(true);
-            } else {
-                const errText = await res.text();
-                throw new Error(`Status ${res.status}: ${errText}`);
-            }
+            const logs = await invoke('get_customer_logs', { customer_id: cid });
+            console.log("Logs loaded:", logs);
+            setCustomerLogs(logs || []);
+            setIsLogsModalOpen(true);
         } catch (e) {
             console.error("Log fetch error:", e);
             showAlert("오류", `변경 이력을 불러오지 못했습니다: ${e.message}`);
@@ -200,19 +190,13 @@ const CustomerList = () => {
                 purchaseCycle: formData.purchaseCycle || null
             };
 
-            const res = await fetch('/api/customer/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('Update failed');
+            await invoke('update_customer', payload);
 
             await showAlert("성공", "수정되었습니다.");
             setMode('view');
 
-            const freshRes = await fetch(`/api/customer/get?customer_id=${formData.id}`);
-            if (freshRes.ok) {
-                const fresh = await freshRes.json();
+            const fresh = await invoke('get_customer', { customer_id: formData.id });
+            if (fresh) {
                 loadCustomer(fresh);
             }
         } catch (err) { await showAlert("오류", "수정 실패: " + err); } finally { setIsProcessing(false); }
@@ -226,12 +210,7 @@ const CustomerList = () => {
         if (!await showConfirm("휴면 전환", "정말로 이 고객을 휴면 고객으로 전환하시겠습니까?\n고객 정보는 보관되지만, '정상' 고객 검색 결과에서 제외됩니다.")) return;
         setIsProcessing(true);
         try {
-            const res = await fetch('/api/customer/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ customer_id: customer.customer_id })
-            });
-            if (!res.ok) throw new Error('Operation failed');
+            await invoke('delete_customer', { customer_id: customer.customer_id });
 
             await showAlert("성공", "휴면 고객으로 전환되었습니다.");
             handleReset();
@@ -243,17 +222,11 @@ const CustomerList = () => {
         if (!await showConfirm("정상 전환", "이 고객을 다시 '정상' 고객으로 전환하시겠습니까?")) return;
         setIsProcessing(true);
         try {
-            const res = await fetch('/api/customer/reactivate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ customer_id: customer.customer_id })
-            });
-            if (!res.ok) throw new Error('Operation failed');
+            await invoke('reactivate_customer', { customer_id: customer.customer_id });
 
             await showAlert("성공", "정상 고객으로 전환되었습니다.");
-            const freshRes = await fetch(`/api/customer/get?customer_id=${customer.customer_id}`);
-            if (freshRes.ok) {
-                const fresh = await freshRes.json();
+            const fresh = await invoke('get_customer', { customer_id: customer.customer_id });
+            if (fresh) {
                 loadCustomer(fresh);
             }
         } catch (err) { await showAlert("오류", "전환 실패: " + err); } finally { setIsProcessing(false); }
@@ -474,15 +447,10 @@ const CustomerList = () => {
                                                 <input type="radio" checked={addr.is_default} onChange={async () => {
                                                     if (mode === 'view' || !customer) return;
                                                     try {
-                                                        await fetch('/api/customer/address/set-default', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ customerId: customer.customer_id, addressId: addr.address_id })
-                                                        });
+                                                        await invoke('set_default_address', { customerId: customer.customer_id, addressId: addr.address_id });
                                                         loadAddresses(customer.customer_id);
-                                                        const freshRes = await fetch(`/api/customer/get?customer_id=${customer.customer_id}`);
-                                                        if (freshRes.ok) {
-                                                            const fresh = await freshRes.json();
+                                                        const fresh = await invoke('get_customer', { customer_id: customer.customer_id });
+                                                        if (fresh) {
                                                             loadCustomer(fresh);
                                                         }
                                                     } catch (e) { showAlert("오류", "설정 실패"); }
@@ -491,7 +459,7 @@ const CustomerList = () => {
                                             <td className="px-4 py-2 text-center">
                                                 <div className="flex justify-center gap-1">
                                                     <button type="button" disabled={mode === 'view' || addr.address_alias === '기본'} onClick={() => { setEditingAddress(addr); setIsAddressModalOpen(true); }} className="w-7 h-7 rounded bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 disabled:opacity-20"><span className="material-symbols-rounded text-sm">edit</span></button>
-                                                    <button type="button" disabled={mode === 'view' || addr.address_alias === '기본'} onClick={async () => { if (await showConfirm("삭제", "정말 삭제하시겠습니까?")) { await fetch('/api/customer/address/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address_id: addr.address_id }) }); loadAddresses(customer.customer_id); } }} className="w-7 h-7 rounded bg-white border border-slate-200 text-slate-400 hover:text-rose-600 disabled:opacity-20"><span className="material-symbols-rounded text-sm">delete</span></button>
+                                                    <button type="button" disabled={mode === 'view' || addr.address_alias === '기본'} onClick={async () => { if (await showConfirm("삭제", "정말 삭제하시겠습니까?")) { await invoke('delete_customer_address', { address_id: addr.address_id }); loadAddresses(customer.customer_id); } }} className="w-7 h-7 rounded bg-white border border-slate-200 text-slate-400 hover:text-rose-600 disabled:opacity-20"><span className="material-symbols-rounded text-sm">delete</span></button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -531,23 +499,12 @@ const CustomerList = () => {
                             if (!customer) return;
                             setIsProcessing(true);
                             try {
-                                const res = await fetch(`/api/customer/ai-insight?customer_id=${customer.customer_id}`);
-
-                                if (res.status === 429 || res.status === 403) {
-                                    throw new Error('AI_QUOTA_EXCEEDED');
-                                }
-
-                                if (!res.ok) {
-                                    const errText = await res.text();
-                                    throw new Error(`AI Request Failed: ${res.status} ${errText}`);
-                                }
-
-                                const insight = await res.json();
+                                const insight = await invoke('get_customer_ai_insight', { customer_id: customer.customer_id });
                                 setAiInsight(insight);
                                 setIsAiModalOpen(true);
                             } catch (e) {
                                 console.error("AI Error:", e);
-                                if (e.message === 'AI_QUOTA_EXCEEDED') {
+                                if (e.message?.includes('429') || e.message?.includes('403')) {
                                     showAlert('🚫 AI 사용 한도 초과', '일일 무료 사용량을 초과했습니다.');
                                 } else {
                                     showAlert("오류", "AI 분석 실패: " + e.message);
@@ -572,15 +529,9 @@ const CustomerList = () => {
                             if (!customer) return;
                             setIsProcessing(true);
                             try {
-                                const res = await fetch(`/api/customer/sales?customer_id=${customer.customer_id}`);
-                                if (res.ok) {
-                                    const history = await res.json();
-                                    setSalesHistory(history);
-                                    setIsSalesModalOpen(true);
-                                } else {
-                                    const errText = await res.text();
-                                    throw new Error(`Status ${res.status}: ${errText}`);
-                                }
+                                const history = await invoke('get_customer_sales', { customer_id: customer.customer_id });
+                                setSalesHistory(history || []);
+                                setIsSalesModalOpen(true);
                             } catch (e) {
                                 console.error("Sales fetch error:", e);
                                 showAlert("오류", `이력 조회 실패: ${e.message}`);
@@ -711,18 +662,10 @@ const CustomerList = () => {
                                     try {
                                         if (editingAddress.address_id) {
                                             const updateP = { ...p, addressId: editingAddress.address_id };
-                                            await fetch('/api/customer/address/update', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify(updateP)
-                                            });
+                                            await invoke('update_customer_address', updateP);
                                         }
                                         else {
-                                            await fetch('/api/customer/address/create', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify(p)
-                                            });
+                                            await invoke('create_customer_address', p);
                                         }
                                         loadAddresses(customer.customer_id); setIsAddressModalOpen(false);
                                     } catch (err) { showAlert("오류", "저장 실패: " + err); }

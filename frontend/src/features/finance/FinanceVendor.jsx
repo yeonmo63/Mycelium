@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 /**
  * FinanceVendor.jsx
@@ -50,15 +51,12 @@ const FinanceVendor = () => {
 
     const loadVendors = async () => {
         try {
-            const res = await fetch('/api/finance/vendors');
-            if (res.ok) {
-                const list = await res.json();
-                setAllVendors(list || []);
-                setVendors(list || []);
-            }
+            const list = await invoke('get_vendors');
+            setAllVendors(list || []);
+            setVendors(list || []);
         } catch (e) {
             console.error(e);
-            showAlert("오류", "데이터 로딩 실패: " + e);
+            showAlert("오류", "데이터 로딩 실패: " + e.message || e);
         }
     };
 
@@ -85,35 +83,22 @@ const FinanceVendor = () => {
         };
 
         try {
-            const res = await fetch('/api/finance/vendors/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(vendor)
-            });
-
-            if (!res.ok) throw new Error("Failed to save vendor");
-
+            await invoke('save_vendor', vendor);
             await showAlert("성공", "거래처 정보가 저장되었습니다.");
             handleReset();
             loadVendors();
         } catch (e) {
-            showAlert("오류", "저장 실패: " + e);
+            showAlert("오류", "저장 실패: " + e.message || e);
         }
     };
 
     const handleDelete = async (id, name) => {
         if (!await showConfirm("삭제 확인", `'${name}' 거래처를 삭제하시겠습니까?`)) return;
         try {
-            const res = await fetch('/api/finance/vendors/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id })
-            });
-
-            if (!res.ok) throw new Error("Failed to delete vendor");
+            await invoke('delete_vendor', { id });
             loadVendors();
         } catch (e) {
-            showAlert("오류", "삭제 실패: " + e);
+            showAlert("오류", "삭제 실패: " + e.message || e);
         }
     };
 

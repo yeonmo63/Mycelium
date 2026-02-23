@@ -5,6 +5,7 @@ import MainLayout from './layouts/MainLayout';
 import SystemSetup from './features/auth/SystemSetup';
 import Login from './features/auth/Login';
 import MobileLogin from './features/mobile/MobileLogin';
+import MobileLayout from './components/MobileLayout';
 
 // Feature Components
 import Dashboard from './features/dashboard/Dashboard';
@@ -58,6 +59,7 @@ import ExperienceStatus from './features/exp/ExperienceStatus';
 import ScheduleMgmt from './features/schedule/ScheduleMgmt';
 import ProductionManager from './features/production/ProductionManager';
 import UserManual from './features/manual/UserManual';
+import { invoke } from './utils/apiBridge';
 
 // Components
 import OfflineSyncMonitor from './components/OfflineSyncMonitor';
@@ -71,9 +73,15 @@ const getEnvironment = () => {
   if (isTauri) return false;
 
   const isMobilePath = window.location.pathname.toLowerCase().startsWith('/mobile-');
-  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-  return isMobileUA || isMobilePath;
+  // Robust Mobile/Tablet detection
+  const ua = navigator.userAgent;
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+
+  // Modern iPad detection (Identifies as Macintosh but has touch points)
+  const isIPad = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 0;
+
+  return isMobileUA || isIPad || isMobilePath;
 };
 
 // Admin Guard
@@ -83,7 +91,6 @@ const AdminRoute = () => {
   return <Outlet />;
 };
 
-import MobileLayout from './components/MobileLayout';
 
 function AppContent() {
   const { showConfirm } = useModal();
@@ -103,13 +110,14 @@ function AppContent() {
         if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
         // 1. Check Setup Status
-        const statusRes = await fetch(`${baseUrl}/api/auth/status`);
-        const statusData = await statusRes.json();
+        const statusData = await invoke('get_auth_status');
+
+        // If it's mobile, we force configured state unless we are sure it's not.
+        // But better yet, the wizard should not be visible to mobile.
         setIsConfigured(statusData === 'Configured');
 
         // 2. Check Auth Status
-        const authRes = await fetch(`${baseUrl}/api/auth/check`);
-        const authData = await authRes.json();
+        const authData = await invoke('check_auth');
 
         setMobileAuthRequired(authData.mobile_auth_required);
         if (authData.logged_in) {
@@ -127,6 +135,10 @@ function AppContent() {
         }
       } catch (e) {
         console.error("App initialization failed", e);
+        // CRITICAL: On mobile, always assume configured to avoid showing DB wizard.
+        // On desktop, if fetch fails, it might be the very first run, so we keep it false but
+        // actually if the server didn't respond at all, showing setup won't help.
+        // However, we'll follow the existing logic but safer.
         setIsConfigured(IS_MOBILE ? true : false);
       } finally {
         setIsLoading(false);
@@ -227,7 +239,7 @@ function AppContent() {
     <div id="app-root" className={`fixed inset-0 overflow-hidden ${IS_MOBILE ? 'bg-slate-50' : 'bg-slate-950'} font-sans`}>
       {isConfigured && isLoggedIn && (!IS_MOBILE || !mobileAuthRequired || isPinVerified) ? (
         <RouterProvider router={router} />
-      ) : !isConfigured ? (
+      ) : !isConfigured && !IS_MOBILE ? (
         <SystemSetup onComplete={() => setIsConfigured(true)} />
       ) : IS_MOBILE ? (
         <MobileLogin onLoginSuccess={() => {

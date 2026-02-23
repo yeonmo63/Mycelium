@@ -17,8 +17,8 @@ pub fn router() -> Router<AppState> {
             post(commands::production::space::save_production_space_axum),
         )
         .route(
-            "/api/production/spaces/delete/:id",
-            post(commands::production::space::delete_production_space_axum),
+            "/api/production/spaces/delete",
+            post(commands::production::space::delete_production_space_body_axum),
         )
         // Batches
         .route(
@@ -30,8 +30,8 @@ pub fn router() -> Router<AppState> {
             post(commands::production::batch::save_production_batch_axum),
         )
         .route(
-            "/api/production/batches/delete/:id",
-            post(commands::production::batch::delete_production_batch_axum),
+            "/api/production/batches/delete",
+            post(commands::production::batch::delete_production_batch_body_axum),
         )
         // Logs
         .route(
@@ -43,8 +43,8 @@ pub fn router() -> Router<AppState> {
             post(commands::production::log::save_farming_log_axum),
         )
         .route(
-            "/api/production/logs/delete/:id",
-            post(commands::production::log::delete_farming_log_axum),
+            "/api/production/logs/delete",
+            post(commands::production::log::delete_farming_log_body_axum),
         )
         // Harvest
         .route(
@@ -56,8 +56,8 @@ pub fn router() -> Router<AppState> {
             post(commands::production::harvest::save_harvest_record_axum),
         )
         .route(
-            "/api/production/harvest/delete/:id",
-            post(commands::production::harvest::delete_harvest_record_axum),
+            "/api/production/harvest/delete",
+            post(commands::production::harvest::delete_harvest_record_body_axum),
         )
         // Production Media
         .route(

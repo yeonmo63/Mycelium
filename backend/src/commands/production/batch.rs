@@ -119,13 +119,18 @@ pub async fn save_production_batch_axum(
     Ok(Json(()))
 }
 
-pub async fn delete_production_batch_axum(
+#[derive(serde::Deserialize)]
+pub struct DeleteRequest {
+    pub id: i32,
+}
+
+pub async fn delete_production_batch_body_axum(
     AxumState(state): AxumState<AppState>,
-    axum::extract::Path(batch_id): axum::extract::Path<i32>,
+    Json(payload): Json<DeleteRequest>,
 ) -> MyceliumResult<Json<()>> {
     let pool = &state.pool;
     query("DELETE FROM production_batches WHERE batch_id = $1")
-        .bind(batch_id)
+        .bind(payload.id)
         .execute(pool)
         .await?;
     Ok(Json(()))

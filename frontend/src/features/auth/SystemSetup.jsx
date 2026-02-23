@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const SystemSetup = ({ onComplete }) => {
     const { showAlert } = useModal();
@@ -16,25 +17,14 @@ const SystemSetup = ({ onComplete }) => {
         e.preventDefault();
         setIsLoading(true);
         try {
-            const response = await fetch('/api/setup/system', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    dbUser,
-                    dbPass,
-                    dbHost,
-                    dbPort,
-                    dbName,
-                    geminiKey: geminiKey || null
-                }),
+            await invoke('system_setup', {
+                dbUser,
+                dbPass,
+                dbHost,
+                dbPort,
+                dbName,
+                geminiKey: geminiKey || null
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || errorData.message || 'Setup failed');
-            }
 
             await showAlert("설정 완료", "시스템 설정이 완료되었습니다. 변경 사항을 적용하기 위해 프로그램을 재시작해주세요.");
 

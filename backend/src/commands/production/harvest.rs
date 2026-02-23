@@ -490,13 +490,18 @@ pub async fn save_harvest_record_axum(
     Ok(Json(()))
 }
 
-pub async fn delete_harvest_record_axum(
+#[derive(Deserialize)]
+pub struct DeleteHarvestRequest {
+    pub harvestId: i32,
+}
+
+pub async fn delete_harvest_record_body_axum(
     AxumState(state): AxumState<AppState>,
-    axum::extract::Path(harvest_id): axum::extract::Path<i32>,
+    Json(payload): Json<DeleteHarvestRequest>,
 ) -> MyceliumResult<Json<()>> {
     let pool = &state.pool;
     query("DELETE FROM harvest_records WHERE harvest_id = $1")
-        .bind(harvest_id)
+        .bind(payload.harvestId)
         .execute(pool)
         .await?;
     Ok(Json(()))

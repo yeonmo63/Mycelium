@@ -81,7 +81,7 @@ const Login = ({ onLoginSuccess }) => {
             }
         } catch (err) {
             console.error('Login error:', err);
-            setError('서버와의 통신 중 오류가 발생했습니다.');
+            setError(err.message || '서버와의 통신 중 오류가 발생했습니다.');
         } finally {
             setIsLoading(false);
         }

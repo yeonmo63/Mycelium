@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatCurrency, copyToClipboard } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 import dayjs from 'dayjs';
 
 const CustomerBest = () => {
@@ -38,18 +39,12 @@ const CustomerBest = () => {
         setPage(1);
         setSelectedIds(new Set());
         try {
-            const params = new URLSearchParams({
+            const data = await invoke('get_best_customers', {
                 minQty: searchParams.minQty,
                 minAmt: searchParams.minAmt,
                 logic: searchParams.logic
             });
-            const res = await fetch(`/api/customer/best?${params.toString()}`);
-            if (res.ok) {
-                const data = await res.json();
-                setCustomers(data || []);
-            } else {
-                throw new Error(await res.text());
-            }
+            setCustomers(data || []);
         } catch (e) {
             console.error(e);
             showAlert("오류", "조회 중 오류가 발생했습니다: " + e.message);
@@ -92,21 +87,12 @@ const CustomerBest = () => {
         if (!await showConfirm("등급 변경", `선택한 ${selectedIds.size}명의 고객 등급을 '${batchLevel}'(으)로 변경하시겠습니까?`)) return;
 
         try {
-            const res = await fetch('/api/customer/batch/membership', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    customerIds: Array.from(selectedIds),
-                    newLevel: batchLevel
-                })
+            await invoke('update_customer_membership_batch', {
+                customerIds: Array.from(selectedIds),
+                newLevel: batchLevel
             });
-
-            if (res.ok) {
-                await showAlert("완료", "등급이 변경되었습니다.");
-                handleSearch();
-            } else {
-                throw new Error(await res.text());
-            }
+            await showAlert("완료", "등급이 변경되었습니다.");
+            handleSearch();
         } catch (e) {
             showAlert("오류", "등급 변경 실패: " + e.message);
         }
@@ -147,14 +133,7 @@ const CustomerBest = () => {
         setAiModalOpen(true);
         setIsAiLoading(true);
         try {
-            const res = await fetch(`/api/customer/ai-insight?customerId=${cid}`);
-            if (res.status === 429 || res.status === 403) {
-                throw new Error('AI_QUOTA_EXCEEDED');
-            }
-            if (!res.ok) {
-                throw new Error(await res.text());
-            }
-            const data = await res.json();
+            const data = await invoke('get_customer_ai_insight', { customer_id: cid });
             setAiData(data);
         } catch (e) {
             console.error(e);

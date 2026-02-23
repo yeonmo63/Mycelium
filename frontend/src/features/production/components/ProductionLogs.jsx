@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useModal } from '../../../contexts/ModalContext';
+import { invoke } from '../../../utils/apiBridge';
 import {
     Plus, Search, Filter, History, Calendar, User,
     Thermometer, Droplets, Image as ImageIcon, CheckCircle,
@@ -48,18 +49,15 @@ const ProductionLogs = () => {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const [resLogs, resSpaces, resBatches] = await Promise.all([
-                fetch('/api/production/logs?limit=100'),
-                fetch('/api/production/spaces'),
-                fetch('/api/production/batches')
+            const [logsData, spacesData, batchesData] = await Promise.all([
+                invoke('get_production_logs', { limit: 100 }),
+                invoke('get_production_spaces'),
+                invoke('get_production_batches')
             ]);
 
-            const logsData = await resLogs.json();
-            const spacesData = await resSpaces.json();
-            const batchesData = await resBatches.json();
-            setLogs(logsData);
-            setSpaces(spacesData);
-            setBatches(batchesData);
+            setLogs(logsData || []);
+            setSpaces(spacesData || []);
+            setBatches(batchesData || []);
         } catch (err) {
             console.error(err);
         } finally {
@@ -109,13 +107,9 @@ const ProductionLogs = () => {
         formDataUpload.append('file', file);
 
         try {
-            const res = await fetch('/api/production/media/upload', {
-                method: 'POST',
-                body: formDataUpload
-            });
+            const fileName = await invoke('upload_media', formDataUpload);
 
-            if (res.ok) {
-                const fileName = await res.json();
+            if (fileName) {
                 const newPhotos = [...(formData.photos || [])];
                 const labelIndex = newPhotos.length + 1;
 
@@ -176,17 +170,12 @@ const ProductionLogs = () => {
         }
 
         try {
-            const res = await fetch('/api/production/logs/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...formData,
-                    batch_id: formData.batch_id ? parseInt(formData.batch_id) : null,
-                    space_id: formData.space_id ? parseInt(formData.space_id) : null,
-                    input_materials: formData.input_materials.length > 0 ? formData.input_materials : null
-                })
+            await invoke('save_farming_log', {
+                ...formData,
+                batch_id: formData.batch_id ? parseInt(formData.batch_id) : null,
+                space_id: formData.space_id ? parseInt(formData.space_id) : null,
+                input_materials: formData.input_materials.length > 0 ? formData.input_materials : null
             });
-            if (!res.ok) throw new Error("Failed to save log");
 
             localStorage.setItem('last_worker', formData.worker_name);
             setIsModalOpen(false);
@@ -201,8 +190,7 @@ const ProductionLogs = () => {
         const confirmed = await showConfirm('알림', '정말로 이 일지를 삭제하시겠습니까?');
         if (confirmed) {
             try {
-                const res = await fetch(`/api/production/logs/delete/${id}`, { method: 'POST' });
-                if (!res.ok) throw new Error("Failed to delete log");
+                await invoke('delete_farming_log', { id });
                 loadData();
                 showAlert('성공', '일지가 삭제되었습니다.');
             } catch (err) {

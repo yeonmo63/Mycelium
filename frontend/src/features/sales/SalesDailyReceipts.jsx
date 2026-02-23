@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { formatCurrency, formatPhoneNumber } from '../../utils/common';
 import { handlePrintRaw } from '../../utils/printUtils';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 
 const dailyReceiptStyles = `
     @media print {
@@ -138,9 +139,7 @@ const SalesDailyReceipts = () => {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch(`/api/sales/daily?date=${date}`);
-            if (!res.ok) throw new Error('Network response was not ok');
-            const data = await res.json();
+            const data = await invoke('get_daily_receipts', { date });
             setReceipts(data || []);
         } catch (e) {
             console.error(e);

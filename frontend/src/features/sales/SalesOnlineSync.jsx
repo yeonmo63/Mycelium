@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { formatCurrency, parseNumber } from '../../utils/common';
 import { useModal } from '../../contexts/ModalContext';
+import { invoke } from '../../utils/apiBridge';
 import ExcelUploadModal from './components/reception/ExcelUploadModal';
 
 const SalesOnlineSync = () => {
@@ -30,11 +31,8 @@ const SalesOnlineSync = () => {
 
     const loadBaseData = async () => {
         try {
-            const res = await fetch('/api/product/list');
-            if (res.ok) {
-                const list = await res.json();
-                setProductList(list.filter(p => (p.item_type || 'product') === 'product') || []);
-            }
+            const list = await invoke('get_product_list');
+            setProductList((list || []).filter(p => (p.item_type || 'product') === 'product'));
         } catch (e) {
             console.error(e);
         }
@@ -65,13 +63,8 @@ const SalesOnlineSync = () => {
 
     const searchCustomerByMobile = async (mobile) => {
         try {
-            const res = await fetch(`/api/customers/search?name=${encodeURIComponent(mobile)}`);
-            if (res.ok) {
-                const list = await res.json();
-                // Client-side filtering for exact match if needed, but search returns LIKE match
-                return list;
-            }
-            return [];
+            const list = await invoke('search_customers', { name: mobile });
+            return list || [];
         } catch (e) {
             console.warn(e);
             return [];
@@ -360,20 +353,14 @@ const SalesOnlineSync = () => {
         if (quickRegData.tag) finalName = `[${quickRegData.tag}] ${quickRegData.name}`;
 
         try {
-            const res = await fetch('/api/product/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    productName: finalName,
-                    specification: quickRegData.spec,
-                    unitPrice: price,
-                    stockQuantity: 100,
-                    safetyStock: 10,
-                    costPrice: 0
-                })
+            const data = await invoke('create_product', {
+                productName: finalName,
+                specification: quickRegData.spec,
+                unitPrice: price,
+                stockQuantity: 100,
+                safetyStock: 10,
+                costPrice: 0
             });
-            let data = await res.json();
-            if (!data.success) throw new Error(data.error);
             const newId = data.productId; // Note: API returns productId
 
             await loadBaseData(); // Refresh list to get new product
@@ -403,10 +390,7 @@ const SalesOnlineSync = () => {
         }
         setIsApiLoading(true);
         try {
-            const res = await fetch(`/api/sales/external/fetch?mallType=${mallType}`);
-            const orders = await res.json();
-
-            if (!res.ok || (orders && orders.success === false)) throw new Error(orders.error || 'Server Error');
+            const orders = await invoke('fetch_external_orders', { mallType });
 
             if (!orders || orders.length === 0) {
                 await showAlert("결과", "가져올 새로운 주문 데이터가 없습니다.");
@@ -455,57 +439,39 @@ const SalesOnlineSync = () => {
                 let cid = order.existingCustomerId;
                 if (!cid) {
                     // Create Customer
-                    const res = await fetch('/api/customers/create', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            name: order.customerName,
-                            mobile: order.mobile,
-                            zip: order.zip,
-                            addr1: order.address,
-                            level: '일반',
-                            memo: `[쇼핑몰] ${order.mallProductName}`
-                        })
+                    const data = await invoke('create_customer', {
+                        name: order.customerName,
+                        mobile: order.mobile,
+                        zip: order.zip,
+                        addr1: order.address,
+                        level: '일반',
+                        memo: `[쇼핑몰] ${order.mallProductName}`
                     });
-                    const data = await res.json();
-                    if (data.success) {
-                        cid = data.customerId;
-                    } else {
-                        throw new Error(data.error);
-                    }
+                    cid = data.customerId;
                 }
 
                 // Create Sale
                 const internalP = productList.find(p => p.product_id == order.internalProductId) || { product_name: 'Unknown', unit_price: order.unitPrice };
 
-                const salesRes = await fetch('/api/sales/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        customerId: cid, // Send as string or whatever structure it is
-                        productName: internalP.product_name,
-                        specification: internalP.specification || null,
-                        unitPrice: Number(order.unitPrice),
-                        quantity: Number(order.qty),
-                        totalAmount: Number(order.unitPrice * order.qty),
-                        status: '입금완료',
-                        memo: `[쇼핑몰] ${order.orderId}`,
-                        orderDateStr: new Date().toISOString().split('T')[0],
-                        shippingName: order.receiverName || order.customerName,
-                        shippingZipCode: order.zip || null,
-                        shippingAddressPrimary: order.address || null,
-                        shippingAddressDetail: '',
-                        shippingMobileNumber: order.mobile || null,
-                        shippingDate: null,
-                        paidAmount: Number(order.unitPrice * order.qty)
-                    })
+                await invoke('create_sale', {
+                    customerId: cid, // Send as string or whatever structure it is
+                    productName: internalP.product_name,
+                    specification: internalP.specification || null,
+                    unitPrice: Number(order.unitPrice),
+                    quantity: Number(order.qty),
+                    totalAmount: Number(order.unitPrice * order.qty),
+                    status: '입금완료',
+                    memo: `[쇼핑몰] ${order.orderId}`,
+                    orderDateStr: new Date().toISOString().split('T')[0],
+                    shippingName: order.receiverName || order.customerName,
+                    shippingZipCode: order.zip || null,
+                    shippingAddressPrimary: order.address || null,
+                    shippingAddressDetail: '',
+                    shippingMobileNumber: order.mobile || null,
+                    shippingDate: null,
+                    paidAmount: Number(order.unitPrice * order.qty)
                 });
-                const salesData = await salesRes.json();
-                if (salesData.success) success++;
-                else {
-                    console.error(salesData.error);
-                    fail++;
-                }
+                success++;
 
             } catch (e) {
                 console.error(e);

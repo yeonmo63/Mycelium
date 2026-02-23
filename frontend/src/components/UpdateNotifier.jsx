@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { invoke } from '../utils/apiBridge';
 import { Download, X, Rocket, ArrowRight } from 'lucide-react';
 
 const UpdateNotifier = () => {
@@ -8,8 +9,7 @@ const UpdateNotifier = () => {
     useEffect(() => {
         const checkUpdate = async () => {
             try {
-                const res = await fetch('/api/system/check-update');
-                const data = await res.json();
+                const data = await invoke('get_update_status');
 
                 if (data.update_available) {
                     setUpdateInfo(data);

@@ -152,13 +152,18 @@ pub async fn save_farming_log_axum(
     Ok(Json(()))
 }
 
-pub async fn delete_farming_log_axum(
+#[derive(Deserialize)]
+pub struct DeleteLogRequest {
+    pub id: i32,
+}
+
+pub async fn delete_farming_log_body_axum(
     AxumState(state): AxumState<AppState>,
-    axum::extract::Path(log_id): axum::extract::Path<i32>,
+    Json(payload): Json<DeleteLogRequest>,
 ) -> MyceliumResult<Json<()>> {
     let pool = &state.pool;
     query("DELETE FROM farming_logs WHERE log_id = $1")
-        .bind(log_id)
+        .bind(payload.id)
         .execute(pool)
         .await?;
     Ok(Json(()))

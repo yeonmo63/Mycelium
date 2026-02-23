@@ -995,17 +995,29 @@ const SmsSendModal = ({ customers, mode: initialMode, onClose, showAlert }) => {
         if (!message.trim()) return showAlert('입력 오류', '메시지 내용을 입력해주세요.');
 
         setIsSending(true);
-        // Simulate progress per recipient if batch
-        const delay = isBatch ? 2000 : 1000;
-        await new Promise(r => setTimeout(r, delay));
+        try {
+            const selectedGroups = isBatch ? ['various'] : []; // Just a placeholder for group logic if needed
+            const results = await invoke('send_sms_simulation', {
+                mode: mode,
+                recipients: isBatch ? customers.map(c => c.customer_id) : [firstCustomer.customer_id],
+                content: message,
+                templateCode: null
+            });
 
-        // Simulation for now
-        setIsSending(false);
-
-        setIsSending(false);
-        const targetDesc = isBatch ? `${customers.length}명의 고객에게` : '고객님께';
-        showAlert('발송 완료', `${targetDesc} ${mode === 'kakao' ? '알림톡' : '문자'}이 전송되었습니다.`, 'success');
-        onClose();
+            if (results && results.success) {
+                const targetDesc = isBatch ? `${customers.length}명의 고객에게` : '고객님께';
+                showAlert('발송 완료', `${targetDesc} ${mode === 'kakao' ? '알림톡' : '문자'}이 전송되었습니다.`, 'success');
+                onClose();
+            } else {
+                showAlert('발송 실패', results?.error || '알 수 없는 오류가 발생했습니다.');
+            }
+        } catch (e) {
+            console.error(e);
+            showAlert('오류', '메시지 발송 중 오류가 발생했습니다.');
+        } finally {
+            setIsSending(true); // matches original toggle? Wait, should be false.
+            setIsSending(false);
+        }
     };
 
     const applyTemplate = (content) => {
