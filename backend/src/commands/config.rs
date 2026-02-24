@@ -1,9 +1,10 @@
 use crate::db::{CompanyInfo, User};
 use crate::error::{MyceliumError, MyceliumResult};
+use crate::middleware::auth::Claims;
 use crate::state::{AppState, SessionState, SetupStatus};
-use axum::extract::{Json, State};
+use axum::extract::{Extension, Json, State};
 use bcrypt::{hash, verify, DEFAULT_COST};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -51,14 +52,28 @@ fn get_encryption_key() -> [u8; 32] {
 // or reimplement properly later. The user wants migration to WORK first.
 
 pub async fn check_setup_status(State(state): State<AppState>) -> Json<SetupStatus> {
-    let status = state.setup_status.lock().unwrap();
-    // Clone the status to return it
-    let s = match *status {
-        SetupStatus::Initializing => SetupStatus::Initializing,
-        SetupStatus::Configured => SetupStatus::Configured,
-        SetupStatus::NotConfigured => SetupStatus::NotConfigured,
+    // 1. Check if configured in memory
+    let is_mem_configured = {
+        let status = state.setup_status.lock().unwrap();
+        matches!(*status, SetupStatus::Configured)
     };
-    Json(s)
+
+    if !is_mem_configured {
+        return Json(SetupStatus::NotConfigured);
+    }
+
+    // 2. Real-time Database connectivity check
+    // If the database is down or credentials are wrong, we force back to setup mode
+    match state.pool.acquire().await {
+        Ok(conn) => {
+            drop(conn);
+            Json(SetupStatus::Configured)
+        }
+        Err(_) => {
+            tracing::warn!("Database disconnected. Forcing Setup Mode.");
+            Json(SetupStatus::NotConfigured)
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +84,7 @@ pub struct SetupPayload {
     pub dbPort: String,
     pub dbName: String,
     pub geminiKey: Option<String>,
+    pub jwtSecret: Option<String>,
 }
 
 pub async fn setup_system(
@@ -127,23 +143,28 @@ pub async fn setup_system(
     }
 
     // 5. Persist Configuration to .env
-    // We try to write .env next to the executable
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let env_path = exe_dir.join(".env");
-            let mut env_content = format!("DATABASE_URL={}\nPORT=3000\n", db_url);
-            if let Some(key) = &payload.geminiKey {
-                env_content.push_str(&format!("GEMINI_API_KEY={}\n", key));
-            }
-            // Add other defaults
-            env_content.push_str("RUST_LOG=info,sqlx=warn\n");
+    // We try to write .env to the AppData config directory for reliability
+    if let Ok(config_dir) = get_app_config_dir() {
+        let env_path = config_dir.join(".env");
+        let mut env_content = format!("DATABASE_URL={}\nPORT=3000\n", db_url);
+        if let Some(key) = &payload.geminiKey {
+            env_content.push_str(&format!("GEMINI_API_KEY={}\n", key));
+        }
+        if let Some(secret) = &payload.jwtSecret {
+            env_content.push_str(&format!("JWT_SECRET={}\n", secret));
+        } else {
+            // Fallback to random if not provided in payload
+            let random_secret = uuid::Uuid::new_v4().to_string();
+            env_content.push_str(&format!("JWT_SECRET={}\n", random_secret));
+        }
+        // Add other defaults
+        env_content.push_str("RUST_LOG=info,sqlx=warn\n");
 
-            if let Err(e) = fs::write(&env_path, env_content) {
-                tracing::warn!("Failed to write .env file: {}", e);
-                // Non-fatal, but won't persist restart
-            } else {
-                tracing::info!("Comparison saved to {:?}", env_path);
-            }
+        if let Err(e) = fs::write(&env_path, env_content) {
+            tracing::error!("Failed to write .env file to config dir: {}", e);
+            // Non-fatal, but won't persist restart
+        } else {
+            tracing::info!("Configuration saved to {:?}", env_path);
         }
     }
 
@@ -287,9 +308,9 @@ pub async fn login(
                             )
                             .bind(uuid::Uuid::parse_str(&sid).unwrap())
                             .bind(user.id)
-                            .bind("HashedTokenPlaceholder") // We could hash the actual token if needed
-                            .bind(client_ip)
-                            .bind(user_agent)
+                            .bind("HashedTokenPlaceholder")
+                            .bind(client_ip.clone())
+                            .bind(user_agent.clone())
                             .bind(chrono::Utc::now() + chrono::Duration::days(1))
                             .execute(&state.pool)
                             .await?;
@@ -313,6 +334,22 @@ pub async fn login(
                             )
                             .ok();
 
+                            // Record audit log for successful login
+                            log_audit(
+                                &state.pool,
+                                Some(user.id),
+                                Some(user.username.clone()),
+                                "LOGIN",
+                                None,
+                                None,
+                                Some("로그인 성공"),
+                                None,
+                                None,
+                                client_ip,
+                                user_agent,
+                            )
+                            .await;
+
                             Ok(Json(LoginResponse {
                                 success: true,
                                 message: "로그인 성공".to_string(),
@@ -325,6 +362,22 @@ pub async fn login(
                         } else {
                             // Increment attempts in DB on failure
                             record_failed_attempt(&state.pool, &username).await;
+
+                            // Record audit log for failed login (wrong password)
+                            log_audit(
+                                &state.pool,
+                                None,
+                                Some(username.clone()),
+                                "LOGIN_FAILED",
+                                None,
+                                None,
+                                Some("비밀번호 불일치"),
+                                None,
+                                None,
+                                client_ip,
+                                user_agent,
+                            )
+                            .await;
 
                             Ok(Json(LoginResponse {
                                 success: false,
@@ -408,7 +461,213 @@ pub async fn logout(
         session.ui_mode = None;
     }
 
+    // Audit Log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username.clone(),
+        "LOGOUT",
+        None,
+        None,
+        Some("로그아웃 성공"),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
     Ok(Json(true))
+}
+
+pub async fn get_active_sessions_axum(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> MyceliumResult<Json<Vec<crate::db::UserSessionRecord>>> {
+    let sessions = sqlx::query_as::<_, crate::db::UserSessionRecord>(
+        "SELECT * FROM user_sessions WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP ORDER BY last_activity DESC"
+    )
+    .bind(claims.user_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(sessions))
+}
+
+#[derive(Deserialize)]
+pub struct RevokeSessionRequest {
+    pub session_id: uuid::Uuid,
+}
+
+pub async fn revoke_session_axum(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<RevokeSessionRequest>,
+) -> MyceliumResult<Json<bool>> {
+    let session = sqlx::query!(
+        "SELECT user_id FROM user_sessions WHERE session_id = $1",
+        payload.session_id
+    )
+    .fetch_optional(&state.pool)
+    .await?;
+
+    if let Some(s) = session {
+        if Some(s.user_id) != claims.user_id && !claims.is_admin() {
+            return Err(MyceliumError::Validation(
+                "No authority to revoke this session".to_string(),
+            ));
+        }
+
+        sqlx::query("DELETE FROM user_sessions WHERE session_id = $1")
+            .bind(payload.session_id)
+            .execute(&state.pool)
+            .await?;
+
+        // Audit Log
+        log_audit(
+            &state.pool,
+            claims.user_id,
+            claims.username,
+            "REVOKE_SESSION",
+            Some("user_sessions"),
+            Some(&payload.session_id.to_string()),
+            Some(&format!(
+                "세션 원격 로그아웃 처리 (세션 ID: {})",
+                payload.session_id
+            )),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+        Ok(Json(true))
+    } else {
+        Ok(Json(false))
+    }
+}
+
+#[derive(Serialize)]
+pub struct SecurityWarning {
+    pub level: String, // "High", "Medium", "Low"
+    pub message: String,
+    pub recommendation: String,
+    pub code: String,
+}
+
+#[derive(Serialize)]
+pub struct SecurityStatusResponse {
+    pub is_secure: bool,
+    pub warnings: Vec<SecurityWarning>,
+}
+
+#[derive(Deserialize)]
+pub struct AuditLogQuery {
+    pub action_type: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn get_audit_logs_axum(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Query(query): axum::extract::Query<AuditLogQuery>,
+) -> MyceliumResult<Json<Vec<crate::db::SystemAuditLog>>> {
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin access required".to_string(),
+        ));
+    }
+
+    let limit = query.limit.unwrap_or(200);
+
+    let logs = if let Some(ref action) = query.action_type {
+        if !action.is_empty() {
+            sqlx::query_as::<_, crate::db::SystemAuditLog>(
+                "SELECT * FROM system_audit_logs WHERE action_type = $1 ORDER BY created_at DESC LIMIT $2"
+            )
+            .bind(action)
+            .bind(limit)
+            .fetch_all(&state.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, crate::db::SystemAuditLog>(
+                "SELECT * FROM system_audit_logs ORDER BY created_at DESC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(&state.pool)
+            .await?
+        }
+    } else {
+        sqlx::query_as::<_, crate::db::SystemAuditLog>(
+            "SELECT * FROM system_audit_logs ORDER BY created_at DESC LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&state.pool)
+        .await?
+    };
+
+    Ok(Json(logs))
+}
+
+pub async fn get_security_status_axum(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> MyceliumResult<Json<SecurityStatusResponse>> {
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin access required".to_string(),
+        ));
+    }
+
+    let mut warnings = Vec::new();
+
+    // 1. JWT_SECRET Check
+    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
+    if jwt_secret.is_empty()
+        || jwt_secret == "insecure-development-secret-key-replace-me-immediately"
+    {
+        warnings.push(SecurityWarning {
+            level: "High".to_string(),
+            message: "기본 JWT 비밀키가 사용되고 있습니다.".to_string(),
+            recommendation: ".env 파일에서 JWT_SECRET을 강력한 무작위 문자열로 변경하세요."
+                .to_string(),
+            code: "JWT_INSECURE".to_string(),
+        });
+    }
+
+    // 2. DATABASE_URL security
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+    if !db_url.contains('@') {
+        warnings.push(SecurityWarning {
+            level: "Medium".to_string(),
+            message: "데이터베이스 연결에 인증 정보가 부족할 수 있습니다.".to_string(),
+            recommendation: "DATABASE_URL에 사용자이름:비밀번호@호스트 형식을 사용하세요."
+                .to_string(),
+            code: "DB_NO_AUTH".to_string(),
+        });
+    }
+
+    // 3. Audit Log check
+    let log_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM system_audit_logs")
+        .fetch_one(&state.pool)
+        .await?;
+
+    if log_count.0 == 0 {
+        warnings.push(SecurityWarning {
+            level: "Low".to_string(),
+            message: "보안 감사 로그가 아직 기록되지 않았습니다.".to_string(),
+            recommendation: "시스템 사용량이 발생하면 로그가 남는지 점검하세요.".to_string(),
+            code: "AUDIT_EMPTY".to_string(),
+        });
+    }
+
+    let is_secure = warnings.iter().all(|w| w.level != "High");
+
+    Ok(Json(SecurityStatusResponse {
+        is_secure,
+        warnings,
+    }))
 }
 
 #[derive(Serialize)]
@@ -457,20 +716,41 @@ pub struct CreateUserRequest {
 
 pub async fn create_user(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateUserRequest>,
 ) -> MyceliumResult<Json<Value>> {
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin access required".to_string(),
+        ));
+    }
     let hashed = hash(payload.password, DEFAULT_COST)
         .map_err(|e| MyceliumError::Internal(format!("Hash error: {}", e)))?;
 
     sqlx::query(
         "INSERT INTO users (username, password_hash, role, ui_mode) VALUES ($1, $2, $3, $4)",
     )
-    .bind(payload.username)
+    .bind(&payload.username)
     .bind(hashed)
-    .bind(payload.role)
-    .bind(payload.ui_mode)
+    .bind(&payload.role)
+    .bind(&payload.ui_mode)
     .execute(&state.pool)
     .await?;
+
+    // Audit log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username,
+        "CREATE_USER",
+        Some("users"),
+        Some(&payload.username),
+        Some(&format!("사용자 생성: {} (권한: {})", payload.username, payload.role)),
+        None,
+        Some(json!({ "username": payload.username, "role": payload.role, "ui_mode": payload.ui_mode })),
+        None,
+        None,
+    ).await;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -486,8 +766,29 @@ pub struct UpdateUserRequest {
 
 pub async fn update_user(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> MyceliumResult<Json<Value>> {
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin access required".to_string(),
+        ));
+    }
+    // Audit log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username,
+        "UPDATE_USER",
+        Some("users"),
+        Some(&payload.id.to_string()),
+        Some(&format!("사용자 수정: {} (ID: {})", payload.username, payload.id)),
+        None,
+        Some(json!({ "username": payload.username, "role": payload.role, "ui_mode": payload.ui_mode })),
+        None,
+        None,
+    ).await;
+
     if let Some(password) = payload.password {
         if !password.trim().is_empty() {
             let hashed = hash(password, DEFAULT_COST)
@@ -525,8 +826,14 @@ pub struct DeleteUserRequest {
 
 pub async fn delete_user(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<DeleteUserRequest>,
 ) -> MyceliumResult<Json<Value>> {
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin access required".to_string(),
+        ));
+    }
     // Prevent deleting the very last admin or the 'admin' user specifically if you want
     let user = sqlx::query!("SELECT username FROM users WHERE id = $1", payload.id)
         .fetch_one(&state.pool)
@@ -542,6 +849,25 @@ pub async fn delete_user(
         .bind(payload.id)
         .execute(&state.pool)
         .await?;
+
+    // Audit log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username,
+        "DELETE_USER",
+        Some("users"),
+        Some(&payload.id.to_string()),
+        Some(&format!(
+            "사용자 삭제: {} (ID: {})",
+            user.username, payload.id
+        )),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -644,8 +970,25 @@ pub struct SaveCompanyInfoRequest {
 
 pub async fn save_company_info(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<SaveCompanyInfoRequest>,
 ) -> MyceliumResult<Json<Value>> {
+    // Audit log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username,
+        "UPDATE_COMPANY_INFO",
+        Some("company_info"),
+        None,
+        Some(&format!("회사 정보 수정: {}", payload.companyName)),
+        None,
+        Some(json!({ "companyName": payload.companyName })),
+        None,
+        None,
+    )
+    .await;
+
     let registration_date = payload.registrationDate.and_then(|s| {
         NaiveDate::parse_from_str(&s, "%Y-%m-%d")
             .ok()
@@ -748,8 +1091,39 @@ pub async fn get_tax_filing_config_for_ui(
     }))
 }
 
-pub fn log_system_action(_pool: &crate::db::DbPool, _action: &str, _details: &str) {
-    tracing::info!("System action: {} - {}", _action, _details);
+pub async fn log_audit(
+    pool: &crate::db::DbPool,
+    user_id: Option<i32>,
+    user_name: Option<String>,
+    action_type: &str,
+    target_table: Option<&str>,
+    target_id: Option<&str>,
+    description: Option<&str>,
+    old_values: Option<Value>,
+    new_values: Option<Value>,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+) {
+    let res = sqlx::query(
+        "INSERT INTO system_audit_logs (user_id, user_name, action_type, target_table, target_id, description, old_values, new_values, ip_address, user_agent) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+    )
+    .bind(user_id)
+    .bind(user_name)
+    .bind(action_type)
+    .bind(target_table)
+    .bind(target_id)
+    .bind(description)
+    .bind(old_values)
+    .bind(new_values)
+    .bind(ip_address)
+    .bind(user_agent)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = res {
+        tracing::error!("Failed to record audit log: {}", e);
+    }
 }
 
 // --- Integration Settings & Storage ---

@@ -11,6 +11,7 @@ export async function callBridge(commandName, args = {}) {
         'get_dashboard_stats': '/api/dashboard/stats',
         'get_dashboard_priority_stats': '/api/dashboard/priority-stats',
         'get_dashboard_secondary_stats': '/api/dashboard/secondary-stats',
+        'get_sms_logs': '/api/crm/sms/logs',
         'get_dashboard_schedule_stats': '/api/dashboard/schedule-stats',
         'get_weekly_sales_data': '/api/dashboard/weekly-sales',
         'get_recent_sales': '/api/dashboard/recent-sales',
@@ -127,6 +128,7 @@ export async function callBridge(commandName, args = {}) {
         'get_external_backup_path': '/api/backup/path/external',
         'save_external_backup_path': '/api/backup/path/external',
         'get_backup_status': '/api/backup/status',
+        'get_backup_progress': '/api/backup/progress',
         'cancel_backup_restore': '/api/backup/cancel',
         'get_custom_presets': '/api/preset/list',
         'apply_preset': '/api/preset/apply',
@@ -218,6 +220,19 @@ export async function callBridge(commandName, args = {}) {
         'get_ai_advisor': '/api/crm/ai/advisor',
         'parse_business_card': '/api/ai/business-card',
         'login': '/api/auth/login',
+        'get_auth_sessions': '/api/auth/sessions',
+        'revoke_auth_session': '/api/auth/sessions/revoke',
+        'get_security_status': '/api/auth/security-status',
+        'get_audit_logs': '/api/auth/audit-logs',
+        'get_auto_backups': '/api/backup/auto',
+        'run_daily_custom_backup': '/api/backup/run',
+        'restore_database': '/api/backup/restore',
+        'get_backup_status': '/api/backup/status',
+        'get_backup_path_internal': '/api/backup/path/internal',
+        'get_backup_path_external': '/api/backup/path/external',
+        'save_external_backup_path': '/api/backup/path/external',
+        'run_db_maintenance': '/api/backup/maintenance',
+        'cleanup_old_logs': '/api/backup/cleanup',
     };
 
     const route = routeMap[commandName];
@@ -327,7 +342,8 @@ export async function callBridge(commandName, args = {}) {
         'update_customer_membership_batch',
         'update_consultation',
         'get_ai_advisor',
-        'parse_business_card'
+        'parse_business_card',
+        'revoke_auth_session'
     ];
     const isPost = postCommands.includes(commandName) || commandName.startsWith('save_');
 
@@ -370,14 +386,17 @@ export async function callBridge(commandName, args = {}) {
             ...(isPost ? { body: isFormData ? args : JSON.stringify(args) } : {})
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
         let result = null;
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
             result = await response.json();
+        }
+
+        if (!response.ok) {
+            if (result && result.error) {
+                throw new Error(result.error);
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         // The backend now always returns { success, data?, error? }

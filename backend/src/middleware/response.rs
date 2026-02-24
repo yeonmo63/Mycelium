@@ -12,8 +12,8 @@ pub async fn wrap_response_middleware(req: Request, next: Next) -> Result<Respon
     let path = req.uri().path().to_string();
     let res = next.run(req).await;
 
-    // Only wrap /api responses and avoid wrapping static assets
-    if !path.starts_with("/api") {
+    // Only wrap /api responses and avoid wrapping static assets or media files
+    if !path.starts_with("/api") || path.starts_with("/api/production/media/") {
         return Ok(res);
     }
 

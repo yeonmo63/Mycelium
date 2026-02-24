@@ -12,6 +12,7 @@ export const useDashboard = (showAlert) => {
     const [forecastAlerts, setForecastAlerts] = useState([]);
     const [freshnessAlerts, setFreshnessAlerts] = useState([]);
     const [weatherAdvice, setWeatherAdvice] = useState(null);
+    const [securityStatus, setSecurityStatus] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isRankLoading, setIsRankLoading] = useState(true);
     const [isWeatherLoading, setIsWeatherLoading] = useState(true);
@@ -86,6 +87,14 @@ export const useDashboard = (showAlert) => {
             console.error("Dashboard: Weather error", e);
             setIsWeatherLoading(false);
         });
+
+        // 6. 보안 상태 점검 (관리자 전용)
+        const userRole = sessionStorage.getItem('userRole');
+        if (userRole === 'admin') {
+            callBridge('get_security_status').then(res => {
+                if (res) setSecurityStatus(res);
+            }).catch(e => console.warn("Dashboard: Security check failed", e));
+        }
     };
 
     const salesTrend = (() => {
@@ -124,6 +133,7 @@ export const useDashboard = (showAlert) => {
         isReportLoading,
         setIsReportLoading,
         salesTrend,
+        securityStatus,
         loadDashboardData
     };
 };

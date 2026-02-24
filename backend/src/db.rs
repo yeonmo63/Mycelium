@@ -16,7 +16,7 @@ pub async fn init_pool_with_options(opts: PgConnectOptions) -> MyceliumResult<Db
         .max_connections(20)
         .acquire_timeout(std::time::Duration::from_secs(30))
         .idle_timeout(std::time::Duration::from_secs(120))
-        .max_lifetime(std::time::Duration::from_secs(300))
+        .max_lifetime(std::time::Duration::from_secs(3600))
         .connect_lazy_with(opts))
 }
 
@@ -836,4 +836,42 @@ pub struct SensorReadingRecord {
     pub humidity: Option<rust_decimal::Decimal>,
     pub co2: Option<rust_decimal::Decimal>,
     pub recorded_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+pub struct UserSessionRecord {
+    pub session_id: uuid::Uuid,
+    pub user_id: i32,
+    pub token_hash: String,
+    pub client_ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub expires_at: DateTime<Utc>,
+    pub last_activity: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+pub struct LoginAttemptRecord {
+    pub id: i32,
+    pub username: String,
+    pub client_ip: Option<String>,
+    pub attempt_count: Option<i32>,
+    pub last_attempt: Option<DateTime<Utc>>,
+    pub is_blocked: Option<bool>,
+    pub blocked_until: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct SystemAuditLog {
+    pub log_id: i32,
+    pub user_id: Option<i32>,
+    pub user_name: Option<String>,
+    pub action_type: String,
+    pub target_table: Option<String>,
+    pub target_id: Option<String>,
+    pub description: Option<String>,
+    pub old_values: Option<serde_json::Value>,
+    pub new_values: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
 }

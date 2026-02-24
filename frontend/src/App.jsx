@@ -43,6 +43,10 @@ import SettingsDbReset from './features/settings/SettingsDbReset';
 import SettingsTemplate from './features/settings/SettingsTemplate';
 import MobileSettings from './features/settings/MobileSettings';
 import IotSettings from './features/settings/IotSettings';
+import SettingsSessions from './features/settings/SettingsSessions';
+import SettingsSecurity from './features/settings/SettingsSecurity';
+import SmsLogManager from './features/settings/SmsLogManager';
+import AuditLogManager from './features/settings/AuditLogManager';
 import SalesReception from './features/sales/SalesReception';
 import SalesSpecial from './features/sales/SalesSpecial';
 import SalesOnlineSync from './features/sales/SalesOnlineSync';
@@ -135,11 +139,20 @@ function AppContent() {
         }
       } catch (e) {
         console.error("App initialization failed", e);
-        // CRITICAL: On mobile, always assume configured to avoid showing DB wizard.
-        // On desktop, if fetch fails, it might be the very first run, so we keep it false but
-        // actually if the server didn't respond at all, showing setup won't help.
-        // However, we'll follow the existing logic but safer.
-        setIsConfigured(IS_MOBILE ? true : false);
+        // If it's a connection error, don't assume NotConfigured.
+        // On mobile, we still assume true for safety as before.
+        if (IS_MOBILE) {
+          setIsConfigured(true);
+        } else {
+          // If connection failed, isConfigured remains null or we can set it to a special state.
+          // For now, let's just not set it to false if it's likely a network error.
+          // This prevents the "redirect to setup" loop if the server is just restarting.
+          // But we need to eventually show something. 
+          // Let's set a small timeout and retry once.
+          setTimeout(() => {
+            initApp();
+          }, 2000);
+        }
       } finally {
         setIsLoading(false);
         const spl = document.getElementById('app-spinner');
@@ -166,7 +179,7 @@ function AppContent() {
       createRoutesFromElements(
         <Route element={<Layout isMobile={IS_MOBILE} />}>
           <Route path="/" element={IS_MOBILE ? <Navigate to="/mobile-dashboard" replace /> : <Navigate to="/dashboard" replace />} />
-          <Route path="setup" element={<SystemSetup />} />
+          <Route path="setup" element={(isConfigured && sessionStorage.getItem('userRole') !== 'admin') ? <Navigate to="/" replace /> : <SystemSetup onComplete={() => window.location.href = '/'} />} />
           <Route path="login" element={isLoggedIn ? <Navigate to="/" replace /> : <Login />} />
 
           {/* Mobile Group with Swipe Layout */}
@@ -188,7 +201,6 @@ function AppContent() {
           <Route path="sales/daily-receipts" element={<SalesDailyReceipts />} />
           <Route path="sales/daily" element={<SalesPersonalHistory />} />
           <Route path="sales/stock" element={<SalesStock />} />
-          <Route path="customer/event-mgmt" element={<EventMgmt />} />
           <Route path="customer/register" element={<CustomerRegister />} />
           <Route path="customer/edit" element={<CustomerList />} />
           <Route path="sales/ledger" element={<SalesLedger />} />
@@ -199,7 +211,6 @@ function AppContent() {
           <Route path="finance/purchase" element={<FinancePurchase />} />
           <Route path="finance/expense" element={<FinanceExpense />} />
           <Route path="finance/tax-report" element={<FinanceTaxReport />} />
-          <Route path="finance/vendor" element={<FinanceVendor />} />
           <Route path="finance/analysis" element={<FinanceAnalysis />} />
           <Route path="intel/sales" element={<SalesIntelligence />} />
           <Route path="intel/customer" element={<CustomerIntelligence />} />
@@ -215,13 +226,19 @@ function AppContent() {
             <Route path="exp/program-mgmt" element={<ExperienceProgram />} />
             <Route path="settings/product-list" element={<SettingsProduct />} />
             <Route path="settings/user-list" element={<SettingsUser />} />
+            <Route path="settings/sessions" element={<SettingsSessions />} />
+            <Route path="settings/security" element={<SettingsSecurity />} />
+            <Route path="settings/audit-logs" element={<AuditLogManager />} />
+            <Route path="settings/sms-logs" element={<SmsLogManager />} />
+            <Route path="settings/backup" element={<SettingsBackup />} />
             <Route path="settings/company-info" element={<SettingsCompany />} />
             <Route path="settings/api-keys" element={<SettingsApiKeys />} />
             <Route path="settings/template-mgmt" element={<SettingsTemplate />} />
             <Route path="settings/iot" element={<IotSettings />} />
-            <Route path="settings/db-backup-restore" element={<SettingsBackup />} />
             <Route path="settings/mobile-sync" element={<MobileSettings />} />
             <Route path="settings/db-reset" element={<SettingsDbReset />} />
+            <Route path="settings/event-mgmt" element={<EventMgmt />} />
+            <Route path="settings/vendor-mgmt" element={<FinanceVendor />} />
           </Route>
 
           <Route path="production" element={<ProductionManager initialTab="dashboard" />} />
@@ -231,7 +248,7 @@ function AppContent() {
           {IS_MOBILE && <Route path="*" element={<Navigate to="/mobile-dashboard" replace />} />}
         </Route>
       )
-    ), [IS_MOBILE]);
+    ), [IS_MOBILE, isConfigured, isLoggedIn]);
 
   if (isLoading || isConfigured === null) return null;
 

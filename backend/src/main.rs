@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // 콘솔 창 숨기기 설정
 #![allow(dead_code, unused_variables, non_snake_case)]
+use axum::extract::DefaultBodyLimit;
 use axum::http::{header, StatusCode, Uri};
 use axum::response::IntoResponse;
 use dotenvy::dotenv;
@@ -77,6 +78,7 @@ use std::sync::{
 pub static DB_MODIFIED: AtomicBool = AtomicBool::new(false);
 pub static IS_EXITING: AtomicBool = AtomicBool::new(false);
 pub static BACKUP_CANCELLED: AtomicBool = AtomicBool::new(false);
+pub static BACKUP_PROGRESS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 fn main() {
     // 0. Load environment variables
     load_env();
@@ -204,8 +206,11 @@ async fn run_server() {
     let pool = match db::init_pool(&database_url).await {
         Ok(pool) => pool,
         Err(e) => {
-            tracing::error!("Failed to create pool: {}", e);
-            return;
+            tracing::error!(
+                "Failed to create pool: {}. Falling back to dummy for setup mode.",
+                e
+            );
+            db::init_pool("postgresql://localhost/dummy").await.unwrap()
         }
     };
 
@@ -213,40 +218,32 @@ async fn run_server() {
         commands::config::get_app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     // Check connection validity
-    let setup_status = if let Ok(_) = pool.acquire().await {
+    let setup_status = if let Ok(conn) = pool.acquire().await {
+        drop(conn); // release it back
         tracing::info!("Database connection established");
         if let Err(e) = db::init_database(&pool).await {
             tracing::error!("Failed to run migrations: {}", e);
         }
 
-        // Start Background Simulation Task
+        // Start Background Tasks (only if connected)
         let sim_pool = pool.clone();
         tokio::spawn(async move {
-            tracing::info!("Starting IoT simulation background loop...");
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1800));
             loop {
                 interval.tick().await;
-                if let Err(e) = commands::iot::record_simulated_readings(&sim_pool).await {
-                    tracing::error!("Failed to record simulated readings: {}", e);
-                }
+                let _ = commands::iot::record_simulated_readings(&sim_pool).await;
             }
         });
 
-        // Start Auto-Backup Task
         let backup_pool = pool.clone();
         let backup_config_dir = config_dir.clone();
         tokio::spawn(async move {
-            tracing::info!("Starting Auto-Backup background loop...");
-            // Run every 6 hours
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(21600));
             loop {
                 interval.tick().await;
-                if let Err(e) =
+                let _ =
                     commands::backup::auto::trigger_auto_backup(&backup_config_dir, &backup_pool)
-                        .await
-                {
-                    tracing::error!("Auto-backup background task failed: {}", e);
-                }
+                        .await;
             }
         });
 
@@ -296,6 +293,7 @@ async fn run_server() {
     // Build our application with routes
     let app = routes::create_router()
         .merge(bridge_router)
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB Limit for photos
         .route_layer(axum::middleware::from_fn(
             crate::middleware::auth::auth_middleware,
         ))
@@ -352,22 +350,27 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
 }
 
 fn load_env() {
-    // Load .env from executable's directory first (critical for shortcuts/auto-start),
-    // then fall back to CWD-based loading.
+    // 1. Try Loading from AppData config directory (most reliable for installed apps)
+    if let Ok(config_dir) = commands::config::get_app_config_dir() {
+        let env_path = config_dir.join(".env");
+        if env_path.exists() {
+            let _ = dotenvy::from_path(&env_path);
+            tracing::info!("Loaded environment from {:?}", env_path);
+        }
+    }
+
+    // 2. Load .env from executable's directory (critical for relative paths in some envs)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let env_path = exe_dir.join(".env");
             if env_path.exists() {
                 let _ = dotenvy::from_path(&env_path);
-            } else {
-                dotenv().ok();
             }
-        } else {
-            dotenv().ok();
         }
-    } else {
-        dotenv().ok();
     }
+
+    // 3. Fallback to CWD-based loading (standard development)
+    dotenv().ok();
 }
 
 async fn index_html() -> axum::response::Response {

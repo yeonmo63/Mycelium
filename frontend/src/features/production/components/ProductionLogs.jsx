@@ -20,6 +20,35 @@ const ProductionLogs = () => {
     const [editingLog, setEditingLog] = useState(null);
     const fileInputRef = useRef(null);
     const [uploadType, setUploadType] = useState('photo');
+    const baseUrl = localStorage.getItem('API_BASE_URL') || '';
+
+    const resolveImageUrl = (path, displayPath) => {
+        if (!path) return '';
+        // If it's already a full URL or blob, return as is
+        if (path.startsWith('http') || path.startsWith('blob:') || path.startsWith('data:')) return path;
+
+        // Extract filename from path (handles legacy absolute paths and assets.localhost)
+        let cleanPath = path;
+        if (path.includes('asset.localhost')) {
+            cleanPath = path.replace(/https?:\/\/asset\.localhost\//, '').replace(/asset\.localhost\//, '');
+        }
+
+        try { cleanPath = decodeURIComponent(cleanPath); } catch (e) { }
+
+        const filename = cleanPath.split(/[\\/]/).pop();
+
+        // Construct clean API URL
+        let finalBaseUrl = localStorage.getItem('API_BASE_URL') || '';
+
+        // Dev mode fallback
+        if (!finalBaseUrl && window.location.port === '5173') {
+            finalBaseUrl = 'http://localhost:3000';
+        }
+
+        if (finalBaseUrl.endsWith('/')) finalBaseUrl = finalBaseUrl.slice(0, -1);
+
+        return `${finalBaseUrl}/api/production/media/${filename}`;
+    };
 
     const [formData, setFormData] = useState({
         log_id: 0,
@@ -118,16 +147,21 @@ const ProductionLogs = () => {
                     type: uploadType,
                     path: fileName,
                     label: `증${labelIndex})`,
-                    displayPath: `/api/production/media/${fileName}`
+                    displayPath: resolveImageUrl(fileName)
                 });
 
                 setFormData({ ...formData, photos: newPhotos });
             } else {
-                throw new Error("Upload failed");
+                throw new Error("서버에서 파일명을 받지 못했습니다.");
             }
         } catch (err) {
             console.error('File upload failed:', err);
-            showAlert('오류', '이미지 업로드 실패: ' + err);
+            const errorMsg = err.message || String(err);
+            if (errorMsg.includes('413')) {
+                showAlert('오류', '이미지 용량이 너무 큼니다 (최대 10MB).');
+            } else {
+                showAlert('오류', '이미지 업로드 실패: ' + errorMsg);
+            }
         }
 
         // Reset input
@@ -452,7 +486,15 @@ const ProductionLogs = () => {
                                     <div className="grid grid-cols-4 gap-2 mt-2">
                                         {formData.photos.map(p => (
                                             <div key={p.id} className="relative aspect-square rounded-xl border border-slate-100 bg-slate-50 overflow-hidden group">
-                                                <img src={p.displayPath} alt={p.label} className="w-full h-full object-cover" />
+                                                <img
+                                                    src={resolveImageUrl(p.path, p.displayPath)}
+                                                    alt={p.label}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        e.target.onerror = null;
+                                                        e.target.src = 'https://placehold.co/200x200?text=Image+Not+Found';
+                                                    }}
+                                                />
                                                 <button onClick={() => removeAttachment(p.id)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><CloseIcon size={12} /></button>
                                             </div>
                                         ))}

@@ -113,6 +113,7 @@ pub fn router() -> Router<AppState> {
             "/api/crm/sms/send",
             post(commands::crm::send_sms_simulation_axum),
         )
+        .route("/api/crm/sms/logs", get(commands::crm::get_sms_logs_axum))
         .route(
             "/api/crm/special-care",
             get(commands::crm::get_special_care_customers_axum),

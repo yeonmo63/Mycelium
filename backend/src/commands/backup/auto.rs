@@ -54,14 +54,7 @@ pub async fn trigger_auto_backup(
                                 let ext_dir = std::path::Path::new(ext_path);
                                 if ext_dir.exists() {
                                     let ext_backup_path = ext_dir.join(backup_file_name);
-                                    let _ = backup_database(
-                                        config_dir,
-                                        pool,
-                                        ext_backup_path.to_string_lossy().to_string(),
-                                        true, // is_incremental
-                                        true, // use_compression
-                                    )
-                                    .await;
+                                    let _ = tokio::fs::copy(&backup_path, ext_backup_path).await;
                                 }
                             }
                         }
@@ -95,6 +88,8 @@ pub fn format_and_push(
     path: std::path::PathBuf,
     datetime: chrono::DateTime<chrono::Local>,
     b_type: String,
+    is_auto: bool,
+    size: u64,
 ) {
     let now = chrono::Local::now();
     let diff = now.signed_duration_since(datetime);
@@ -111,7 +106,7 @@ pub fn format_and_push(
     let formatted = format!("{} ({})", datetime.format("%Y-%m-%d %H:%M:%S"), ago);
 
     list.push(AutoBackupItem {
-        name: path
+        filename: path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
@@ -120,6 +115,8 @@ pub fn format_and_push(
         created_at: formatted,
         timestamp: datetime.timestamp(),
         backup_type: b_type,
+        is_auto,
+        size,
     });
 }
 
@@ -138,7 +135,15 @@ pub async fn get_auto_backups(config_dir: &std::path::Path) -> MyceliumResult<Ve
                     if let Ok(metadata) = entry.metadata() {
                         if let Ok(modified) = metadata.modified() {
                             let datetime: chrono::DateTime<chrono::Local> = modified.into();
-                            format_and_push(&mut list, entry.path(), datetime, "자동".to_string());
+                            let size = metadata.len();
+                            format_and_push(
+                                &mut list,
+                                entry.path(),
+                                datetime,
+                                "자동".to_string(),
+                                true,
+                                size,
+                            );
                         }
                     }
                 }
@@ -158,7 +163,15 @@ pub async fn get_auto_backups(config_dir: &std::path::Path) -> MyceliumResult<Ve
                     if let Ok(metadata) = entry.metadata() {
                         if let Ok(modified) = metadata.modified() {
                             let datetime: chrono::DateTime<chrono::Local> = modified.into();
-                            format_and_push(&mut list, entry.path(), datetime, "일일".to_string());
+                            let size = metadata.len();
+                            format_and_push(
+                                &mut list,
+                                entry.path(),
+                                datetime,
+                                "일일".to_string(),
+                                false,
+                                size,
+                            );
                         }
                     }
                 }
@@ -227,9 +240,9 @@ async fn run_backup_logic(
                                 let ext_dir = std::path::Path::new(ext_path);
                                 if ext_dir.exists() {
                                     let ext_daily_dir = ext_dir.join("daily");
-                                    let _ = std::fs::create_dir_all(&ext_daily_dir);
+                                    let _ = tokio::fs::create_dir_all(&ext_daily_dir).await;
                                     let ext_backup_path = ext_daily_dir.join(&daily_filename);
-                                    let _ = std::fs::copy(&daily_path, ext_backup_path);
+                                    let _ = tokio::fs::copy(&daily_path, ext_backup_path).await;
                                 }
                             }
                         }
@@ -259,12 +272,7 @@ async fn run_backup_logic(
                 }
                 return Ok(msg);
             }
-            Err(e) => {
-                return Err(MyceliumError::Internal(format!(
-                    "Daily backup failed: {}",
-                    e
-                )))
-            }
+            Err(e) => return Err(e),
         }
     }
     Ok("Today's backup already exists".to_string())

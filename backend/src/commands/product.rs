@@ -12,6 +12,7 @@ use crate::stubs::{AppHandle, State as TauriState};
 use axum::extract::{State as AxumState, Json};
 use axum::Extension;
 use crate::middleware::auth::Claims;
+use crate::commands::config::log_audit;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -1523,6 +1524,22 @@ pub async fn create_product_axum(
     }
 
     tx.commit().await?;
+
+    // Audit Log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username,
+        "CREATE_PRODUCT",
+        Some("products"),
+        Some(&product_id.to_string()),
+        Some(&format!("상품 생성: {} (ID: {})", payload.productName, product_id)),
+        None,
+        Some(json!({ "productName": payload.productName, "unitPrice": payload.unitPrice })),
+        None,
+        None,
+    ).await;
+
     Ok(Json(json!({ "success": true, "productId": product_id })))
 }
 
@@ -1661,6 +1678,22 @@ pub async fn update_product_axum(
     }
 
     tx.commit().await?;
+
+    // Audit Log
+    log_audit(
+        &state.pool,
+        claims.user_id,
+        claims.username,
+        "UPDATE_PRODUCT",
+        Some("products"),
+        Some(&payload.productId.to_string()),
+        Some(&format!("상품 수정: {} (ID: {})", payload.productName, payload.productId)),
+        Some(json!({ "product_name": old.product_name, "unit_price": old.unit_price })),
+        Some(json!({ "product_name": payload.productName, "unit_price": payload.unitPrice })),
+        None,
+        None,
+    ).await;
+
     Ok(Json(()))
 }
 

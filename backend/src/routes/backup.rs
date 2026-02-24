@@ -44,4 +44,8 @@ pub fn router() -> Router<AppState> {
             "/api/backup/cancel",
             post(commands::backup::web::cancel_backup_restore_axum),
         )
+        .route(
+            "/api/backup/progress",
+            get(commands::backup::web::get_live_progress_axum),
+        )
 }

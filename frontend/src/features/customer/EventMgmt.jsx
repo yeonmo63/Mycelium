@@ -1,9 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Lock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useModal } from '../../contexts/ModalContext';
+import { useAdminGuard } from '../../hooks/useAdminGuard';
 import { invoke } from '../../utils/apiBridge';
 
 const EventMgmt = () => {
+    const navigate = useNavigate();
     const { showAlert, showConfirm } = useModal();
+    const { isAuthorized, checkAdmin, isVerifying } = useAdminGuard();
+
     // State
     const [events, setEvents] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -22,10 +28,27 @@ const EventMgmt = () => {
         memo: ''
     });
 
+    // --- Admin Guard Check ---
+    const checkRunComp = useRef(false);
+    useEffect(() => {
+        if (checkRunComp.current) return;
+        checkRunComp.current = true;
+
+        const init = async () => {
+            const ok = await checkAdmin();
+            if (!ok) {
+                navigate('/');
+            }
+        };
+        init();
+    }, [checkAdmin, navigate]);
+
     // --- Init ---
     useEffect(() => {
-        loadEvents();
-    }, []);
+        if (isAuthorized) {
+            loadEvents();
+        }
+    }, [isAuthorized]);
 
     const loadEvents = async (query = '') => {
         setIsLoading(true);
@@ -123,6 +146,23 @@ const EventMgmt = () => {
             showAlert("오류", "삭제 실패: " + e);
         }
     };
+
+    if (!isAuthorized) {
+        return (
+            <div className="flex h-full items-center justify-center bg-[#f8fafc]">
+                <div className="text-center animate-pulse">
+                    {isVerifying ? (
+                        <div className="w-12 h-12 border-4 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
+                    ) : (
+                        <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+                    )}
+                    <p className="text-slate-400 font-bold">
+                        {isVerifying ? '인증 확인 중...' : '인증 대기 중...'}
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden animate-in fade-in duration-700">

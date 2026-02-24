@@ -136,7 +136,6 @@ const Sidebar = () => {
                                 <SubMenuItem to="/sales/daily" icon="person_search" label="개인별 판매 현황" />
                             </>
                         )}
-                        <SubMenuItem to="/customer/event-mgmt" icon="fmd_good" label="행사(특판)장 관리" />
                     </MenuGroup>
 
                     <MenuGroup id="customer" icon="group" label="고객 관리" expanded={isExpanded('customer')} onToggle={toggleMenu} currentPath={location.pathname}>
@@ -164,7 +163,6 @@ const Sidebar = () => {
                                 <SubMenuItem to="/finance/purchase" icon="shopping_bag" label="매입 등록/내역" />
                                 <SubMenuItem to="/finance/expense" icon="payments" label="일반 지출 관리" />
                                 <SubMenuItem to="/finance/tax-report" icon="request_quote" label="세무/부가세 신고" />
-                                <SubMenuItem to="/finance/vendor" icon="factory" label="공급/거래처 관리" />
                                 <SubMenuItem to="/finance/analysis" icon="analytics" label="손익/재무 분석" />
                             </MenuGroup>
 
@@ -189,22 +187,42 @@ const Sidebar = () => {
                     <MenuItem to="/schedule" icon="calendar_month" label="일정 관리" />
 
                     {sessionStorage.getItem('userRole') === 'admin' && (
-                        <MenuGroup id="settings" icon="settings" label="설정 및 관리" expanded={isExpanded('settings')} onToggle={toggleMenu} currentPath={location.pathname}>
-                            <SubMenuItem to="/settings/user-list" icon="manage_accounts" label="사용자 관리" />
-                            <SubMenuItem to="/settings/company-info" icon="business" label="업체 정보 관리" />
-                            <SubMenuItem to="/settings/product-list" icon="inventory_2" label="상품/자재 마스터" />
-                            <SubMenuItem to="/exp/program-mgmt" icon="settings_applications" label="체험 프로그램 설정" />
-                            {!isLite && (
-                                <>
-                                    <SubMenuItem to="/settings/api-keys" icon="api" label="외부 서비스 연동" />
-                                    <SubMenuItem to="/settings/iot" icon="router" label="IoT 장비 관리" />
-                                    <SubMenuItem to="/settings/template-mgmt" icon="chat_bubble" label="메시지 템플릿" />
-                                    <SubMenuItem to="/settings/mobile-sync" icon="smartphone" label="모바일 연동 센터" />
-                                    <SubMenuItem to="/settings/db-backup-restore" icon="backup" label="백업 및 복구" />
-                                    <SubMenuItem to="/settings/db-reset" icon="delete_forever" label="데이터 초기화/프리셋" />
-                                </>
-                            )}
-                        </MenuGroup>
+                        <>
+                            <MenuGroup id="base_data" icon="database" label="기본 데이터 관리" expanded={isExpanded('base_data')} onToggle={toggleMenu} currentPath={location.pathname}>
+                                <SubMenuItem to="/settings/company-info" icon="business" label="업체 정보 관리" />
+                                <SubMenuItem to="/settings/user-list" icon="manage_accounts" label="사용자 관리" />
+                                <SubMenuItem to="/settings/product-list" icon="inventory_2" label="상품/자재 마스터" />
+                                <SubMenuItem to="/settings/vendor-mgmt" icon="factory" label="공급/거래처 관리" />
+                                <SubMenuItem to="/settings/event-mgmt" icon="fmd_good" label="행사(특판)장 관리" />
+                                <SubMenuItem to="/exp/program-mgmt" icon="settings_applications" label="체험 프로그램 설정" />
+                                <SubMenuItem to="/settings/template-mgmt" icon="chat_bubble" label="메시지 템플릿" />
+                            </MenuGroup>
+
+                            <MenuGroup id="settings" icon="settings" label="시스템 및 보안" expanded={isExpanded('settings')} onToggle={toggleMenu} currentPath={location.pathname}>
+                                <div className="px-4 py-2 mt-2 flex items-center gap-2">
+                                    <span className="w-1 h-3 bg-rose-500/50 rounded-full"></span>
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">보안 및 시스템 이력</span>
+                                </div>
+                                <SubMenuItem to="/settings/security" icon="security" label="보안 상태 점검" />
+                                <SubMenuItem to="/settings/sessions" icon="devices" label="로그인 기기 관리" />
+                                <SubMenuItem to="/settings/audit-logs" icon="history" label="시스템 감사 로그" />
+                                <SubMenuItem to="/settings/sms-logs" icon="sms" label="SMS 발송 내역" />
+                                <SubMenuItem to="/settings/backup" icon="backup" label="데이터 백업 및 복구" />
+
+                                {!isLite && (
+                                    <>
+                                        <div className="px-4 py-2 mt-4 flex items-center gap-2">
+                                            <span className="w-1 h-3 bg-emerald-500/50 rounded-full"></span>
+                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">고급 연동 및 초기화</span>
+                                        </div>
+                                        <SubMenuItem to="/settings/api-keys" icon="api" label="외부 서비스 연동" />
+                                        <SubMenuItem to="/settings/iot" icon="router" label="IoT 장비 관리" />
+                                        <SubMenuItem to="/settings/mobile-sync" icon="smartphone" label="모바일 연동 센터" />
+                                        <SubMenuItem to="/settings/db-reset" icon="delete_forever" label="데이터 초기화/프리셋" />
+                                    </>
+                                )}
+                            </MenuGroup>
+                        </>
                     )}
 
                     <MenuItem to="/manual" icon="help" label="사용자 메뉴얼" />

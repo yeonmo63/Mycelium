@@ -16,6 +16,22 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/logout", post(commands::config::logout))
         .route("/api/auth/check", get(commands::config::check_auth_status))
         .route(
+            "/api/auth/sessions",
+            get(commands::config::get_active_sessions_axum),
+        )
+        .route(
+            "/api/auth/sessions/revoke",
+            post(commands::config::revoke_session_axum),
+        )
+        .route(
+            "/api/auth/security-status",
+            get(commands::config::get_security_status_axum),
+        )
+        .route(
+            "/api/auth/audit-logs",
+            get(commands::config::get_audit_logs_axum),
+        )
+        .route(
             "/api/auth/verify",
             post(commands::config::verify_mobile_pin),
         )

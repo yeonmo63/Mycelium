@@ -93,6 +93,15 @@ pub async fn upload_media_axum(
                 .and_then(|e| e.to_str())
                 .unwrap_or("png");
 
+            // SECURITY: Validate file extension whitelist
+            let allowed_extensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+            if !allowed_extensions.contains(&extension.to_lowercase().as_str()) {
+                return Err(MyceliumError::Validation(format!(
+                    "Unsupported file type: .{}. Allowed: jpg, jpeg, png, webp, gif, bmp",
+                    extension
+                )));
+            }
+
             let new_file_name = format!(
                 "farm_{}_{}.{}",
                 chrono::Local::now().timestamp(),
@@ -126,6 +135,17 @@ pub async fn serve_media_axum(
     AxumState(_state): AxumState<AppState>,
     axum::extract::Path(filename): axum::extract::Path<String>,
 ) -> impl axum::response::IntoResponse {
+    // SECURITY: Prevent path traversal attacks (e.g., ../../.env)
+    let safe_filename = match std::path::Path::new(&filename).file_name() {
+        Some(name) => name.to_string_lossy().to_string(),
+        None => return (axum::http::StatusCode::BAD_REQUEST, "Invalid filename").into_response(),
+    };
+
+    // Double-check: reject any remaining path separators
+    if safe_filename.contains("..") || safe_filename.contains('/') || safe_filename.contains('\\') {
+        return (axum::http::StatusCode::BAD_REQUEST, "Invalid filename").into_response();
+    }
+
     let config_dir = match crate::commands::config::get_app_config_dir() {
         Ok(d) => d,
         Err(_) => {
@@ -136,7 +156,7 @@ pub async fn serve_media_axum(
                 .into_response()
         }
     };
-    let path = config_dir.join("media").join(&filename);
+    let path = config_dir.join("media").join(&safe_filename);
 
     match std::fs::read(&path) {
         Ok(bytes) => {

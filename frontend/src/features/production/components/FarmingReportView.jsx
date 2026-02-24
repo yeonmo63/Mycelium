@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import dayjs from 'dayjs';
-import { X, Printer, Download, Eye, FileText, CheckCircle2 } from 'lucide-react';
+import { X, Printer, Download, Eye, FileText, CheckCircle2, CheckCircle } from 'lucide-react';
 import { invoke } from '../../../utils/apiBridge';
+import { handlePrintRaw } from '../../../utils/printUtils';
 
 const workTypes = {
     plant: '식재/종균접종',
@@ -41,44 +42,65 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const baseUrl = localStorage.getItem('API_BASE_URL') || '';
-            // Fetch using bridge
+            let baseUrl = localStorage.getItem('API_BASE_URL') || '';
+            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+            // If baseUrl is empty and we're in a browser, use current origin as fallback for same-host setups
+            // but for dev (Vite) it usually needs :3000. apiBridge usually handles this.
+            if (!baseUrl && window.location.port === '5173') {
+                baseUrl = 'http://localhost:3000';
+            }
+
             const [logsData, companyData] = await Promise.all([
                 invoke('get_production_logs', { startDate, endDate, limit: 1000 }),
                 invoke('get_company_info')
             ]);
 
-            let filteredLogs = logsData;
+            let filteredLogs = logsData || [];
             const allowedCategories = reportCategoryMap[reportType];
             if (allowedCategories) {
-                filteredLogs = logsData.filter(l => allowedCategories.includes(l.work_type));
+                filteredLogs = (logsData || []).filter(l => allowedCategories.includes(l.work_type));
             }
 
             const reversedLogs = [...filteredLogs].reverse();
             setLogs(reversedLogs);
             setCompanyInfo(companyData);
 
-            // Photos are served directly via URL
+            const resolveImageUrl = (path, displayPath) => {
+                if (!path) return '';
+                if (path.startsWith('http')) return path;
+
+                let cleanPath = path;
+                if (path.includes('asset.localhost')) {
+                    cleanPath = path.replace(/https?:\/\/asset\.localhost\//, '').replace(/asset\.localhost\//, '');
+                }
+
+                try { cleanPath = decodeURIComponent(cleanPath); } catch (e) { }
+
+                if (/^[a-zA-Z]:\\|^\\\\/.test(cleanPath) || cleanPath.includes('\\')) {
+                    const filename = cleanPath.split(/[\\/]/).pop();
+                    return `${baseUrl}/api/production/media/${filename}`;
+                }
+
+                const filename = cleanPath.split(/[\\/]/).pop();
+                return `${baseUrl}/api/production/media/${filename}`;
+            };
+
             if (includeAttachments) {
-                const photosToLoad = [];
+                const loadedPhotos = {};
                 reversedLogs.forEach(l => {
                     if (l.photos && Array.isArray(l.photos)) {
                         l.photos.forEach(p => {
-                            if (p.path) photosToLoad.push(p.path);
+                            if (p.path) {
+                                loadedPhotos[p.path] = resolveImageUrl(p.path, p.displayPath);
+                            }
                         });
                     }
-                });
-
-                const loadedPhotos = {};
-                photosToLoad.forEach(path => {
-                    // Prepend baseUrl for Tauri/Offline environments
-                    const mediaPath = path.startsWith('http') ? path : `${baseUrl}/api/production/media/${path}`;
-                    loadedPhotos[path] = mediaPath;
                 });
                 setPhotoData(loadedPhotos);
             }
         } catch (err) {
-            console.error(err);
+            console.error("Report data load failed:", err);
         } finally {
             setIsLoading(false);
         }
@@ -86,10 +108,39 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
 
     useEffect(() => {
         loadData();
-    }, [startDate, endDate]);
+    }, [startDate, endDate, reportType, includeAttachments]);
 
-    const handlePrint = async () => {
-        window.print();
+    const handlePrint = () => {
+        const reportContent = document.getElementById('printable-report');
+        if (!reportContent) {
+            showAlert('오류', '인쇄할 내용을 찾을 수 없습니다.');
+            return;
+        }
+
+        // Get the computed styles or just clear the background for the print area
+        const html = `
+            <div id="printable-report" class="p-8 bg-white text-slate-900" style="background: white !important; color: #111827 !important;">
+                ${reportContent.innerHTML}
+                <style>
+                    @page { size: A4; margin: 15mm; }
+                    #printable-report { font-family: 'Noto Sans KR', sans-serif; }
+                    .bg-slate-800 { background-color: #1e293b !important; color: white !important; -webkit-print-color-adjust: exact; }
+                    .text-white { color: white !important; }
+                    .border-slate-800 { border-color: #1e293b !important; }
+                    .bg-emerald-50 { background-color: #ecfdf5 !important; -webkit-print-color-adjust: exact; }
+                    .text-emerald-600 { color: #059669 !important; }
+                    .bg-indigo-600 { background-color: #4f46e5 !important; -webkit-print-color-adjust: exact; }
+                    .bg-indigo-50 { background-color: #eef2ff !important; -webkit-print-color-adjust: exact; }
+                    .text-indigo-700 { color: #4338ca !important; }
+                    img { max-width: 100%; height: auto; }
+                    .page-break { page-break-before: always; }
+                    .break-inside-avoid { break-inside: avoid; }
+                    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                </style>
+            </div>
+        `;
+
+        handlePrintRaw(html);
     };
 
     const { tableLogs, attachmentPhotos } = useMemo(() => {
@@ -125,7 +176,7 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
     );
 
     return (
-        <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 print:p-0 print:bg-white print:block print:relative print:z-0">
+        <div id="report-modal-root" className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 print:p-0 print:bg-white print:block print:relative print:z-0">
 
             {/* Saving Overlay */}
             {isSaving && (
@@ -312,9 +363,16 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
                                     <div key={`${p.log_id}-${p.globalIdx}`} className="bg-slate-50 rounded-2xl border-2 border-slate-100 p-4 break-inside-avoid shadow-sm hover:shadow-md transition-shadow">
                                         <div className="relative aspect-[4/3] rounded-xl overflow-hidden border border-slate-200 mb-4 bg-white">
                                             <img
-                                                src={photoData[p.path] || "https://placehold.co/400x300?text=Image+Loading..."}
+                                                src={photoData[p.path] || (p.path ? (p.path.startsWith('http') ? p.path : `${(localStorage.getItem('API_BASE_URL') || '').replace(/\/$/, '')}/api/production/media/${p.path.split(/[\\/]/).pop()}`) : '')}
                                                 alt={p.label}
                                                 className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    console.error("Image load failed for:", p.path);
+                                                    if (e.target.src !== "https://placehold.co/400x300?text=Image+Not+Found") {
+                                                        e.target.onerror = null;
+                                                        e.target.src = "https://placehold.co/400x300?text=Image+Not+Found";
+                                                    }
+                                                }}
                                             />
                                             <div className="absolute top-3 left-3 px-2 py-1 bg-black/60 backdrop-blur-md text-white text-[9px] font-black rounded-lg">
                                                 증 {p.globalIdx}
@@ -348,51 +406,7 @@ const FarmingReportView = ({ startDate, endDate, includeAttachments, includeAppr
 
             <style>
                 {`
-                @media print {
-                    @page { size: A4; margin: 0; }
-                    
-                    /* Hide everything by default */
-                    body * {
-                        visibility: hidden;
-                    }
-
-                    /* Only show the printable report and its children */
-                    #printable-report, #printable-report * {
-                        visibility: visible !important;
-                    }
-
-                    /* Reset the printable area to the top-left of the page */
-                    #printable-report {
-                        position: absolute !important;
-                        left: 0 !important;
-                        top: 0 !important;
-                        width: 100% !important;
-                        margin: 0 !important;
-                        padding: 15mm !important;
-                        background: white !important;
-                        display: block !important;
-                    }
-
-                    /* Ensure background colors and images are printed */
-                    * {
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                        color-scheme: light !important;
-                    }
-
-                    /* Force page breaks */
-                    .page-break {
-                        page-break-before: always !important;
-                        display: block;
-                    }
-                    
-                    .break-inside-avoid {
-                        break-inside: avoid !important;
-                    }
-                }
                 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
                 `}
             </style>
         </div>

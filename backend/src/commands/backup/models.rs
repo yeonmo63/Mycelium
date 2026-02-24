@@ -3,11 +3,13 @@ use chrono::{NaiveDate, NaiveDateTime};
 // Helper Structs
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AutoBackupItem {
-    pub name: String,
+    pub filename: String,
     pub path: String,
     pub created_at: String,
     pub timestamp: i64,
     pub backup_type: String, // "자동" or "일일"
+    pub is_auto: bool,
+    pub size: u64,
 }
 
 // DB Location Information

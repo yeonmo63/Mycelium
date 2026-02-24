@@ -5,9 +5,10 @@ use crate::commands::backup::status::{get_last_backup_at, update_last_backup_at}
 
 use crate::commands::preset::CustomPreset;
 use crate::db::{
+    CompanyInfo, Consultation, Customer, CustomerAddress, CustomerLedger, CustomerLog, DbPool,
     Event, Expense, ExperienceProgram, FarmingLog, HarvestRecord, InventoryLog, LoginAttemptRecord,
     Product, ProductPriceHistory, ProductionBatch, ProductionSpace, Sales, Schedule, Sensor,
-    SensorReadingRecord, SmsLog, User, UserSessionRecord, Vendor,
+    SensorReadingRecord, SmsLog, SystemAuditLog, User, UserSessionRecord, Vendor,
 };
 use crate::error::{MyceliumError, MyceliumResult};
 use crate::BACKUP_CANCELLED;
@@ -59,22 +60,51 @@ pub async fn backup_database_internal(
     since: Option<chrono::NaiveDateTime>,
     use_compression: bool,
 ) -> MyceliumResult<String> {
+    let last_update_time = std::sync::atomic::AtomicI64::new(0);
     let emit_progress = |processed: i64, total: i64, message: &str| {
-        tracing::info!("[Backup] {} ({}/{})", message, processed, total);
-        if let Some(ref handle) = app {
-            let _ = handle.emit(
-                "backup-progress",
-                serde_json::json!({
+        let now = chrono::Utc::now().timestamp_millis();
+        let last = last_update_time.load(Ordering::Relaxed);
+
+        // Log every 10,000 records to tracing
+        if processed % 10000 == 0 || processed >= total {
+            tracing::info!("[Backup] {} ({}/{})", message, processed, total);
+        }
+
+        // Throttle state updates and Tauri events to 300ms
+        if processed >= total || (now - last) >= 300 {
+            last_update_time.store(now, Ordering::Relaxed);
+
+            // Update global state for web progress tracking
+            if let Ok(mut progress) = crate::BACKUP_PROGRESS.lock() {
+                *progress = Some(serde_json::json!({
                     "processed": processed,
                     "total": total,
                     "message": message,
-                }),
-            );
+                    "percentage": if total > 0 { processed as f64 / total as f64 * 100.0 } else { 0.0 }
+                }));
+            }
+
+            if let Some(ref handle) = app {
+                let _ = handle.emit(
+                    "backup-progress",
+                    serde_json::json!({
+                        "processed": processed,
+                        "total": total,
+                        "message": message,
+                    }),
+                );
+            }
         }
     };
 
+    {
+        if let Ok(mut progress) = crate::BACKUP_PROGRESS.lock() {
+            *progress = None;
+        }
+    }
+
     BACKUP_CANCELLED.store(false, Ordering::Relaxed);
-    emit_progress(0, 1, "데이터 개수 확인 중...");
+    emit_progress(0, 1, "백업 준비 중...");
 
     // Count records actually needing backup
     let count_query = |table: &str, time_col: Option<&str>| {
@@ -212,6 +242,10 @@ pub async fn backup_database_internal(
         sqlx::query_as(&count_query("login_attempts", Some("last_attempt")))
             .fetch_one(pool)
             .await?;
+    let count_audit_logs: (i64,) =
+        sqlx::query_as(&count_query("system_audit_logs", Some("created_at")))
+            .fetch_one(pool)
+            .await?;
 
     let total_records = count_users.0
         + count_products.0
@@ -243,7 +277,8 @@ pub async fn backup_database_internal(
         + count_sensor_readings.0
         + count_sms_logs.0
         + count_sessions.0
-        + count_login_attempts.0;
+        + count_login_attempts.0
+        + count_audit_logs.0;
 
     if total_records == 0 {
         return Ok("백업할 데이터가 없습니다.".to_string());
@@ -264,6 +299,8 @@ pub async fn backup_database_internal(
         ($table:expr, $model:ty, $time_col:expr, $msg:expr) => {
             if !BACKUP_CANCELLED.load(Ordering::Relaxed) {
                 let count_fn = count_query($table, $time_col);
+                // We re-query count because incremental 'since' might have changed (unlikely but safer)
+                // and it allows us to skip empty tables quickly.
                 let count: (i64,) = sqlx::query_as(&count_fn).fetch_one(pool).await?;
                 if count.0 > 0 {
                     emit_progress(processed_offset, total_records, $msg);
@@ -275,6 +312,10 @@ pub async fn backup_database_internal(
                         writeln!(writer, "{}", json)?;
                         processed_offset += 1;
                         if processed_offset % 100 == 0 { emit_progress(processed_offset, total_records, $msg); }
+                    }
+                    // Final update for this table
+                    if !BACKUP_CANCELLED.load(Ordering::Relaxed) {
+                        emit_progress(processed_offset, total_records, $msg);
                     }
                 }
             }
@@ -402,6 +443,12 @@ pub async fn backup_database_internal(
         Some("last_attempt"),
         "로그인 시도 관리 정보 백업 중..."
     );
+    backup_table!(
+        "system_audit_logs",
+        SystemAuditLog,
+        Some("created_at"),
+        "시스템 감사 로그 백업 중..."
+    );
 
     writer.flush()?;
 
@@ -413,6 +460,15 @@ pub async fn backup_database_internal(
     }
 
     emit_progress(total_records, total_records, "백업 완료");
+
+    // Clear progress after short delay
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if let Ok(mut progress) = crate::BACKUP_PROGRESS.lock() {
+            *progress = None;
+        }
+    });
+
     Ok(format!("{}개의 데이터를 백업했습니다.", total_records))
 }
 
@@ -422,16 +478,44 @@ pub async fn restore_database(pool: &DbPool, path: String) -> MyceliumResult<Str
 
     BACKUP_CANCELLED.store(false, Ordering::Relaxed);
 
-    let emit_progress = |progress: i32, message: &str| {
-        tracing::info!("[Restore] {}% - {}", progress, message);
+    let last_update_time = std::sync::atomic::AtomicI64::new(0);
+    let emit_progress = |progress: f64, message: &str, processed: i64, total: i64| {
+        let now = chrono::Utc::now().timestamp_millis();
+        let last = last_update_time.load(Ordering::Relaxed);
+
+        let is_final = progress >= 100.0;
+        let should_notify = is_final || (now - last) >= 300;
+
+        // Log every 10% or final to tracing
+        if is_final || (progress as i64) % 10 == 0 {
+            tracing::info!("[Restore] {:.1}% - {}", progress, message);
+        }
+
+        if should_notify {
+            last_update_time.store(now, Ordering::Relaxed);
+            if let Ok(mut global_progress) = crate::BACKUP_PROGRESS.lock() {
+                *global_progress = Some(serde_json::json!({
+                    "processed": processed,
+                    "total": total,
+                    "percentage": progress,
+                    "message": message
+                }));
+            }
+        }
     };
+
+    {
+        if let Ok(mut progress) = crate::BACKUP_PROGRESS.lock() {
+            *progress = None;
+        }
+    }
 
     // 1. Calculate Total Bytes for Progress
     let total_bytes: u64 = file
         .metadata()
         .map_err(|e: std::io::Error| MyceliumError::Internal(e.to_string()))?
         .len();
-    emit_progress(0, "파일을 읽는 중...");
+    emit_progress(0.0, "파일을 읽는 중...", 0, total_bytes as i64);
 
     use std::sync::atomic::AtomicU64;
     use std::sync::Arc;
@@ -693,16 +777,26 @@ pub async fn restore_database(pool: &DbPool, path: String) -> MyceliumResult<Str
                         .bind(d.id).bind(&d.username).bind(&d.client_ip).bind(d.attempt_count).bind(d.last_attempt).bind(d.is_blocked).bind(d.blocked_until)
                         .execute(&mut *tx).await?;
                 }
+                "system_audit_logs" => {
+                    let d: SystemAuditLog = serde_json::from_value(data.clone())?;
+                    sqlx::query("INSERT INTO system_audit_logs (log_id, user_id, user_name, action_type, target_table, target_id, description, old_values, new_values, ip_address, user_agent, created_at) 
+                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
+                                 ON CONFLICT (log_id) DO NOTHING")
+                        .bind(d.log_id).bind(d.user_id).bind(&d.user_name).bind(&d.action_type).bind(&d.target_table).bind(&d.target_id).bind(&d.description).bind(&d.old_values).bind(&d.new_values).bind(&d.ip_address).bind(&d.user_agent).bind(d.created_at)
+                        .execute(&mut *tx).await?;
+                }
                 _ => {} // Other tables skip for now
             }
 
             total_restored += 1;
             if total_restored % 50 == 0 {
-                let progress = ((byte_count.load(Ordering::Relaxed) as f64 / total_bytes as f64)
-                    * 100.0) as i32;
+                let current_bytes = byte_count.load(Ordering::Relaxed);
+                let pct = current_bytes as f64 / total_bytes as f64 * 100.0;
                 emit_progress(
-                    progress,
-                    &format!("{}개의 데이터 복구 중...", total_restored),
+                    pct,
+                    "데이터 복원 중...",
+                    current_bytes as i64,
+                    total_bytes as i64,
                 );
             }
         }
@@ -711,15 +805,30 @@ pub async fn restore_database(pool: &DbPool, path: String) -> MyceliumResult<Str
 
     if BACKUP_CANCELLED.load(Ordering::Relaxed) {
         let _ = tx.rollback().await;
+        emit_progress(0.0, "복구 취소됨", 0, 0);
         return Err(MyceliumError::Internal(
             "사용자에 의해 취소되었습니다.".to_string(),
         ));
     }
 
     tx.commit().await?;
-    emit_progress(100, "복구 완료");
+    emit_progress(
+        100.0,
+        "복구 완료",
+        total_restored as i64,
+        total_restored as i64,
+    );
+
+    // Clear progress after short delay
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if let Ok(mut progress) = crate::BACKUP_PROGRESS.lock() {
+            *progress = None;
+        }
+    });
+
     Ok(format!(
-        "{}개의 데이터를 복구했습니다. 서비스를 다시 시작해 주세요.",
+        "{}개의 데이터를 복구했습니다. 시스템을 재시작해 주세요.",
         total_restored
     ))
 }

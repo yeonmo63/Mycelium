@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '../../utils/apiBridge';
 import { invokeAI } from '../../utils/aiErrorHandler';
+import { ShieldAlert } from 'lucide-react';
 
 // Components
 import DashboardActionBar from './components/DashboardActionBar';
@@ -47,6 +48,7 @@ const Dashboard = () => {
         isReportLoading,
         setIsReportLoading,
         salesTrend,
+        securityStatus,
         loadDashboardData
     } = useDashboard(showAlert);
 
@@ -160,7 +162,28 @@ const Dashboard = () => {
                     setShowLogoutModal={setShowLogoutModal}
                 />
 
-                {/* 2. Main Analytics Grid */}
+                {/* 2. Security Banner (Admin Only) */}
+                {securityStatus && !securityStatus.is_secure && (
+                    <div className="bg-rose-50 border border-rose-100 rounded-3xl p-6 mb-6 flex items-center justify-between shadow-xl shadow-rose-100/50 animate-in slide-in-from-top duration-700">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-rose-500 text-white flex items-center justify-center animate-pulse">
+                                <ShieldAlert size={24} />
+                            </div>
+                            <div>
+                                <h4 className="text-rose-900 font-black tracking-tight">잠재적인 보안 위험이 발견되었습니다</h4>
+                                <p className="text-xs text-rose-600 font-medium mt-0.5">기본 비밀키 사용 등 {securityStatus.warnings.filter(w => w.level === 'High').length}개의 위험 항목이 감지되었습니다. 즉시 조치가 필요합니다.</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => navigate('/settings/security')}
+                            className="bg-white text-rose-600 px-6 py-2.5 rounded-2xl border border-rose-200 text-xs font-black shadow-sm hover:bg-rose-50 transition-all active:scale-95"
+                        >
+                            보안 센터 이동
+                        </button>
+                    </div>
+                )}
+
+                {/* 3. Main Analytics Grid */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 min-[2000px]:gap-6 mb-4 min-[2000px]:mb-6 shrink-0">
                     <WeatherHero weatherAdvice={weatherAdvice} isWeatherLoading={isWeatherLoading} />
 

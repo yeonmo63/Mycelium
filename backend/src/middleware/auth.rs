@@ -56,7 +56,10 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
         "/api/auth/company",
     ];
 
-    if !path.starts_with("/api/") || public_routes.contains(&path) {
+    if !path.starts_with("/api/")
+        || public_routes.contains(&path)
+        || path.starts_with("/api/production/media/")
+    {
         return Ok(next.run(request).await);
     }
 

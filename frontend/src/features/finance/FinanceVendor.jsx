@@ -1,15 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useModal } from '../../contexts/ModalContext';
+import { useAdminGuard } from '../../hooks/useAdminGuard';
 import { invoke } from '../../utils/apiBridge';
+import { Lock } from 'lucide-react';
 
 /**
  * FinanceVendor.jsx
  * 공급/거래처 관리
- * MushroomFarm의 기능을 포팅하고, CSI-Manager SalesReception/FinancePurchase과 유사한 Premium UI를 적용함.
  */
 const FinanceVendor = () => {
     // --- Custom Hooks ---
+    const navigate = useNavigate();
     const { showAlert, showConfirm } = useModal();
+    const { isAuthorized, checkAdmin, isVerifying } = useAdminGuard();
 
     // --- State Management ---
     const [vendors, setVendors] = useState([]);
@@ -30,10 +34,27 @@ const FinanceVendor = () => {
     };
     const [form, setForm] = useState(initialFormState);
 
+    // --- Admin Guard Check ---
+    const checkRunComp = useRef(false);
+    useEffect(() => {
+        if (checkRunComp.current) return;
+        checkRunComp.current = true;
+
+        const init = async () => {
+            const ok = await checkAdmin();
+            if (!ok) {
+                navigate('/');
+            }
+        };
+        init();
+    }, [checkAdmin, navigate]);
+
     // --- Init ---
     useEffect(() => {
-        loadVendors();
-    }, []);
+        if (isAuthorized) {
+            loadVendors();
+        }
+    }, [isAuthorized]);
 
     // Local filtering
     useEffect(() => {
@@ -121,6 +142,23 @@ const FinanceVendor = () => {
         });
         setSearchQuery(v.vendor_name);
     };
+
+    if (!isAuthorized) {
+        return (
+            <div className="flex h-full items-center justify-center bg-[#f8fafc]">
+                <div className="text-center animate-pulse">
+                    {isVerifying ? (
+                        <div className="w-12 h-12 border-4 border-slate-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
+                    ) : (
+                        <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+                    )}
+                    <p className="text-slate-400 font-bold">
+                        {isVerifying ? '인증 확인 중...' : '인증 대기 중...'}
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden animate-in fade-in duration-700">
