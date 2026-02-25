@@ -294,7 +294,8 @@ async fn run_server() {
     let app = routes::create_router()
         .merge(bridge_router)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB Limit for photos
-        .route_layer(axum::middleware::from_fn(
+        .route_layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
             crate::middleware::auth::auth_middleware,
         ))
         .layer(axum::middleware::from_fn(

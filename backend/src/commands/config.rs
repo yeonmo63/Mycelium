@@ -7,6 +7,7 @@ use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
 
@@ -302,26 +303,13 @@ pub async fn login(
                                 .expect("valid timestamp")
                                 .timestamp() as usize;
 
-                            // Store session in DB
-                            sqlx::query(
-                                "INSERT INTO user_sessions (session_id, user_id, token_hash, client_ip, user_agent, expires_at) VALUES ($1, $2, $3, $4, $5, $6)"
-                            )
-                            .bind(uuid::Uuid::parse_str(&sid).unwrap())
-                            .bind(user.id)
-                            .bind("HashedTokenPlaceholder")
-                            .bind(client_ip.clone())
-                            .bind(user_agent.clone())
-                            .bind(chrono::Utc::now() + chrono::Duration::days(1))
-                            .execute(&state.pool)
-                            .await?;
-
                             let claims = crate::middleware::auth::Claims {
                                 sub: user.username.clone(),
                                 user_id: Some(user.id),
                                 username: Some(user.username.clone()),
                                 role: Some(user.role.clone()),
                                 ui_mode: user.ui_mode.clone(),
-                                sid: Some(sid),
+                                sid: Some(sid.clone()),
                                 exp: expiration,
                             };
 
@@ -333,6 +321,28 @@ pub async fn login(
                                 ),
                             )
                             .ok();
+
+                            // Hash the token for DB storage
+                            let token_hash = if let Some(ref t) = token {
+                                let mut hasher = Sha256::new();
+                                hasher.update(t.as_bytes());
+                                format!("{:x}", hasher.finalize())
+                            } else {
+                                "invalid_token_hash".to_string()
+                            };
+
+                            // Store session in DB
+                            sqlx::query(
+                                "INSERT INTO user_sessions (session_id, user_id, token_hash, client_ip, user_agent, expires_at) VALUES ($1, $2, $3, $4, $5, $6)"
+                            )
+                            .bind(uuid::Uuid::parse_str(&sid).unwrap())
+                            .bind(user.id)
+                            .bind(token_hash)
+                            .bind(client_ip.clone())
+                            .bind(user_agent.clone())
+                            .bind(chrono::Utc::now() + chrono::Duration::days(1))
+                            .execute(&state.pool)
+                            .await?;
 
                             // Record audit log for successful login
                             log_audit(
@@ -696,7 +706,15 @@ pub async fn check_auth_status(
     })
 }
 
-pub async fn get_all_users(State(state): State<AppState>) -> MyceliumResult<Json<Vec<User>>> {
+pub async fn get_all_users(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> MyceliumResult<Json<Vec<User>>> {
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin access required".to_string(),
+        ));
+    }
     let users = sqlx::query_as::<_, User>(
         "SELECT id, username, NULL as password_hash, role, ui_mode, created_at, updated_at FROM users ORDER BY id ASC",
     )
@@ -879,66 +897,34 @@ pub struct VerifyAdminRequest {
 
 pub async fn verify_admin_password(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<VerifyAdminRequest>,
 ) -> MyceliumResult<Json<bool>> {
     let input_password = payload.password.trim();
 
-    // 1. Get the current logged-in user from session
-    let current_user_id = {
-        let session = state
-            .session
-            .lock()
-            .map_err(|_| MyceliumError::Internal("Session lock error".to_string()))?;
-        session.user_id
-    };
+    // 1. Check if the requester is actually an admin (via JWT)
+    if !claims.is_admin() {
+        return Err(MyceliumError::Validation(
+            "Admin authority required to verify admin password".to_string(),
+        ));
+    }
 
-    let user_to_check = if let Some(id) = current_user_id {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-    } else {
-        None
-    };
+    // 2. Fetch the user's current password hash from DB
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(claims.user_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| MyceliumError::Validation("User not found".to_string()))?;
 
-    // 2. Fallback to default admin if no user in session or user is not admin
-    let final_user = match user_to_check {
-        Some(u) if u.role == "admin" => Some(u),
-        _ => {
-            let admin_username =
-                std::env::var("ADMIN_USER").unwrap_or_else(|_| "admin".to_string());
-            sqlx::query_as::<_, User>(
-                "SELECT * FROM users WHERE (username = $1 OR role = 'admin') AND username != 'user' LIMIT 1",
-            )
-            .bind(&admin_username)
-            .fetch_optional(&state.pool)
-            .await?
-        }
-    };
-
-    if let Some(admin_user) = final_user {
-        if let Some(hash) = admin_user.password_hash {
-            match verify(input_password, &hash) {
-                Ok(is_valid) => {
-                    if !is_valid {
-                        eprintln!(
-                            "Auth: Password mismatch for admin user '{}'",
-                            admin_user.username
-                        );
-                    }
-                    Ok(Json(is_valid))
-                }
-                Err(e) => {
-                    eprintln!("Auth: Bcrypt verify error: {:?}", e);
-                    Ok(Json(false))
-                }
+    if let Some(hash) = user.password_hash {
+        match verify(input_password, &hash) {
+            Ok(is_valid) => Ok(Json(is_valid)),
+            Err(e) => {
+                tracing::error!("Auth: Bcrypt verify error: {:?}", e);
+                Ok(Json(false))
             }
-        } else {
-            // If no password hash exists, we cannot verify. Returning false for security.
-            Ok(Json(false))
         }
     } else {
-        // No admin at all found in DB. Returning false.
         Ok(Json(false))
     }
 }

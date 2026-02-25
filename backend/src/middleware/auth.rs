@@ -1,12 +1,13 @@
-use crate::state::SessionState;
+use crate::state::{AppState, SessionState};
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::{header, StatusCode},
     middleware::Next,
     response::Response,
 };
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -43,7 +44,11 @@ pub fn get_jwt_secret() -> Vec<u8> {
         .into_bytes()
 }
 
-pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Response, StatusCode> {
+pub async fn auth_middleware(
+    State(state): State<AppState>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
     let path = request.uri().path();
     let public_routes = vec![
         "/api/auth/status",
@@ -93,7 +98,26 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> Result<Respons
     )
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    // 3. Attach the claims to the request extensions
+    // 3. Verify the token hash in the database
+    // This provides revocation support (logout invalidate)
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    let token_hash = format!("{:x}", hasher.finalize());
+
+    let session_exists = sqlx::query!(
+        "SELECT 1 as x FROM user_sessions WHERE token_hash = $1 AND expires_at > CURRENT_TIMESTAMP",
+        token_hash
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if session_exists.is_none() {
+        tracing::warn!("Valid JWT but session not found in DB (likely revoked).");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // 4. Attach the claims to the request extensions
     request.extensions_mut().insert(token_data.claims);
 
     Ok(next.run(request).await)
