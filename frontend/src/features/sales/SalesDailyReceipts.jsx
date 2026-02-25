@@ -279,7 +279,7 @@ const SalesDailyReceipts = () => {
                                     <button
                                         onClick={handleNextDay}
                                         disabled={isToday}
-                                        className={`w - 9 h - 9 rounded - xl bg - white border border - slate - 200 flex items - center justify - center transition - all shadow - sm
+                                        className={`w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center transition-all shadow-sm
                                             ${isToday ? 'opacity-50 cursor-not-allowed text-slate-300' : 'text-slate-500 hover:text-indigo-600 hover:border-indigo-200 hover:scale-105 active:scale-95'} `}
                                     >
                                         <span className="material-symbols-rounded text-xl">chevron_right</span>
@@ -416,18 +416,18 @@ const SalesDailyReceipts = () => {
                             {isLoading ? (
                                 <tr><td colSpan="11" className="py-32 text-center"><div className="inline-block w-10 h-10 border-4 border-slate-200 border-t-indigo-500 rounded-full animate-spin"></div><div className="mt-4 text-slate-400 font-bold text-sm">데이터를 불러오는 중입니다...</div></td></tr>
                             ) : receipts.length === 0 ? (
-                                <tr><td colSpan="11" className="py-32 text-center text-slate-400 font-bold">해당 일자의 접수 내역이 없습니다.</td></tr>
+                                <tr><td colSpan="13" className="py-32 text-center text-slate-400 font-bold">해당 일자의 접수 내역이 없습니다.</td></tr>
                             ) : (
                                 receipts.map((r, idx) => {
                                     const status = r.status || '접수';
                                     let statusBadge;
                                     const badgeClass = "px-2 py-1 rounded-[6px] text-[10px] font-black tracking-tight border";
 
-                                    if (status === '접수') statusBadge = <span className={`${badgeClass} bg - orange - 50 text - orange - 600 border - orange - 100`}>접수</span>;
-                                    else if (status === '입금완료') statusBadge = <span className={`${badgeClass} bg - emerald - 50 text - emerald - 600 border - emerald - 100`}>입금완료</span>;
-                                    else if (status === '배송완료') statusBadge = <span className={`${badgeClass} bg - blue - 50 text - blue - 600 border - blue - 100`}>배송완료</span>;
-                                    else if (status === '취소') statusBadge = <span className={`${badgeClass} bg - red - 50 text - red - 600 border - red - 100 line - through`}>취소</span>;
-                                    else statusBadge = <span className={`${badgeClass} bg - slate - 100 text - slate - 600 border - slate - 200`}>{status}</span>;
+                                    if (status === '접수') statusBadge = <span className={`${badgeClass} bg-orange-50 text-orange-600 border-orange-100`}>접수</span>;
+                                    else if (status === '입금완료') statusBadge = <span className={`${badgeClass} bg-emerald-50 text-emerald-600 border-emerald-100`}>입금완료</span>;
+                                    else if (status === '배송완료') statusBadge = <span className={`${badgeClass} bg-blue-50 text-blue-600 border-blue-100`}>배송완료</span>;
+                                    else if (status === '취소') statusBadge = <span className={`${badgeClass} bg-red-50 text-red-600 border-red-100 line-through`}>취소</span>;
+                                    else statusBadge = <span className={`${badgeClass} bg-slate-100 text-slate-600 border-slate-200`}>{status}</span>;
 
                                     return (
                                         <tr key={idx} className="hover:bg-slate-50 transition-colors group">
