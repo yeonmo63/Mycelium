@@ -505,7 +505,7 @@ const MobileEventSales = () => {
                 ) : (
                     <EventSelectedInfo
                         customer={customer}
-                        setCustomer={setCustomer}
+                        onClearCustomer={() => setCustomer(null)}
                         events={events}
                         selectedEventId={selectedEventId}
                         setSelectedEventId={setSelectedEventId}
@@ -525,8 +525,7 @@ const MobileEventSales = () => {
 
                         <EventProductQuickSelect
                             products={products}
-                            selectedEventId={selectedEventId}
-                            handleInputChange={handleInputChange}
+                            onSelectProduct={(name) => handleInputChange({ target: { name: 'product', value: name } })}
                             formatCurrency={formatCurrency}
                         />
 
