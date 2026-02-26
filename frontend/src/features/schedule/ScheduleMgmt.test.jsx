@@ -56,7 +56,6 @@ describe('ScheduleMgmt Component', () => {
         expect(screen.getByText(/일정 관리/i)).toBeInTheDocument();
 
         await waitFor(() => {
-            // Find in the calendar grid or sidebar
             const elements = screen.getAllByText('테스트 일정 1');
             expect(elements.length).toBeGreaterThan(0);
         });
@@ -65,17 +64,21 @@ describe('ScheduleMgmt Component', () => {
     it('opens modal and creates a new schedule', async () => {
         renderWithContext(<ScheduleMgmt />);
 
-        const addBtn = screen.getByText(/새 일정 등록/i);
+        // The button text "새 일정 등록" appears both in the sidebar button
+        // and the modal header after click. Use getByRole to target the button.
+        const addBtn = screen.getByRole('button', { name: /새 일정 등록/i });
         await user.click(addBtn);
 
+        // Wait for modal to open — check for the placeholder input
         await waitFor(() => {
-            expect(screen.getByText('새 일정 등록')).toBeInTheDocument();
+            expect(screen.getByPlaceholderText('일정 제목을 입력하세요')).toBeInTheDocument();
         });
 
         const titleInput = screen.getByLabelText(/Title/i);
         await user.type(titleInput, '새로운 테스트 일정');
 
-        const saveBtn = screen.getByText('일정 등록 완료');
+        // The submit button text includes icon + text
+        const saveBtn = screen.getByRole('button', { name: /일정 등록 완료/i });
         await user.click(saveBtn);
 
         await waitFor(() => {
@@ -104,7 +107,7 @@ describe('ScheduleMgmt Component', () => {
         await user.clear(titleInput);
         await user.type(titleInput, '수정된 일정');
 
-        const saveBtn = screen.getByText('수정 사항 저장');
+        const saveBtn = screen.getByRole('button', { name: /수정 사항 저장/i });
         await user.click(saveBtn);
 
         await waitFor(() => {
@@ -117,18 +120,26 @@ describe('ScheduleMgmt Component', () => {
     it('switches months in calendar', async () => {
         renderWithContext(<ScheduleMgmt />);
 
-        const nextBtn = await screen.findByRole('button', { name: /calendar_right/i || '' });
-        // The buttons don't have aria-labels, so we use their icons if possible or just order
-        // In the component: <button onClick={handleNextMonth} ...> <ChevronRight size={18} /> </button>
-        // Let's use the SVG classes as a selector helper
-        const allButtons = screen.getAllByRole('button');
-        const nextMonthBtn = allButtons.find(btn => btn.querySelector('svg.lucide-chevron-right'));
+        // Wait for initial render
+        await waitFor(() => {
+            expect(screen.getByText(dayjs().format('YYYY. MM'))).toBeInTheDocument();
+        });
 
-        if (nextMonthBtn) {
-            await user.click(nextMonthBtn);
-            await waitFor(() => {
-                expect(apiBridge.invoke).toHaveBeenCalledWith('get_schedules', expect.any(Object));
-            });
-        }
+        // The chevron buttons don't have aria-labels.
+        // Find by the lucide SVG class name.
+        const allButtons = screen.getAllByRole('button');
+        const nextMonthBtn = allButtons.find(btn => btn.querySelector('.lucide-chevron-right'));
+
+        expect(nextMonthBtn).toBeTruthy();
+        await user.click(nextMonthBtn);
+
+        // After clicking next month, the displayed month should change
+        const nextMonth = dayjs().add(1, 'month');
+        await waitFor(() => {
+            expect(screen.getByText(nextMonth.format('YYYY. MM'))).toBeInTheDocument();
+        });
+
+        // Schedules should have been re-fetched
+        expect(apiBridge.invoke).toHaveBeenCalledWith('get_schedules', expect.any(Object));
     });
 });

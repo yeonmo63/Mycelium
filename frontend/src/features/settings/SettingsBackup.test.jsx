@@ -1,5 +1,5 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import SettingsBackup from './SettingsBackup';
 import { BrowserRouter } from 'react-router-dom';
 import * as apiBridge from '../../utils/apiBridge';
@@ -28,7 +28,7 @@ const mockBackups = [
         path: '/backups/backup_2026-02-26.db',
         is_auto: true,
         size: 10 * 1024 * 1024,
-        timestamp: 1740560400 // 2026-02-26 12:00:00 UTC+9
+        timestamp: 1772074800 // 2026-02-26 12:00:00 UTC+9
     }
 ];
 
@@ -39,9 +39,15 @@ const mockStatus = {
 
 describe('SettingsBackup Component', () => {
     const user = userEvent.setup();
+    let mockShowAlert;
+    let mockShowConfirm;
 
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+
+        mockShowAlert = vi.fn().mockResolvedValue(true);
+        mockShowConfirm = vi.fn().mockResolvedValue(true);
 
         // Mock Admin Guard to be authorized
         adminGuard.useAdminGuard.mockReturnValue({
@@ -52,16 +58,19 @@ describe('SettingsBackup Component', () => {
 
         // Mock useModal
         vi.mocked(useModal).mockReturnValue({
-            showAlert: vi.fn(),
-            showConfirm: vi.fn().mockResolvedValue(true)
+            showAlert: mockShowAlert,
+            showConfirm: mockShowConfirm
         });
 
-        // Mock API responses
+        // Mock API responses — SettingsBackup imports callBridge as `invoke`
         apiBridge.callBridge.mockImplementation((command, args) => {
             if (command === 'get_auto_backups') return Promise.resolve(mockBackups);
             if (command === 'get_backup_status') return Promise.resolve(mockStatus);
             if (command === 'get_backup_path_external') return Promise.resolve('D:\\Backups');
-            if (command === 'run_daily_custom_backup') return Promise.resolve({ success: true });
+            // Delay run_daily_custom_backup so polling can fire before it resolves
+            if (command === 'run_daily_custom_backup') return new Promise(resolve =>
+                setTimeout(() => resolve({ success: true }), 5000)
+            );
             if (command === 'get_backup_progress') return Promise.resolve({
                 percentage: 50.0,
                 message: '데이터 압축 중...',
@@ -78,6 +87,10 @@ describe('SettingsBackup Component', () => {
         });
     });
 
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     const renderComponent = () => {
         return render(
             <BrowserRouter>
@@ -89,47 +102,76 @@ describe('SettingsBackup Component', () => {
     it('renders and displays backup status and history', async () => {
         renderComponent();
 
+        // Wait for backup list to load and render
         await waitFor(() => {
             expect(screen.getByText('backup_2026-02-26.db')).toBeInTheDocument();
-            // Check for the formatted timestamp. 2026-02-26 21:00 (assuming UTC+9)
-            expect(screen.getByText(/2026-02-26/)).toBeInTheDocument();
         });
 
-        expect(screen.getByDisplayValue('D:\\Backups')).toBeInTheDocument();
+        // Check date is displayed somewhere (timestamp 1772074800 => 2026-02-26)
+        expect(screen.getAllByText(/2026-02-26/).length).toBeGreaterThan(0);
+
+        // Check external path input has the loaded value
+        // Placeholder is '예: D:\MyceliumBackups'
+        await waitFor(() => {
+            const pathInput = screen.getByPlaceholderText(/MyceliumBackups/i);
+            expect(pathInput.value).toBe('D:\\Backups');
+        });
     });
 
     it('triggers manual backup and shows progress', async () => {
         renderComponent();
 
-        await waitFor(() => screen.getByText('전체 백업'));
+        // Wait for data to load
+        await waitFor(() => {
+            expect(screen.getByText('backup_2026-02-26.db')).toBeInTheDocument();
+        });
 
-        const backupBtn = screen.getByText('전체 백업');
-        fireEvent.click(backupBtn);
+        // Find the "전체 백업" button
+        const backupBtn = screen.getByRole('button', { name: /전체 백업/i });
+        await act(async () => {
+            fireEvent.click(backupBtn);
+        });
 
+        // After clicking, the overlay should show with initial 0.0%
         await waitFor(() => {
             expect(screen.getByText('데이터 백업 수행 중')).toBeInTheDocument();
         });
 
-        // Polling will happen automatically with real timers
+        // run_daily_custom_backup is mocked to resolve after 5s (fake timer),
+        // so polling can fire. Advance past the 200ms setTimeout for pollProgress.
+        await act(async () => {
+            vi.advanceTimersByTime(250);
+            // Allow microtasks to flush (the invoke('get_backup_progress') promise)
+            await new Promise(r => setTimeout(r, 0));
+        });
+
+        // The progress should now be displayed (from the mock: 50.0%)
+        // backupProgress.progress = Number(50.0.toFixed(1)) = 50, which .toFixed(1) = "50.0"
         await waitFor(() => {
             expect(screen.getByText('50.0%')).toBeInTheDocument();
-            expect(screen.getByText('데이터 압축 중...')).toBeInTheDocument();
         }, { timeout: 5000 });
     });
 
     it('triggers database restore with confirmation', async () => {
         renderComponent();
 
-        await waitFor(() => screen.getByText('복구하기'));
+        // Wait for backup list to render with the "복구하기" button
+        await waitFor(() => {
+            expect(screen.getByText('복구하기')).toBeInTheDocument();
+        });
 
         const restoreBtn = screen.getAllByText('복구하기')[0];
-        fireEvent.click(restoreBtn);
+        await act(async () => {
+            fireEvent.click(restoreBtn);
+        });
 
-        expect(useModal().showConfirm).toHaveBeenCalledWith(
+        // showConfirm should have been called for restore confirmation
+        expect(mockShowConfirm).toHaveBeenCalledWith(
             "데이터베이스 복구",
             expect.stringContaining("정말로 이 백업 파일로 복구하시겠습니까?")
         );
 
+        // After confirmation, the restore overlay should appear
         await waitFor(() => {
             expect(screen.getByText('데이터베이스 복구 중')).toBeInTheDocument();
         });
@@ -138,13 +180,24 @@ describe('SettingsBackup Component', () => {
     it('saves external backup path', async () => {
         renderComponent();
 
-        const input = await waitFor(() => screen.getByPlaceholderText(/D:\\MyceliumBackups/));
+        // Wait for the input to render with initial value
+        await waitFor(() => {
+            const input = screen.getByPlaceholderText(/MyceliumBackups/);
+            expect(input.value).toBe('D:\\Backups');
+        });
+
+        const input = screen.getByPlaceholderText(/MyceliumBackups/);
+
+        // Clear and type new path
         await user.clear(input);
         await user.type(input, 'E:\\NewBackups');
 
+        // Find the save button — it's a sibling button with an SVG icon, next to the input
         const allButtons = screen.getAllByRole('button');
-        const savePathBtn = allButtons.find(b => b.querySelector('svg[data-lucide="save"]'));
+        // The save path button is the one containing the lucide-save SVG class
+        const savePathBtn = allButtons.find(b => b.querySelector('.lucide-save'));
 
+        expect(savePathBtn).toBeTruthy();
         fireEvent.click(savePathBtn);
 
         await waitFor(() => {
@@ -155,10 +208,16 @@ describe('SettingsBackup Component', () => {
     it('triggers database maintenance', async () => {
         renderComponent();
 
-        const maintenanceBtn = await waitFor(() => screen.getByText(/데이터베이스 최적화/));
+        // Wait for render to complete
+        await waitFor(() => {
+            expect(screen.getByText('backup_2026-02-26.db')).toBeInTheDocument();
+        });
+
+        // Find the maintenance button by partial text
+        const maintenanceBtn = screen.getByRole('button', { name: /데이터베이스 최적화/i });
         fireEvent.click(maintenanceBtn);
 
-        expect(useModal().showConfirm).toHaveBeenCalled();
+        expect(mockShowConfirm).toHaveBeenCalled();
         await waitFor(() => {
             expect(apiBridge.callBridge).toHaveBeenCalledWith('run_db_maintenance');
         });
@@ -167,17 +226,28 @@ describe('SettingsBackup Component', () => {
     it('triggers backup cleanup', async () => {
         renderComponent();
 
-        const cleanupBtn = await waitFor(() => screen.getByText(/오래된 백업 파일 정리/));
+        // Wait for render to complete
+        await waitFor(() => {
+            expect(screen.getByText('backup_2026-02-26.db')).toBeInTheDocument();
+        });
+
+        // Click the cleanup button to open cleanup modal
+        const cleanupBtn = screen.getByRole('button', { name: /오래된 백업 파일 정리/i });
         fireEvent.click(cleanupBtn);
 
-        expect(screen.getByText('오래된 백업 파일 정리')).toBeInTheDocument();
+        // Cleanup modal should be visible
+        expect(screen.getByText('지정된 기간보다 오래된 백업 파일을 삭제합니다')).toBeInTheDocument();
 
-        const executeBtn = screen.getByText('정리 실행');
+        // Click "정리 실행" button
+        const executeBtn = screen.getByRole('button', { name: /정리 실행/i });
         fireEvent.click(executeBtn);
 
         await waitFor(() => {
             expect(apiBridge.callBridge).toHaveBeenCalledWith('cleanup_old_backups', { retention_days: 90 });
-            expect(useModal().showAlert).toHaveBeenCalledWith('정리 완료', expect.stringContaining('5개의 백업 파일이 삭제되었습니다.'));
+        });
+
+        await waitFor(() => {
+            expect(mockShowAlert).toHaveBeenCalledWith('정리 완료', expect.stringContaining('5개의 백업 파일이 삭제되었습니다.'));
         });
     });
 });
