@@ -141,7 +141,7 @@ const SalesReception = () => {
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden animate-in fade-in duration-700">
-            <div className="px-6 lg:px-8 min-[2000px]:px-12 pt-6 lg:pt-8 min-[2000px]:pt-12 pb-1">
+            <div className="px-6 lg:px-8 min-[2000px]:px-12 pt-3 lg:pt-4 min-[2000px]:pt-6 pb-1">
                 <ReceptionHeader fileInputRef={fileInputRef} onCsvUpload={handleCsvUpload} />
                 <CustomerInfoBar
                     orderDate={orderDate} setOrderDate={setOrderDate}
@@ -159,7 +159,7 @@ const SalesReception = () => {
                 )}
             </div>
 
-            <div className={`px-6 lg:px-8 min-[2000px]:px-12 mt-1 flex flex-col gap-3 overflow-hidden flex-1 pb-6 lg:pb-8 min-[2000px]:pb-12 ${!customer ? 'pointer-events-none opacity-50' : ''}`}>
+            <div className={`px-6 lg:px-8 min-[2000px]:px-12 mt-1 flex flex-col gap-1.5 overflow-hidden flex-1 pb-4 lg:pb-6 min-[2000px]:pb-8 ${!customer ? 'pointer-events-none opacity-50' : ''}`}>
                 <SalesInputPanel
                     inputState={inputState} handleInputChange={handleInputChange}
                     products={products} addresses={addresses} prodSelectRef={prodSelectRef}

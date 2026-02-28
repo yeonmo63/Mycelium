@@ -313,10 +313,10 @@ const CustomerBatch = () => {
                         <div className="flex-1"></div>
 
                         <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-                            <span className="text-xs font-bold text-slate-500">휴먼 고객(미구매)</span>
-                            <input type="number" value={searchParams.dormantYears} onChange={e => setSearchParams({ ...searchParams, dormantYears: e.target.value })} className="w-12 h-6 text-center text-sm font-bold bg-white border border-slate-300 rounded" />
-                            <span className="text-xs font-bold text-slate-500">년 이상</span>
-                            <button onClick={handleDormantSearch} className="h-6 px-2 rounded bg-rose-100 text-rose-600 text-xs font-black hover:bg-rose-200">조회</button>
+                            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">휴면 고객(미구매)</span>
+                            <input type="number" value={searchParams.dormantYears} onChange={e => setSearchParams({ ...searchParams, dormantYears: e.target.value })} className="w-14 h-8 text-center text-sm font-bold bg-white border border-slate-300 rounded focus:ring-2 focus:ring-rose-200 transition-all p-0" />
+                            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">년 이상</span>
+                            <button onClick={handleDormantSearch} className="h-8 px-3 rounded bg-rose-100 text-rose-600 text-xs font-black hover:bg-rose-200 transition-colors whitespace-nowrap">조회</button>
                         </div>
                     </div>
                 </div>
@@ -333,7 +333,7 @@ const CustomerBatch = () => {
                         }}
                         className={`px-6 py-2 rounded-xl font-black text-sm transition-all ${statusTab === tab ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
                     >
-                        {tab} {statusTab === tab && <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{filteredList.length}</span>}
+                        {tab} {statusTab === tab && <span className="ml-1.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{filteredList.length.toLocaleString()}</span>}
                     </button>
                 ))}
             </div>

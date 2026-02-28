@@ -558,15 +558,11 @@ const SalesSpecial = () => {
                                 ))}
                                 {salesRows.length === 0 && (
                                     <tr>
-                                        <td colSpan="10" className="h-[40vh] text-center border-b-0">
-                                            <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                                                <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-4">
-                                                    <span className="material-symbols-rounded text-3xl opacity-20">assignment_add</span>
-                                                </div>
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-sm font-bold text-slate-400">등록된 접수 내역이 없습니다.</span>
-                                                    <span className="text-xs text-slate-400/60">상단의 [행 추가] 버튼을 눌러 내역을 입력하세요.</span>
-                                                </div>
+                                        <td colSpan="10" className="pt-12 pb-6 text-center bg-white border-b-0">
+                                            <div className="flex flex-col items-center justify-center text-slate-400">
+                                                <span className="material-symbols-rounded text-3xl mb-2 opacity-50">auto_stories</span>
+                                                <div className="font-black text-sm text-slate-700">접수 내역이 없습니다</div>
+                                                <p className="text-slate-500 text-[11px] mt-1 font-medium">고객 선택 후 항목을 추가해주세요.</p>
                                             </div>
                                         </td>
                                     </tr>

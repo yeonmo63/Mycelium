@@ -2,15 +2,15 @@ import React from 'react';
 
 const CustomerInfoBar = ({ orderDate, setOrderDate, custSearchRef, handleSearchCustomer, customer }) => {
     return (
-        <div className="grid grid-cols-12 gap-3 items-stretch">
-            <div className="col-span-2 bg-white rounded-[1.5rem] p-3 border border-slate-100 shadow-sm transition-all hover:shadow-md text-sm">
+        <div className="grid grid-cols-12 gap-2 items-stretch">
+            <div className="col-span-2 bg-white rounded-[1.5rem] px-3 py-2 border border-slate-100 shadow-sm transition-all hover:shadow-md text-sm">
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">접수 일자</label>
                 <div className="relative">
                     <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
                         className="w-full h-10 bg-slate-100 border-slate-200 border rounded-xl font-black text-slate-800 focus:ring-2 focus:ring-indigo-500 transition-all px-3 text-[14px]" />
                 </div>
             </div>
-            <div className="col-span-3 bg-white rounded-[1.5rem] p-3 border border-slate-100 shadow-sm transition-all hover:shadow-md text-sm">
+            <div className="col-span-3 bg-white rounded-[1.5rem] px-3 py-2 border border-slate-100 shadow-sm transition-all hover:shadow-md text-sm">
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">고객 조회</label>
                 <div className="relative">
                     <input
@@ -24,7 +24,7 @@ const CustomerInfoBar = ({ orderDate, setOrderDate, custSearchRef, handleSearchC
                     </button>
                 </div>
             </div>
-            <div className="col-span-7 bg-white rounded-[1.5rem] p-3 border border-slate-100 shadow-sm transition-all hover:shadow-md relative overflow-hidden group">
+            <div className="col-span-7 bg-white rounded-[1.5rem] px-3 py-2 border border-slate-100 shadow-sm transition-all hover:shadow-md relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-24 h-full bg-indigo-50/50 -skew-x-12 translate-x-10 transition-transform group-hover:translate-x-5" />
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">선택된 고객 정보</label>
                 <div className="flex items-center gap-6 h-10 px-1 relative z-10">

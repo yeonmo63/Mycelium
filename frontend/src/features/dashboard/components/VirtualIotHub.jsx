@@ -75,20 +75,20 @@ const VirtualIotHub = () => {
                     const data = readings[sensor.sensor_id];
                     return (
                         <div key={sensor.sensor_id} className="grid grid-cols-3 gap-2">
-                            <div className="flex flex-col items-center">
-                                <Thermometer size={18} className="text-rose-400 mb-1" />
+                            <div className="flex flex-col items-center justify-end w-full">
+                                <Thermometer size={16} className="text-rose-400 mb-1" />
                                 <span className="text-[10px] font-black text-slate-400 mb-1">온도</span>
-                                <span className="text-lg font-black text-slate-700">{formatCurrency(data?.temperature || 0)}°C</span>
+                                <span className="text-sm font-black text-slate-700 tracking-tighter">{formatCurrency(data?.temperature || 0)}<span className="text-[10px] ml-0.5 font-bold text-slate-500">°C</span></span>
                             </div>
-                            <div className="flex flex-col items-center border-x border-slate-100 px-2">
-                                <Droplets size={18} className="text-blue-400 mb-1" />
+                            <div className="flex flex-col items-center justify-end border-x border-slate-100 px-1 w-full">
+                                <Droplets size={16} className="text-blue-400 mb-1" />
                                 <span className="text-[10px] font-black text-slate-400 mb-1">습도</span>
-                                <span className="text-lg font-black text-slate-700">{formatCurrency(data?.humidity || 0)}%</span>
+                                <span className="text-sm font-black text-slate-700 tracking-tighter">{formatCurrency(data?.humidity || 0)}<span className="text-[10px] ml-0.5 font-bold text-slate-500">%</span></span>
                             </div>
-                            <div className="flex flex-col items-center leading-tight">
-                                <Wind size={18} className="text-emerald-500 mb-1" />
-                                <span className="text-[10px] font-black text-slate-400 mb-1">CO2 농도</span>
-                                <span className="text-lg font-black text-slate-700">{formatCurrency(data?.co2 || 0)}<small className="text-[10px] ml-0.5">ppm</small></span>
+                            <div className="flex flex-col items-center justify-end w-full">
+                                <Wind size={16} className="text-emerald-500 mb-1" />
+                                <span className="text-[10px] font-black text-slate-400 mb-1 shrink-0">CO2농도</span>
+                                <span className="text-sm font-black text-slate-700 tracking-tighter">{formatCurrency(data?.co2 || 0)}<span className="text-[10px] ml-0.5 font-bold text-slate-500">ppm</span></span>
                             </div>
                         </div>
                     );

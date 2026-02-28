@@ -349,16 +349,16 @@ const SalesClaims = () => {
                                         <td className="px-4 py-3 text-center font-bold text-slate-700">{claim.quantity}</td>
                                         <td className="px-4 py-3 text-right font-black text-rose-500/80">{formatCurrency(claim.refund_amount)}</td>
                                         <td className="px-4 py-3 text-center">
-                                            <div className="flex justify-end items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex justify-end items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                                                 {(claim.claim_status === '접수' || claim.claim_status === '처리중') && (
-                                                    <button onClick={(e) => { e.stopPropagation(); openProcess(claim); }} className="h-6 px-2 rounded-md bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold shadow-sm transition-colors">
+                                                    <button onClick={(e) => { e.stopPropagation(); openProcess(claim); }} className="h-6 px-2 rounded-md bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold shadow-sm transition-colors shrink-0">
                                                         처리
                                                     </button>
                                                 )}
-                                                <button onClick={(e) => { e.stopPropagation(); openEdit(claim); }} className="w-6 h-6 rounded-md hover:bg-blue-50 text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center">
+                                                <button onClick={(e) => { e.stopPropagation(); openEdit(claim); }} className="w-6 h-6 rounded-md hover:bg-blue-50 text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center shrink-0">
                                                     <span className="material-symbols-rounded text-sm">edit</span>
                                                 </button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleDelete(claim.claim_id); }} className="w-6 h-6 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center">
+                                                <button onClick={(e) => { e.stopPropagation(); handleDelete(claim.claim_id); }} className="w-6 h-6 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center shrink-0">
                                                     <span className="material-symbols-rounded text-sm">delete</span>
                                                 </button>
                                             </div>

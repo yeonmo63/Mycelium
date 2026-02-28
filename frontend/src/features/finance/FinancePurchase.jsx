@@ -457,9 +457,9 @@ const FinancePurchase = () => {
                     <div className="bg-white rounded-[1.5rem] p-4 border border-slate-200 shadow-sm flex flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200">
                             <span className="material-symbols-rounded text-slate-400 text-[18px]">calendar_today</span>
-                            <input type="date" value={filterStart} onChange={e => setFilterStart(e.target.value)} className="bg-transparent text-sm font-bold text-slate-600 outline-none w-28" />
+                            <input type="date" value={filterStart} onChange={e => setFilterStart(e.target.value)} className="bg-transparent text-sm font-bold text-slate-600 outline-none w-[150px]" />
                             <span className="text-slate-400">~</span>
-                            <input type="date" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} className="bg-transparent text-sm font-bold text-slate-600 outline-none w-28" />
+                            <input type="date" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} className="bg-transparent text-sm font-bold text-slate-600 outline-none w-[150px]" />
                         </div>
 
                         <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}

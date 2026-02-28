@@ -6,13 +6,13 @@ const SalesInputPanel = ({
     handleAddressSearch, handleAddRow, editingTempId
 }) => {
     return (
-        <div className="bg-white rounded-[1.5rem] p-5 shadow-lg border border-slate-200/60 relative mb-3">
-            <div className="absolute top-4 left-6 flex items-center gap-2">
+        <div className="bg-white rounded-[1.5rem] px-5 py-3 shadow-lg border border-slate-200/60 relative mb-2">
+            <div className="absolute top-3 left-6 flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></div>
                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">항목 입력</span>
             </div>
 
-            <div className="grid grid-cols-12 gap-3 mb-4 mt-4">
+            <div className="grid grid-cols-12 gap-2 mb-2 mt-3">
                 <div className="col-span-3">
                     <label htmlFor="product-select" className="text-[10.5px] font-bold text-slate-600 uppercase mb-1 block">상품명</label>
                     <div className="relative">
@@ -47,7 +47,7 @@ const SalesInputPanel = ({
                 </div>
             </div>
 
-            <div className="bg-slate-100/50 p-5 rounded-[1.5rem] border border-slate-200 flex flex-col gap-4">
+            <div className="bg-slate-100/50 px-4 py-3 rounded-[1.5rem] border border-slate-200 flex flex-col gap-2">
                 <div className="flex gap-4 items-end">
                     <div className="shrink-0 flex items-center gap-3 pr-4 border-r border-slate-200">
                         <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 shadow-sm"><span className="material-symbols-rounded text-lg">local_shipping</span></div>
@@ -85,7 +85,7 @@ const SalesInputPanel = ({
                     </div>
                 </div>
 
-                <div className="grid grid-cols-12 gap-3 items-end pt-1">
+                <div className="grid grid-cols-12 gap-2 items-end">
                     <div className="col-span-2">
                         <label className="text-[10.5px] font-bold text-slate-600 uppercase block mb-1 ml-1">수령인(받는분)</label>
                         <input name="shipName" value={inputState.shipName} onChange={handleInputChange} placeholder="성함" className="w-full h-10 rounded-lg border-slate-200 bg-slate-100 text-[14px] font-bold text-slate-900 px-3 focus:ring-2 focus:ring-indigo-600 transition-all" />
